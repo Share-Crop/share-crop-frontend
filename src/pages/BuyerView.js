@@ -18,6 +18,7 @@ import Profile from './Profile';
 import Messages from './Messages';
 import ChangeCurrency from './ChangeCurrency';
 import Settings from './Settings';
+import Notifications from './Notifications';
 import Complaints from './Complaints';
 import { useAuth } from '../contexts/AuthContext';
 import fieldsService from '../services/fields';
@@ -211,7 +212,7 @@ const BuyerView = () => {
         flexGrow: 1,
         mt: 'var(--app-header-height)',
         height: 'calc(100vh - var(--app-header-height))',
-        overflow: (isMapPage || isMessagesPage || isSettingsPage) ? 'hidden' : 'auto', // No scroll for map, messages, and settings pages, scroll for other pages
+        overflow: (isMapPage || isMessagesPage) ? 'hidden' : 'auto', // No scroll for map, messages, scroll for other pages
         position: 'relative',
         zIndex: 0,
         isolation: 'isolate'
@@ -242,6 +243,7 @@ const BuyerView = () => {
           <Route path="/messages" element={<Messages />} />
           <Route path="/currency" element={<ChangeCurrency />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/complaints" element={<Complaints />} />
         </Routes>
       </Box>

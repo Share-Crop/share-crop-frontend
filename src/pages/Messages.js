@@ -64,6 +64,7 @@ const Messages = () => {
   const [searching, setSearching] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
 
   const displayName = (name, userType) =>
     userType === 'admin' ? 'Share-Crop' : (name || 'User');
@@ -265,8 +266,16 @@ const Messages = () => {
   };
 
   const scrollToBottom = (behavior = 'smooth') => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior });
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      if (behavior === 'auto') {
+        container.scrollTop = container.scrollHeight;
+      } else {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: 'smooth'
+        });
+      }
     }
   };
 
@@ -361,92 +370,98 @@ const Messages = () => {
 
   return (
     <Box sx={{
-      height: '100%',
+      height: 'calc(100vh - var(--app-header-height, 64px))',
       backgroundColor: '#f8fafc',
-      p: { xs: 1.5, sm: 2, md: 3 },
-      pt: { xs: 2, md: 4 }, // Add breathing room
+      p: { xs: 1, md: 1.5 },
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      overflow: 'hidden',
+      position: 'relative'
     }}>
-      {/* Header Section */}
-      <Box sx={{
-        maxWidth: '1400px',
-        width: '100%',
-        mx: 'auto',
-        mb: { xs: 1, md: 3 },
-        mt: { xs: 2, md: 0 } // Move it down more on mobile
-      }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2.5 }}>
-          <Box>
-            <Typography
-              variant="h5"
+      {/* Header Section - More stable rendering */}
+      {(!isMobile || !selectedConversation) && (
+        <Box sx={{
+          maxWidth: '1400px',
+          width: '100%',
+          mx: 'auto',
+          mb: { xs: 1.2, md: 2.5 },
+          flexShrink: 0
+        }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Box>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  fontSize: { xs: '1.1rem', md: '1.3rem' },
+                  mb: 0.2
+                }}
+              >
+                Messages
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', opacity: 0.8 }}>
+                Real-time communication with users
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<Add />}
+              onClick={() => setIsSearchOpen(true)}
               sx={{
-                fontWeight: 700,
-                color: '#1e293b',
-                mb: 0.5,
-                fontSize: { xs: '1.25rem', md: '1.75rem' },
+                bgcolor: '#4caf50',
+                '&:hover': { bgcolor: '#45a049' },
+                borderRadius: 1.5,
+                textTransform: 'none',
+                px: 2
               }}
             >
-              Messages
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-              Communicate with other users and manage your conversations in real-time
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => setIsSearchOpen(true)}
-            sx={{
-              bgcolor: '#4caf50',
-              '&:hover': { bgcolor: '#45a049' },
-              borderRadius: 2,
-              mt: { xs: 0, md: 5 }
-            }}
-          >
-            New Chat
-          </Button>
-        </Stack>
-      </Box>
+              New Chat
+            </Button>
+          </Stack>
+        </Box>
+      )}
 
-      {/* Main Chat Interface */}
+      {/* Main Chat Interface - Compacted */}
       <Box sx={{
         maxWidth: '1400px',
         width: '100%',
         mx: 'auto',
         flex: 1,
-        minHeight: 0, // Critical for inner scroll
-        mb: { xs: 1, md: 0 }
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        mb: { xs: 1, md: 2 } // Give breathing room at the bottom
       }}>
         <Paper
           elevation={0}
           sx={{
-            height: '100%',
+            flex: 1,
+            minHeight: 0,
             border: '1px solid #e2e8f0',
-            borderRadius: 3,
+            borderRadius: 2,
             backgroundColor: 'white',
             overflow: 'hidden',
-            display: 'flex'
+            display: 'flex',
+            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
           }}
         >
-          {/* Conversations Sidebar */}
+          {/* Conversations Sidebar - Thinner */}
           <Box sx={{
-            width: { xs: '100%', md: '380px' },
+            width: { xs: '100%', md: '340px' },
             borderRight: '1px solid #e2e8f0',
             height: '100%',
             display: { xs: selectedConversation ? 'none' : 'flex', md: 'flex' },
             flexDirection: 'column',
+            overflow: 'hidden'
           }}>
-            {/* Sidebar Header */}
             <Box sx={{
-              p: 3,
+              p: 2,
               borderBottom: '1px solid #e2e8f0',
-              backgroundColor: '#fafbfc'
+              backgroundColor: '#fafbfc',
+              flexShrink: 0
             }}>
-              <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1.1rem', color: '#1e293b', mb: 2 }}>
-                Conversations
-              </Typography>
-
               <TextField
                 fullWidth
                 placeholder="Search chats..."
@@ -455,45 +470,47 @@ const Messages = () => {
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <Search sx={{ fontSize: 18, color: '#64748b' }} />
+                      <Search sx={{ fontSize: 16, color: '#64748b' }} />
                     </InputAdornment>
                   ),
                 }}
                 size="small"
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    borderRadius: 2,
+                    borderRadius: 1.5,
                     backgroundColor: 'white',
-                    fontSize: '0.875rem',
+                    fontSize: '0.8rem',
+                    height: '36px'
                   }
                 }}
               />
             </Box>
 
-            {/* Conversations List */}
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               {loading ? (
-                <Stack alignItems="center" p={4}><CircularProgress size={30} /></Stack>
+                <Stack alignItems="center" p={4}><CircularProgress size={24} /></Stack>
               ) : filteredConversations.length > 0 ? (
                 filteredConversations.map((conv) => (
                   <Box
                     key={conv.id}
                     onClick={() => setSelectedConversation(conv)}
                     sx={{
-                      p: 2.5,
+                      p: 1.5,
                       cursor: 'pointer',
-                      borderBottom: '1px solid #f1f5f9',
+                      borderBottom: '1px solid #f8fafc',
                       backgroundColor: selectedConversation?.id === conv.id ? '#f0fdf4' : 'transparent',
                       borderLeft: selectedConversation?.id === conv.id ? '3px solid #4caf50' : '3px solid transparent',
+                      transition: 'all 0.1s ease',
                       '&:hover': { backgroundColor: selectedConversation?.id === conv.id ? '#f0fdf4' : '#f8fafc' }
                     }}
                   >
-                    <Stack direction="row" spacing={2} alignItems="center">
+                    <Stack direction="row" spacing={1.5} alignItems="center">
                       <Avatar
                         src={conv.participant_avatar}
                         sx={{
-                          width: 44,
-                          height: 44,
+                          width: 38,
+                          height: 38,
+                          fontSize: '0.9rem',
                           bgcolor: isAdmin(conv.participant_type) ? '#0d9488' : conv.participant_type === 'farmer' ? '#dcfce7' : '#dbeafe',
                           color: isAdmin(conv.participant_type) ? '#fff' : conv.participant_type === 'farmer' ? '#059669' : '#1d4ed8',
                         }}
@@ -502,27 +519,23 @@ const Messages = () => {
                       </Avatar>
 
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={0.5}>
-                          <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600, color: '#1e293b' }}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between">
+                          <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.875rem' }}>
                             {displayName(conv.participant_name, conv.participant_type)}
                           </Typography>
-                          {isAdmin(conv.participant_type) && (
-                            <VerifiedUser sx={{ fontSize: 18, color: '#0d9488' }} titleAccess="Verified" />
-                          )}
-                          <Typography variant="caption" sx={{ color: '#64748b', ml: 1 }}>
+                          <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.7rem' }}>
                             {formatTime(conv.last_message_at)}
                           </Typography>
                         </Stack>
 
-                        <Stack direction="row" alignItems="center" justifyContent="space-between">
-                          <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem', color: '#64748b', flex: 1 }}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                          <Typography variant="body2" noWrap sx={{ fontSize: '0.75rem', color: '#64748b', flex: 1, opacity: conv.unread_count > 0 ? 1 : 0.8, fontWeight: conv.unread_count > 0 ? 500 : 400 }}>
                             {conv.last_message || 'No messages yet'}
                           </Typography>
                           {conv.unread_count > 0 && (
-                            <Badge
-                              badgeContent={conv.unread_count}
-                              sx={{ '& .MuiBadge-badge': { bgcolor: '#4caf50', color: 'white' } }}
-                            />
+                            <Box sx={{ bgcolor: '#4caf50', color: 'white', borderRadius: '10px', px: 0.8, py: 0.1, fontSize: '0.7rem', fontWeight: 700 }}>
+                              {conv.unread_count}
+                            </Box>
                           )}
                         </Stack>
                       </Box>
@@ -531,7 +544,7 @@ const Messages = () => {
                 ))
               ) : (
                 <Box p={4} textAlign="center">
-                  <Typography variant="body2" color="text.secondary">No conversations found.</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>No conversations.</Typography>
                 </Box>
               )}
             </Box>
@@ -546,23 +559,34 @@ const Messages = () => {
           }}>
             {selectedConversation ? (
               <>
-                {/* Chat Header */}
-                <Box sx={{ p: 3, borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                {/* Chat Header - Compact and Sticky */}
+                <Box sx={{
+                  p: 1.5,
+                  borderBottom: '1px solid #e2e8f0',
+                  backgroundColor: 'white',
+                  flexShrink: 0,
+                  zIndex: 10,
+                  // Ensure it stays at top of Paper and below Nav Header
+                  position: 'sticky',
+                  top: 0
+                }}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Stack direction="row" alignItems="center" spacing={2}>
+                    <Stack direction="row" alignItems="center" spacing={1.5}>
                       {isMobile && (
                         <IconButton
-                          sx={{ ml: -1 }}
+                          size="small"
                           onClick={() => setSelectedConversation(null)}
+                          sx={{ mr: 0.5 }}
                         >
-                          <ArrowBack sx={{ fontSize: 24, color: '#1e293b' }} />
+                          <ArrowBack sx={{ fontSize: 20 }} />
                         </IconButton>
                       )}
                       <Avatar
                         src={selectedConversation.participant_avatar}
                         sx={{
-                          width: 44,
-                          height: 44,
+                          width: 36,
+                          height: 36,
+                          fontSize: '0.9rem',
                           bgcolor: isAdmin(selectedConversation.participant_type) ? '#0d9488' : selectedConversation.participant_type === 'farmer' ? '#dcfce7' : '#dbeafe',
                           color: isAdmin(selectedConversation.participant_type) ? '#fff' : selectedConversation.participant_type === 'farmer' ? '#059669' : '#1d4ed8'
                         }}
@@ -571,162 +595,130 @@ const Messages = () => {
                       </Avatar>
                       <Box>
                         <Stack direction="row" alignItems="center" spacing={0.5}>
-                          <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem', color: '#1e293b' }}>
+                          <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b' }}>
                             {displayName(selectedConversation.participant_name, selectedConversation.participant_type)}
                           </Typography>
-                          {isAdmin(selectedConversation.participant_type) && (
-                            <VerifiedUser sx={{ fontSize: 20, color: '#0d9488' }} titleAccess="Verified" />
-                          )}
+                          {isAdmin(selectedConversation.participant_type) && <VerifiedUser sx={{ fontSize: 16, color: '#0d9488' }} />}
                         </Stack>
-                        <Typography variant="caption" color="text.secondary">
-                          {isAdmin(selectedConversation.participant_type) ? 'Verified support' : selectedConversation.participant_type.charAt(0).toUpperCase() + selectedConversation.participant_type.slice(1)}
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                          {isAdmin(selectedConversation.participant_type) ? 'Verified Support' : selectedConversation.participant_type.charAt(0).toUpperCase() + selectedConversation.participant_type.slice(1)}
                         </Typography>
                       </Box>
                     </Stack>
                   </Stack>
                 </Box>
 
-                {/* Messages Area */}
-                <Box sx={{
-                  flex: 1,
-                  overflow: 'auto',
-                  p: 2,
-                  backgroundColor: '#fafbfc',
-                  display: 'flex',
-                  flexDirection: 'column'
-                }}>
+                <Box
+                  ref={messagesContainerRef}
+                  sx={{
+                    flex: 1,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+                    p: 2,
+                    backgroundColor: '#f8fafc',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    backgroundImage: 'radial-gradient(#e2e8f0 0.5px, transparent 0.5px)',
+                    backgroundSize: '20px 20px',
+                  }}
+                >
                   {msgLoading && messages.length === 0 ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress size={20} /></Box>
                   ) : (
-                    messages.map((msg) => {
-                      const fromAdmin = msg.sender_id !== user.id && isAdmin(selectedConversation.participant_type);
+                    messages.map((msg, idx) => {
+                      const isMe = msg.sender_id === user.id;
+                      const fromAdmin = !isMe && isAdmin(selectedConversation.participant_type);
                       return (
-                      <Box
-                        key={msg.id}
-                        sx={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: msg.sender_id === user.id ? 'flex-end' : 'flex-start',
-                          mb: 2
-                        }}
-                      >
-                        {fromAdmin && (
-                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.5, ml: 0.5 }}>
-                            <VerifiedUser sx={{ fontSize: 14, color: '#0d9488' }} titleAccess="Verified" />
-                            <Typography variant="caption" sx={{ color: '#0d9488', fontWeight: 600 }}>
-                              Share-Crop
-                            </Typography>
-                          </Stack>
-                        )}
                         <Box
+                          key={msg.id}
                           sx={{
                             display: 'flex',
-                            justifyContent: msg.sender_id === user.id ? 'flex-end' : 'flex-start',
-                            maxWidth: '70%',
+                            flexDirection: 'column',
+                            alignItems: isMe ? 'flex-end' : 'flex-start',
+                            mb: 1.5
                           }}
                         >
-                        <Box
-                          sx={{
-                            maxWidth: '100%',
-                            p: 2,
-                            borderRadius: 3,
-                            backgroundColor: msg.sender_id === user.id ? '#4caf50' : 'white',
-                            color: msg.sender_id === user.id ? 'white' : '#1e293b',
-                            border: msg.sender_id === user.id ? 'none' : '1px solid #e2e8f0',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                            opacity: msg.is_temp ? 0.7 : 1, // Visual feedback for sending
-                          }}
-                        >
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              fontSize: '0.875rem',
-                              lineHeight: 1.5,
-                              mb: 0.5,
-                              color: msg.sender_id === user.id ? 'white' : 'inherit'
-                            }}
-                          >
-                            {msg.content}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              fontSize: '0.7rem',
-                              opacity: 0.9,
-                              color: msg.sender_id === user.id ? 'white' : 'text.secondary'
-                            }}
-                          >
-                            {formatTime(msg.created_at)}
-                          </Typography>
-
-                          {/* Read Receipts for sent messages */}
-                          {msg.sender_id === user.id && (
-                            <Box sx={{ display: 'inline-flex', ml: 0.5, verticalAlign: 'middle', opacity: 0.8 }}>
-                              {msg.is_temp ? (
-                                <Schedule sx={{ fontSize: 12 }} />
-                              ) : msg.is_read ? (
-                                <DoneAll sx={{ fontSize: 16, color: '#60a5fa' }} />
-                              ) : (
-                                <DoneAll sx={{ fontSize: 16, color: 'rgba(255,255,255,0.85)' }} />
-                              )}
-                            </Box>
+                          {fromAdmin && (
+                            <Typography variant="caption" sx={{ color: '#0d9488', fontWeight: 600, fontSize: '0.65rem', mb: 0.2, ml: 0.5 }}>
+                              Share-Crop Support
+                            </Typography>
                           )}
+                          <Box
+                            sx={{
+                              maxWidth: '80%',
+                              p: 1.2,
+                              px: 1.8,
+                              borderRadius: isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                              backgroundColor: isMe ? '#4caf50' : 'white',
+                              color: isMe ? 'white' : '#1e293b',
+                              border: isMe ? 'none' : '1px solid #e2e8f0',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                              position: 'relative'
+                            }}
+                          >
+                            <Typography sx={{ fontSize: '0.8125rem', lineHeight: 1.45 }}>
+                              {msg.content}
+                            </Typography>
+                            <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={0.5} sx={{ mt: 0.2 }}>
+                              <Typography variant="caption" sx={{ fontSize: '0.65rem', opacity: 0.7 }}>
+                                {formatTime(msg.created_at)}
+                              </Typography>
+                              {isMe && (
+                                <Box sx={{ opacity: 0.9, height: 14 }}>
+                                  {msg.is_temp ? <Schedule sx={{ fontSize: 10 }} /> : <DoneAll sx={{ fontSize: 13, color: msg.is_read ? '#fff' : 'rgba(255,255,255,0.6)' }} />}
+                                </Box>
+                              )}
+                            </Stack>
+                          </Box>
                         </Box>
-                        </Box>
-                      </Box>
-                    );
+                      );
                     })
                   )}
                   <div ref={messagesEndRef} />
                 </Box>
 
-                {/* Message Input */}
-                <Box sx={{ p: 3, borderTop: '1px solid #e2e8f0', backgroundColor: 'white' }}>
-                  <Stack direction="row" spacing={isMobile ? 1 : 2} alignItems="flex-end">
+                {/* Message Input - Compact */}
+                <Box sx={{ p: 1.5, px: 2, borderTop: '1px solid #e2e8f0', backgroundColor: 'white' }}>
+                  <Stack direction="row" spacing={1} alignItems="flex-end">
                     <TextField
                       fullWidth
                       multiline
                       maxRows={4}
-                      placeholder="Type your message..."
+                      placeholder="Write message..."
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
                       onKeyPress={handleKeyPress}
-                      size={isMobile ? "small" : "medium"}
+                      size="small"
                       sx={{
                         '& .MuiOutlinedInput-root': {
-                          borderRadius: 3,
-                          backgroundColor: '#f8fafc',
-                          fontSize: '0.875rem',
+                          borderRadius: 2,
+                          backgroundColor: '#f1f5f9',
+                          fontSize: '0.85rem',
                         }
                       }}
                     />
-                    <Button
-                      variant="contained"
-                      onClick={handleSendMessage}
+                    <IconButton
                       disabled={!newMessage.trim()}
+                      onClick={handleSendMessage}
                       sx={{
-                        minWidth: 44,
-                        height: 44,
-                        borderRadius: 3,
-                        backgroundColor: '#4caf50',
-                        '&:hover': { bgcolor: '#45a049' }
+                        bgcolor: '#4caf50',
+                        color: 'white',
+                        '&:hover': { bgcolor: '#45a049' },
+                        '&.Mui-disabled': { bgcolor: '#f1f5f9', color: '#cbd5e1' },
+                        width: 38,
+                        height: 38
                       }}
                     >
-                      <Send sx={{ fontSize: 20 }} />
-                    </Button>
+                      <Send sx={{ fontSize: 18 }} />
+                    </IconButton>
                   </Stack>
                 </Box>
               </>
             ) : (
               <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fafbfc' }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <ChatBubbleOutline sx={{ fontSize: 60, color: '#cbd5e1', mb: 2 }} />
-                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#64748b', mb: 1 }}>
-                    Select a conversation
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-                    Choose a conversation or start a new chat to begin messaging
-                  </Typography>
+                <Box sx={{ textAlign: 'center', opacity: 0.5 }}>
+                  <ChatBubbleOutline sx={{ fontSize: 48, mb: 1.5 }} />
+                  <Typography variant="subtitle2">Select a conversation to start</Typography>
                 </Box>
               </Box>
             )}
@@ -734,63 +726,45 @@ const Messages = () => {
         </Paper>
       </Box>
 
-      {/* New Chat Search Dialog */}
+      {/* New Chat Dialog - Slightly smaller */}
       <Dialog open={isSearchOpen} onClose={() => setIsSearchOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>New Conversation</DialogTitle>
-        <DialogContent sx={{ minHeight: '300px' }}>
+        <DialogTitle sx={{ fontWeight: 700, fontSize: '1.1rem' }}>New Conversation</DialogTitle>
+        <DialogContent sx={{ minHeight: '300px', p: 1.5 }}>
           <TextField
             fullWidth
             autoFocus
-            placeholder="Search users by name..."
+            placeholder="Search by name..."
             value={searchUserTerm}
             onChange={(e) => setSearchUserTerm(e.target.value)}
-            margin="dense"
             InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search />
-                </InputAdornment>
-              ),
-              endAdornment: searching && <CircularProgress size={20} />
+              startAdornment: <InputAdornment position="start"><Search sx={{ fontSize: 20 }} /></InputAdornment>,
+              endAdornment: searching && <CircularProgress size={16} />
             }}
+            size="small"
           />
-          <List sx={{ mt: 2 }}>
+          <List sx={{ mt: 1 }}>
             {foundUsers.map(u => (
               <ListItem
                 key={u.id}
                 button
+                dense
                 onClick={() => handleStartNewChat(u.id)}
-                sx={{ borderRadius: 2, mb: 1, '&:hover': { bgcolor: '#f0fdf4' } }}
+                sx={{ borderRadius: 1.5, mb: 0.5 }}
               >
                 <ListItemAvatar>
                   <Avatar
                     src={u.profile_image_url}
-                    sx={{ bgcolor: isAdmin(u.user_type) ? '#0d9488' : u.user_type === 'farmer' ? '#4caf50' : '#2196f3' }}
+                    sx={{ width: 34, height: 34, fontSize: '0.875rem', bgcolor: isAdmin(u.user_type) ? '#0d9488' : '#4caf50' }}
                   >
-                    {!u.profile_image_url && (isAdmin(u.user_type) ? 'S' : u.name.charAt(0))}
+                    {!u.profile_image_url && u.name.charAt(0)}
                   </Avatar>
                 </ListItemAvatar>
                 <ListItemText
-                  primary={
-                    <Stack direction="row" alignItems="center" spacing={0.5}>
-                      <span>{displayName(u.name, u.user_type)}</span>
-                      {isAdmin(u.user_type) && <VerifiedUser sx={{ fontSize: 18, color: '#0d9488' }} titleAccess="Verified" />}
-                    </Stack>
-                  }
-                  secondary={isAdmin(u.user_type) ? 'Verified support' : u.user_type.charAt(0).toUpperCase() + u.user_type.slice(1)}
+                  primary={<Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>{displayName(u.name, u.user_type)}</Typography>}
+                  secondary={<Typography variant="caption">{u.user_type === 'admin' ? 'Support' : u.user_type}</Typography>}
                 />
               </ListItem>
             ))}
-            {searchUserTerm.length >= 2 && foundUsers.length === 0 && !searching && (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
-                No users found.
-              </Typography>
-            )}
-            {searchUserTerm.length < 2 && (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 4 }}>
-                Type at least 2 characters to search.
-              </Typography>
-            )}
           </List>
         </DialogContent>
       </Dialog>

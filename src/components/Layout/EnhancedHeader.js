@@ -598,7 +598,7 @@ const EnhancedHeader = forwardRef(({
         id: 'settings',
         title: 'Account',
         items: [
-          { text: 'Notifications', icon: <Notifications />, path: isFarmer ? '/farmer/settings' : '/buyer/settings' },
+          { text: 'Notifications', icon: <Notifications />, path: isFarmer ? '/farmer/notifications' : '/buyer/notifications' },
           { text: 'Messages', icon: <Message />, path: isFarmer ? '/farmer/messages' : '/buyer/messages' },
           { text: 'Change Currency', icon: <CurrencyExchange />, path: isFarmer ? '/farmer/currency' : '/buyer/currency' },
           { text: 'Settings', icon: <Settings />, path: isFarmer ? '/farmer/settings' : '/buyer/settings' },

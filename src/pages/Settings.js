@@ -1,632 +1,298 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  Grid,
-  Switch,
+  Paper,
+  Stack,
+  Divider,
   Button,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  ListItemSecondaryAction,
-  TextField,
+  FormControl,
   Select,
   MenuItem,
-  FormControl,
   Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Snackbar,
   Avatar,
-  Stack,
-  Paper,
-  Tooltip,
+  CircularProgress,
 } from '@mui/material';
 import {
-  Notifications,
-  Palette,
-  LocationOn,
-  Delete,
-  CloudSync,
-  VpnKey,
-  Email,
-  Sms,
-  DarkMode,
-  LightMode,
+  CurrencyExchange,
+  Download,
+  DeleteForever,
   Save,
-  Person,
-  Shield,
-  Tune,
-  ShoppingCart,
-  TrendingUp,
+  Security,
+  Badge,
+  CalendarToday,
 } from '@mui/icons-material';
-import { authService } from '../services/auth';
+import { useAuth } from '../contexts/AuthContext';
+import { profileService } from '../services/profile';
+import coinService from '../services/coinService';
 
 const Settings = () => {
-  // Mock user data since we're using authService
-  const user = { name: 'John Doe', email: 'john@example.com' };
-  const [settings, setSettings] = useState({
-    notifications: {
-      email: true,
-      sms: false,
-      push: true,
-      marketing: false,
-      orderUpdates: true,
-      priceAlerts: true,
-    },
-    privacy: {
-      profileVisibility: 'public',
-      showLocation: true,
-      showContactInfo: false,
-      dataSharing: false,
-    },
-    preferences: {
-      language: 'en',
-      theme: 'light',
-      currency: 'PKR',
-      timezone: 'Asia/Karachi',
-      measurementUnit: 'metric',
-    },
-    security: {
-      twoFactorAuth: false,
-      loginAlerts: true,
-      sessionTimeout: 30,
-    }
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  const [currencies, setCurrencies] = useState([]);
+  const [preferences, setPreferences] = useState({
+    currency: 'USD',
   });
 
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [exportDataOpen, setExportDataOpen] = useState(false);
-  const [success, setSuccess] = useState('');
-  const [editingField, setEditingField] = useState(null);
-  const [tempValue, setTempValue] = useState('');
+  useEffect(() => {
+    if (user?.id) {
+      loadPreferences();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
-  const languages = [
-    { code: 'en', name: 'English', flag: '🇺🇸' },
-    { code: 'ur', name: 'اردو', flag: '🇵🇰' },
-    { code: 'es', name: 'Español', flag: '🇪🇸' },
-    { code: 'fr', name: 'Français', flag: '🇫🇷' },
-    { code: 'ar', name: 'العربية', flag: '🇸🇦' },
-  ];
+  const loadPreferences = async () => {
+    try {
+      setLoading(true);
 
-  const themes = [
-    { value: 'light', name: 'Light', icon: <LightMode /> },
-    { value: 'dark', name: 'Dark', icon: <DarkMode /> },
-    { value: 'auto', name: 'Auto', icon: <Palette /> },
-  ];
+      // 1. Fetch available currencies from backend
+      const ratesResponse = await coinService.getCurrencyRates();
+      const availableRates = ratesResponse.rates || [];
+      const activeRates = availableRates.filter(r => r.is_active);
+      setCurrencies(activeRates);
 
-  const handleSettingChange = (category, setting, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [setting]: value
+      // 2. Fetch user's preferred currency
+      const response = await profileService.getPreferredCurrency(user.id);
+      if (response.data && response.data.preferred_currency) {
+        setPreferences({
+          currency: response.data.preferred_currency
+        });
       }
-    }));
-
-    setSuccess(`${setting} updated successfully`);
-    setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('Error loading preferences:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSave = () => {
-    // Simulate API call
-    setSuccess('Settings saved successfully!');
-    setTimeout(() => setSuccess(''), 3000);
+  const handleSelectChange = (name, value) => {
+    setPreferences(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleEdit = (field, currentValue) => {
-    setEditingField(field);
-    setTempValue(currentValue);
-  };
+  const handleSaveAll = async () => {
+    try {
+      setLoading(true);
+      setError('');
 
-  const handleSaveField = (category, field) => {
-    handleSettingChange(category, field, tempValue);
-    setEditingField(null);
-    setTempValue('');
-  };
+      // Save currency to backend
+      await profileService.updatePreferredCurrency(user.id, preferences.currency);
 
-  const handleCancelEdit = () => {
-    setEditingField(null);
-    setTempValue('');
-  };
+      setSuccess('Currency preference updated successfully!');
 
-  const handleDeleteAccount = () => {
-    // Simulate account deletion
-    setDeleteDialogOpen(false);
+      // Notify other components about currency changes
+      window.dispatchEvent(new CustomEvent('sharecrop-settings-updated', { detail: preferences }));
+
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      setError(err.response?.data?.error || 'Failed to save settings');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExportData = () => {
-    // Simulate data export
     const data = {
-      user: user,
-      settings: settings,
-      exportDate: new Date().toISOString()
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        user_type: user.user_type,
+        created_at: user.created_at,
+      },
+      exportDate: new Date().toISOString(),
+      platform: 'ShareCrop 2.0'
     };
 
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${user?.name || 'user'}_data_export.json`;
+    a.download = `sharecrop_id_${user.id.substring(0, 8)}_data.json`;
     a.click();
-
-    setExportDataOpen(false);
-    setSuccess('Data exported successfully!');
-    setTimeout(() => setSuccess(''), 3000);
+    setSuccess('Security information exported!');
   };
+
+  const SettingRow = ({ icon, title, subtitle, action, danger = false }) => (
+    <Box sx={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      py: 2.5,
+    }}>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Avatar sx={{
+          bgcolor: danger ? 'rgba(244, 67, 54, 0.1)' : 'rgba(76, 175, 80, 0.1)',
+          color: danger ? '#f44336' : '#4caf50',
+          width: 44,
+          height: 44
+        }}>
+          {icon}
+        </Avatar>
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1e293b' }}>
+            {title}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {subtitle}
+          </Typography>
+        </Box>
+      </Stack>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', ml: 2 }}>
+        {action}
+      </Box>
+    </Box>
+  );
 
   return (
     <Box sx={{
-      minHeight: '100vh',
+      height: '100%',
       backgroundColor: '#f8fafc',
-      p: 2
+      p: { xs: 2, md: 4 },
+      overflowY: 'auto'
     }}>
-      {/* Header Section */}
-      <Box sx={{
-        maxWidth: '1400px',
-        mx: 'auto',
-        mb: 4
-      }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2.5 }}>
+      <Box sx={{ maxWidth: '800px', mx: 'auto', pb: 8 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 4 }}>
           <Box>
-            <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 700,
-                color: '#1e293b',
-                mb: 0.5,
-                fontSize: '1.75rem'
-              }}
-            >
-              Settings & Preferences
+            <Typography variant="h4" sx={{ fontWeight: 800, color: '#1e293b', mb: 1 }}>
+              Settings
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-              Customize your experience and manage your account settings
+            <Typography variant="body1" color="text.secondary">
+              Manage your actual account preferences
             </Typography>
           </Box>
-          <Tooltip title="Save all changes">
-            <Button
-              variant="contained"
-              startIcon={<Save />}
-              onClick={handleSave}
-              sx={{
-                backgroundColor: '#4caf50',
-                '&:hover': { backgroundColor: '#a1eda4' },
-                borderRadius: 2,
-                px: 2.5,
-                py: 1
-              }}
-            >
-              Save Changes
-            </Button>
-          </Tooltip>
-        </Stack>
-
-        {/* Success Alert */}
-        {success && (
-          <Alert
-            severity="success"
+          <Button
+            variant="contained"
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <Save />}
+            onClick={handleSaveAll}
+            disabled={loading}
             sx={{
-              mb: 3,
+              backgroundColor: '#4caf50',
+              '&:hover': { backgroundColor: '#3d8b40' },
               borderRadius: 2,
-              border: '1px solid #e2e8f0',
-              backgroundColor: 'white'
+              px: 3,
+              textTransform: 'none',
+              fontWeight: 600,
             }}
           >
-            {success}
+            Save Changes
+          </Button>
+        </Stack>
+
+        <Snackbar
+          open={!!success || !!error}
+          autoHideDuration={4000}
+          onClose={() => { setSuccess(''); setError(''); }}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert severity={success ? 'success' : 'error'} sx={{ width: '100%', borderRadius: 2 }}>
+            {success || error}
           </Alert>
-        )}
+        </Snackbar>
 
-        {/* Main Content */}
-        <Grid container spacing={3} sx={{ alignItems: 'stretch' }}>
-          {/* First Row - Notifications and Privacy */}
-          {/* Notification Settings */}
-          <Grid item xs={12} lg={6} sx={{ display: 'flex' }}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
+        <Stack spacing={3}>
+          {/* Main Preferences Section */}
+          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CurrencyExchange color="primary" /> Localization
+            </Typography>
+            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+              <SettingRow
+                icon={<CurrencyExchange />}
+                title="Displayed Currency"
+                subtitle="Prices across the platform will be shown in this currency"
+                action={
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <Select
+                      value={preferences.currency}
+                      onChange={(e) => handleSelectChange('currency', e.target.value)}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      {currencies.length > 0 ? (
+                        currencies.map(curr => (
+                          <MenuItem key={curr.currency} value={curr.currency}>
+                            {curr.display_name} ({curr.symbol})
+                          </MenuItem>
+                        ))
+                      ) : (
+                        <MenuItem value="USD">US Dollar ($)</MenuItem>
+                      )}
+                    </Select>
+                  </FormControl>
                 }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dbeafe',
-                    color: '#1d4ed8',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Notifications sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Notifications
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Manage your notification preferences
-                  </Typography>
-                </Box>
-              </Stack>
+              />
+            </Stack>
+          </Paper>
 
-              <List sx={{ p: 0 }}>
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <Email color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Email Notifications"
-                    secondary="Receive updates via email"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.notifications.email}
-                      onChange={(e) => handleSettingChange('notifications', 'email', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
+          {/* Account Security Info Section */}
+          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Security color="primary" /> Account Metadata
+            </Typography>
+            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+              <SettingRow
+                icon={<Badge />}
+                title="Account Role"
+                subtitle={`You are currently logged in as a ${user?.user_type || 'user'}`}
+                action={<Typography sx={{ fontWeight: 700, color: '#4caf50' }}>{user?.user_type?.toUpperCase()}</Typography>}
+              />
+              <SettingRow
+                icon={<CalendarToday />}
+                title="Member Since"
+                subtitle="Date when your account was first created"
+                action={<Typography sx={{ fontWeight: 500 }}>{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</Typography>}
+              />
+            </Stack>
+          </Paper>
 
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <Sms color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="SMS Notifications"
-                    secondary="Receive updates via SMS"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.notifications.sms}
-                      onChange={(e) => handleSettingChange('notifications', 'sms', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <ShoppingCart color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Order Updates"
-                    secondary="Get notified about order status changes"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.notifications.orderUpdates}
-                      onChange={(e) => handleSettingChange('notifications', 'orderUpdates', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <TrendingUp color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Price Alerts"
-                    secondary="Notify when prices change significantly"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.notifications.priceAlerts}
-                      onChange={(e) => handleSettingChange('notifications', 'priceAlerts', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-
-          {/* Privacy Settings */}
-          <Grid item xs={12} lg={6} sx={{ display: 'flex' }}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
+          {/* Data Section */}
+          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Download color="primary" /> Security & Data
+            </Typography>
+            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+              <SettingRow
+                icon={<Download />}
+                title="Data Export"
+                subtitle="Download your basic account credentials in JSON format"
+                action={
+                  <Button
+                    variant="outlined"
+                    onClick={handleExportData}
+                    sx={{ textTransform: 'none', borderRadius: 2 }}
+                  >
+                    Export
+                  </Button>
                 }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#fef3c7',
-                    color: '#d97706',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Shield sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Privacy & Security
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Control your privacy and security settings
-                  </Typography>
-                </Box>
-              </Stack>
-
-              <List sx={{ p: 0 }}>
-                <ListItem sx={{ px: 0, py: 1.5, pr: 12 }}>
-                  <ListItemIcon>
-                    <Person color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Profile Visibility"
-                    secondary="Control who can see your profile"
-                  />
-
-                </ListItem>
-
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <LocationOn color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Show Location"
-                    secondary="Display your location to others"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.privacy.showLocation}
-                      onChange={(e) => handleSettingChange('privacy', 'showLocation', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <VpnKey color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Two-Factor Authentication"
-                    secondary="Add extra security to your account"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.security.twoFactorAuth}
-                      onChange={(e) => handleSettingChange('security', 'twoFactorAuth', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-
-                <ListItem sx={{ px: 0, py: 1.5, pr: 8 }}>
-                  <ListItemIcon>
-                    <CloudSync color="primary" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Data Sharing"
-                    secondary="Allow data sharing for analytics"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      checked={settings.privacy.dataSharing}
-                      onChange={(e) => handleSettingChange('privacy', 'dataSharing', e.target.checked)}
-                      color="primary"
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-
-          {/* Second Row - Preferences and Account Management */}
-          {/* Preferences */}
-          <Grid item xs={12} lg={6} sx={{ display: 'flex' }}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 3,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
+              />
+              <SettingRow
+                icon={<DeleteForever />}
+                title="Terminate Session"
+                subtitle="Inactivate current account and clear local storage"
+                danger
+                action={
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    sx={{ textTransform: 'none', borderRadius: 2 }}
+                  >
+                    Delete...
+                  </Button>
                 }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#e0e7ff',
-                    color: '#6366f1',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Tune sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Preferences
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Customize your app experience
-                  </Typography>
-                </Box>
-              </Stack>
+              />
+            </Stack>
+          </Paper>
+        </Stack>
 
-              <Stack spacing={3}>
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Language
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={settings.preferences.language}
-                      onChange={(e) => handleSettingChange('preferences', 'language', e.target.value)}
-                    >
-                      {languages.map((lang) => (
-                        <MenuItem key={lang.code} value={lang.code}>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <span>{lang.flag}</span>
-                            <span>{lang.name}</span>
-                          </Stack>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Theme
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={settings.preferences.theme}
-                      onChange={(e) => handleSettingChange('preferences', 'theme', e.target.value)}
-                    >
-                      {themes.map((theme) => (
-                        <MenuItem key={theme.value} value={theme.value}>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            {theme.icon}
-                            <span>{theme.name}</span>
-                          </Stack>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Currency
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={settings.preferences.currency}
-                      onChange={(e) => handleSettingChange('preferences', 'currency', e.target.value)}
-                    >
-                      <MenuItem value="PKR">PKR - Pakistani Rupee</MenuItem>
-                      <MenuItem value="USD">USD - US Dollar</MenuItem>
-                      <MenuItem value="EUR">EUR - Euro</MenuItem>
-                      <MenuItem value="GBP">GBP - British Pound</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Box>
-
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
-                    Timezone
-                  </Typography>
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={settings.preferences.timezone}
-                      onChange={(e) => handleSettingChange('preferences', 'timezone', e.target.value)}
-                    >
-                      <MenuItem value="Asia/Karachi">Asia/Karachi (PKT)</MenuItem>
-                      <MenuItem value="America/New_York">America/New_York (EST)</MenuItem>
-                      <MenuItem value="Europe/London">Europe/London (GMT)</MenuItem>
-                      <MenuItem value="Asia/Dubai">Asia/Dubai (GST)</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Box>
-              </Stack>
-            </Paper>
-          </Grid>
-
-
-        </Grid>
+        <Box sx={{ mt: 6, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">
+            ShareCrop Actual Settings • Minimalistic & Real
+          </Typography>
+        </Box>
       </Box>
-
-      {/* Dialogs */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Account</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete your account? This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteAccount} color="error" variant="contained">
-            Delete Account
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)}>
-        <DialogTitle>Change Password</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Current Password"
-              type="password"
-              fullWidth
-              size="small"
-            />
-            <TextField
-              label="New Password"
-              type="password"
-              fullWidth
-              size="small"
-            />
-            <TextField
-              label="Confirm New Password"
-              type="password"
-              fullWidth
-              size="small"
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setChangePasswordOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="primary">
-            Update Password
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={exportDataOpen} onClose={() => setExportDataOpen(false)}>
-        <DialogTitle>Export Data</DialogTitle>
-        <DialogContent>
-          <Typography>
-            This will download all your account data in JSON format. The file will include your profile information, settings, and activity history.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setExportDataOpen(false)}>Cancel</Button>
-          <Button onClick={handleExportData} variant="contained" color="primary">
-            Download Data
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };

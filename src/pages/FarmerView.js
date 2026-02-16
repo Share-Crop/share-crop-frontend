@@ -29,6 +29,7 @@ import Profile from './Profile';
 import Messages from './Messages';
 import ChangeCurrency from './ChangeCurrency';
 import Settings from './Settings';
+import Notifications from './Notifications';
 import Complaints from './Complaints';
 import api from '../services/api'; // Changed to default import
 import coinService from '../services/coinService';
@@ -463,7 +464,7 @@ const FarmerView = () => {
         flexGrow: 1,
         mt: 'var(--app-header-height)',
         height: 'calc(100vh - var(--app-header-height))',
-        overflow: (isMapPage || location.pathname === '/farmer/messages' || location.pathname === '/farmer/settings') ? 'hidden' : 'auto',
+        overflow: (isMapPage || location.pathname === '/farmer/messages') ? 'hidden' : 'auto',
         position: 'relative',
         zIndex: 0,
         isolation: 'isolate'
@@ -576,6 +577,7 @@ const FarmerView = () => {
           <Route path="/messages" element={<Messages />} />
           <Route path="/currency" element={<ChangeCurrency />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/complaints" element={<Complaints />} />
         </Routes>
       </Box>
