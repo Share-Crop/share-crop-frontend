@@ -141,6 +141,12 @@ const LicenseInfo = () => {
     return imageTypes.includes(fileType?.toLowerCase());
   };
 
+  const cleanFileName = (fileName) => {
+    if (!fileName) return '';
+    // Remove duplicate extensions like .jpeg.jpg
+    return fileName.replace(/\.(jpg|jpeg|png|gif|pdf)(?=\.(jpg|jpeg|png|gif|pdf)$)/i, '');
+  };
+
   const handleViewDocument = (license) => {
     setSelectedDocument(license);
     setViewerOpen(true);
@@ -428,7 +434,7 @@ const LicenseInfo = () => {
                             }}
                             title={license.file_name}
                           >
-                            {license.file_name}
+                            {cleanFileName(license.file_name) || license.file_name}
                           </Typography>
                           <Chip
                             label={license.file_type?.toUpperCase() || 'DOC'}
@@ -517,8 +523,8 @@ const LicenseInfo = () => {
               ) : (
                 <ImageIcon />
               )}
-              <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                {selectedDocument?.file_name || 'Document Viewer'}
+              <Typography variant="h6" sx={{ fontWeight: 600, color: 'white' }}>
+                {cleanFileName(selectedDocument?.file_name) || selectedDocument?.file_name || 'Document Viewer'}
               </Typography>
             </Box>
             <IconButton onClick={handleCloseViewer} sx={{ color: 'white' }}>

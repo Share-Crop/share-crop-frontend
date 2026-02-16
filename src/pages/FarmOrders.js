@@ -766,6 +766,10 @@ const FarmOrders = () => {
                     border: '1px solid #e2e8f0',
                     borderRadius: 2,
                     backgroundColor: '#f8fafc',
+                    height: '100%',
+                    minHeight: 320,
+                    display: 'flex',
+                    flexDirection: 'column'
                   }}
                 >
                   <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
@@ -793,7 +797,7 @@ const FarmOrders = () => {
                     </Typography>
                   </Stack>
                   <Divider sx={{ mb: 2 }} />
-                  <Stack spacing={1.5}>
+                  <Stack spacing={1.5} sx={{ flex: 1 }}>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
                         Field Name
@@ -845,6 +849,10 @@ const FarmOrders = () => {
                     border: '1px solid #e2e8f0',
                     borderRadius: 2,
                     backgroundColor: '#f8fafc',
+                    height: '100%',
+                    minHeight: 320,
+                    display: 'flex',
+                    flexDirection: 'column'
                   }}
                 >
                   <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
@@ -856,7 +864,7 @@ const FarmOrders = () => {
                     </Typography>
                   </Stack>
                   <Divider sx={{ mb: 2 }} />
-                  <Stack spacing={1.5}>
+                  <Stack spacing={1.5} sx={{ flex: 1 }}>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
                         Buyer Name

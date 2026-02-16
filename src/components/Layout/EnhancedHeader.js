@@ -653,16 +653,18 @@ const EnhancedHeader = forwardRef(({
         ref={appBarRef}
         position="fixed"
         sx={{
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          backdropFilter: 'blur(10px)',
+          background: 'rgba(255, 255, 255, 0.72)', // More translucent
+          backdropFilter: 'blur(20px) saturate(180%)', // Heavier blur and saturation for "frosted" look
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
           color: 'text.primary',
-          boxShadow: '0 2px 20px rgba(0,0,0,0.1)',
-          borderBottom: '1px solid rgba(0,0,0,0.05)',
+          boxShadow: '0 4px 30px rgba(0, 0, 0, 0.03)', // Softer, more modern shadow
+          borderBottom: '1px solid rgba(255, 255, 255, 0.3)', // "Inner glow" white border
           zIndex: 1300,
           top: 0,
           left: 0,
           right: 0,
           width: '100%',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         {pickupReadyCount > 0 && (
@@ -672,11 +674,13 @@ const EnhancedHeader = forwardRef(({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'linear-gradient(90deg, rgba(255,235,59,0.18), rgba(255,152,0,0.2))',
-              borderBottom: '1px solid rgba(255,152,0,0.35)',
+              background: 'linear-gradient(90deg, rgba(255,235,59,0.25), rgba(255,152,0,0.25))',
+              backdropFilter: 'blur(10px)',
+              borderBottom: '1px solid rgba(245, 124, 0, 0.15)',
               px: 2,
-              py: 0.75,
-              cursor: 'pointer'
+              py: 0.8,
+              cursor: 'pointer',
+              transition: 'background 0.3s ease'
             }}
             onClick={() => setPickupPanelOpen(true)}
           >
@@ -725,10 +729,17 @@ const EnhancedHeader = forwardRef(({
               color="inherit"
               onClick={onMenuClick ? onMenuClick : toggleDrawer}
               sx={{
-                mr: { xs: 0.5, sm: 1 },
-                p: { xs: 1, sm: 1.5 },
+                mr: { xs: 0.5, sm: 1.5 },
+                p: { xs: 1, sm: 1.2 },
+                backgroundColor: 'rgba(0,0,0,0.03)',
+                borderRadius: '12px',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  backgroundColor: 'rgba(0,0,0,0.06)',
+                  transform: 'translateX(2px)'
+                },
                 '& .MuiSvgIcon-root': {
-                  fontSize: { xs: '20px', sm: '24px' }
+                  fontSize: { xs: '20px', sm: '22px' }
                 }
               }}
             >
@@ -745,23 +756,27 @@ const EnhancedHeader = forwardRef(({
                 justifyContent: 'center',
                 cursor: 'pointer',
                 flexShrink: 0,
-                px: 0.5
+                px: 1.5,
+                transition: 'transform 0.2s',
+                '&:hover': { transform: 'scale(1.02)' }
               }}
               onClick={() => navigate('/')}
             >
               <Typography
                 variant="h5"
                 sx={{
-                  fontWeight: 800,
-                  background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                  fontWeight: 900,
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   backgroundClip: 'text',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 1,
-                  fontSize: { sm: '1.25rem', md: '1.5rem' },
-                  whiteSpace: 'nowrap'
+                  gap: 1.2,
+                  fontSize: { sm: '1.3rem', md: '1.6rem' },
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '-0.02em',
+                  filter: 'drop-shadow(0 2px 4px rgba(16, 185, 129, 0.1))'
                 }}
               >
                 🌱 ShareCrop
