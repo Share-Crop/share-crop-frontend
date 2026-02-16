@@ -1685,6 +1685,7 @@ const EnhancedHeader = forwardRef(({
                             mx: isMobile ? 0.5 : 1,
                             mb: 0.25,
                             transition: 'all 0.2s ease',
+                            cursor: 'pointer',
                             ...(prominent && {
                               color: '#2E7D32',
                               '& .MuiListItemIcon-root': { color: '#2E7D32' },
@@ -1739,6 +1740,7 @@ const EnhancedHeader = forwardRef(({
                 py: isMobile ? 0.5 : 1,
                 px: isMobile ? 1.5 : 2,
                 minHeight: isMobile ? 40 : 48,
+                cursor: 'pointer',
               }}
             >
               <ListItemIcon sx={{

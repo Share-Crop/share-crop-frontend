@@ -226,6 +226,8 @@ const Sidebar = ({ user, onLogout, open, onClose }) => {
                         ? `0 4px 12px ${alpha('#4CAF50', 0.15)}`
                         : '0 2px 8px rgba(0, 0, 0, 0.08)',
                     },
+                    // Ensure cursor is pointer for the tooltip wrapper
+                    cursor: 'pointer',
                   }}
                 >
                   <ListItemIcon
@@ -275,6 +277,8 @@ const Sidebar = ({ user, onLogout, open, onClose }) => {
                 transform: 'translateX(4px)',
                 boxShadow: '0 2px 8px rgba(244, 67, 54, 0.15)',
               },
+              // Ensure cursor is pointer for the tooltip wrapper
+              cursor: 'pointer',
             }}
           >
             <ListItemIcon
