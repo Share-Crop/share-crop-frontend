@@ -3844,50 +3844,52 @@ const EnhancedFarmMap = forwardRef(({
                         })()}
 
                         {/* Webcam button */}
-                        <button
-                          type="button"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: isMobile ? '4px 8px' : '6px 10px',
-                            backgroundColor: '#007bff',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '6px',
-                            fontSize: isMobile ? '10px' : '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 6px rgba(0, 123, 255, 0.25)',
-                            transition: 'all 0.2s ease',
-                            flex: 1,
-                            justifyContent: 'center'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#0056b3';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 123, 255, 0.35)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#007bff';
-                            e.currentTarget.style.transform = 'translateY(0)';
-                            e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 123, 255, 0.25)';
-                          }}
-                          onClick={() => {
-                            setSelectedFarmForWebcam({
-                              name: selectedProduct?.farm_name || selectedProduct?.name || 'Farm',
-                              webcamUrl: selectedProduct?.webcam_url || 'https://g0.ipcamlive.com/player/player.php?alias=630e3bc12d3f9&autoplay=1'
-                            });
-                            setWebcamPopupOpen(true);
-                          }}
-                          title="View Live Camera Feed"
-                        >
-                          <svg width={isMobile ? "12" : "14"} height={isMobile ? "12" : "14"} viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7-3.5c0-1-.3-2-.8-2.8l2.4-2.4c.8 1.3 1.3 2.8 1.3 4.4s-.5 3.1-1.3 4.4l-2.4-2.4c.5-.8.8-1.8.8-2.8M4.3 19.3l2.4-2.4c.8.5 1.8.8 2.8.8s2-.3 2.8-.8l2.4 2.4c-1.3.8-2.8 1.3-4.4 1.3s-3.1-.5-4.4-1.3M19.7 4.7l-2.4 2.4c-.8-.5-1.8-.8-2.8-.8s-2 .3-2.8.8L9.3 4.7C10.6 3.9 12.2 3.4 13.8 3.4s3.1.5 4.4 1.3z" />
-                            <circle cx="12" cy="12" r="3" fill="currentColor" />
-                          </svg>
-                          Cam
-                        </button>
+                        {selectedProduct?.webcam_url && (
+                          <button
+                            type="button"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: isMobile ? '4px 8px' : '6px 10px',
+                              backgroundColor: '#007bff',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              fontSize: isMobile ? '10px' : '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(0, 123, 255, 0.25)',
+                              transition: 'all 0.2s ease',
+                              flex: 1,
+                              justifyContent: 'center'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#0056b3';
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 123, 255, 0.35)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = '#007bff';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 123, 255, 0.25)';
+                            }}
+                            onClick={() => {
+                              setSelectedFarmForWebcam({
+                                name: selectedProduct?.farm_name || selectedProduct?.name || 'Farm',
+                                webcamUrl: selectedProduct?.webcam_url
+                              });
+                              setWebcamPopupOpen(true);
+                            }}
+                            title="View Live Camera Feed"
+                          >
+                            <svg width={isMobile ? "12" : "14"} height={isMobile ? "12" : "14"} viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7-3.5c0-1-.3-2-.8-2.8l2.4-2.4c.8 1.3 1.3 2.8 1.3 4.4s-.5 3.1-1.3 4.4l-2.4-2.4c.5-.8.8-1.8.8-2.8M4.3 19.3l2.4-2.4c.8.5 1.8.8 2.8.8s2-.3 2.8-.8l2.4 2.4c-1.3.8-2.8 1.3-4.4 1.3s-3.1-.5-4.4-1.3M19.7 4.7l-2.4 2.4c-.8-.5-1.8-.8-2.8-.8s-2 .3-2.8.8L9.3 4.7C10.6 3.9 12.2 3.4 13.8 3.4s3.1.5 4.4 1.3z" />
+                              <circle cx="12" cy="12" r="3" fill="currentColor" />
+                            </svg>
+                            Cam
+                          </button>
+                        )}
                       </div>
 
                       {/* Rating */}
