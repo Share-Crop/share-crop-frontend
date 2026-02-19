@@ -1,8 +1,10 @@
 /**
- * Zoom threshold: at zoom <= this, Google Maps globe (day/night terminator) is shown;
- * at zoom > this, Mapbox is shown (with markers). Zoom in past this to see fields.
+ * Zoom threshold: at zoom <= this, Earth is shown as a 3D globe (Google Map3D).
+ * At zoom > this, Mapbox (with markers) is shown.
+ * This mimics desktop Google Maps (2018+): zooming out fully shows a globe to eliminate
+ * Mercator projection distortion (e.g. Greenland appearing larger than Africa).
  */
-export const GLOBAL_VIEW_MAX_ZOOM = 1.5;
+export const GLOBAL_VIEW_MAX_ZOOM = 2.5;
 
 /** @deprecated Use GLOBAL_VIEW_MAX_ZOOM */
 export const ESRI_NIGHT_MAX_ZOOM = GLOBAL_VIEW_MAX_ZOOM;

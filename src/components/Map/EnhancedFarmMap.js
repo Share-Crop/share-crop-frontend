@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, forwardRef, useRef, useImperativeHandle } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, TextField, Paper, Checkbox, FormControlLabel } from '@mui/material';
-import { HomeWork } from '@mui/icons-material';
+import { Box, Typography, TextField, Paper, Checkbox, FormControlLabel, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, Chip, alpha } from '@mui/material';
+import { HomeWork, Cloud, LocalShipping, Close } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import coinService from '../../services/coinService';
 import fieldsService from '../../services/fields';
@@ -21,6 +21,7 @@ import { orderService } from '../../services/orders';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { configureGlobeMap, DARK_MAP_STYLE, GLOBAL_VIEW_MAX_ZOOM } from '../../utils/mapConfig';
 import GoogleGlobeMap from './GoogleGlobeMap';
+import GoogleMap2DWithWeather from './GoogleMap2DWithWeather';
 import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
@@ -67,6 +68,7 @@ const EnhancedFarmMap = forwardRef(({
 }, ref) => {
   const mapRef = useRef();
   const googleGlobeRef = useRef(null);
+  const googleWeatherMapRef = useRef(null);
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isMobile = useIsMobile();
@@ -126,6 +128,7 @@ const EnhancedFarmMap = forwardRef(({
   const summaryBarRef = useRef(null);
   const [iconTargets, setIconTargets] = useState({});
   const [harvestingIds, setHarvestingIds] = useState(new Set());
+  const [weatherLayerEnabled, setWeatherLayerEnabled] = useState(false);
 
   // Define isProductPurchased early to avoid TDZ errors
   const isProductPurchased = useCallback((prod) => {
@@ -256,9 +259,13 @@ const EnhancedFarmMap = forwardRef(({
       const lat = Array.isArray(product.coordinates) ? product.coordinates[1] : product.coordinates?.lat;
       const lng = Array.isArray(product.coordinates) ? product.coordinates[0] : product.coordinates?.lng;
       if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
-        if (googleGlobeRef.current?.flyTo) googleGlobeRef.current.flyTo(lat, lng, 7);
+        if (weatherLayerEnabled && googleWeatherMapRef.current?.flyTo) {
+          googleWeatherMapRef.current.flyTo({ center: [lng, lat], zoom: 8 });
+        } else if (googleGlobeRef.current?.flyTo) {
+          googleGlobeRef.current.flyTo(lat, lng, 7);
+        }
         const map = mapRef.current && typeof mapRef.current.getMap === 'function' ? mapRef.current.getMap() : null;
-        if (map) {
+        if (map && !weatherLayerEnabled) {
           isMapAnimatingRef.current = true;
           popupFixedRef.current = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
           setPopupPosition({ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' });
@@ -292,7 +299,7 @@ const EnhancedFarmMap = forwardRef(({
     if (onProductSelect) {
       onProductSelect(product);
     }
-  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile, isProductPurchased]);
+  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile, isProductPurchased, weatherLayerEnabled]);
   const [selectedIcons, setSelectedIcons] = useState(new Set());
   const [showPurchaseUI, setShowPurchaseUI] = useState(true);
   const celebratedHarvestIdsRef = useRef(new Set());
@@ -307,6 +314,10 @@ const EnhancedFarmMap = forwardRef(({
   const [deliveryFlyCards, setDeliveryFlyCards] = useState([]);
   const deliveryAnimatedIdsRef = useRef(new Set());
   const [showDeliveryPanel, setShowDeliveryPanel] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryList, setDeliveryList] = useState([]);
+  const [deliveryListLoading, setDeliveryListLoading] = useState(false);
+  const [deliveryRoleTab, setDeliveryRoleTab] = useState('buyer'); // 'buyer' | 'farmer'
   const deliveryIconRef = useRef(null);
   const [deliveryPanelLeft, setDeliveryPanelLeft] = useState(54);
   const [fieldOrderStats, setFieldOrderStats] = useState(new Map());
@@ -353,6 +364,70 @@ const EnhancedFarmMap = forwardRef(({
     setShowDeliveryPanel(false);
   }, []);
 
+  const fetchDeliveryList = useCallback(async () => {
+    if (!currentUser?.id) return;
+    setDeliveryListLoading(true);
+    setDeliveryList([]);
+    try {
+      const res = await api.get('/api/deliveries/my');
+      const data = res?.data || {};
+
+      const flattenRoleGroup = (group, roleLabel) => {
+        if (!group) return [];
+        const { upcoming = [], current = [], past = [] } = group;
+        const tag = (items, bucket) =>
+          (Array.isArray(items) ? items : []).map((o) => ({ ...o, _bucket: bucket, _role: roleLabel }));
+        return [
+          ...tag(upcoming, 'upcoming'),
+          ...tag(current, 'current'),
+          ...tag(past, 'past'),
+        ];
+      };
+
+      const merged = [
+        ...flattenRoleGroup(data.buyer, 'buyer'),
+        ...flattenRoleGroup(data.farmer, 'farmer'),
+      ];
+
+      const list = merged.map((o) => {
+        const notes = String(o.notes || '');
+        const addrMatch = notes.match(/(?:Address|Deliver to):\s*(.+?)(?:\s*\||$)/i);
+        const deliveryAddress = addrMatch ? addrMatch[1].trim() : '';
+        const dateRaw = o.selected_harvest_date || o.created_at;
+        const harvestDate = dateRaw || '';
+        const productName = o.field_name || o.field?.name || 'Order';
+        return {
+          id: o.id,
+          productName,
+          harvestDate,
+          status: o.status || 'pending',
+          deliveryAddress,
+          role: o._role,
+          bucket: o._bucket,
+          order: o,
+        };
+      });
+
+      const orderBucket = { upcoming: 0, current: 1, past: 2 };
+      list.sort((a, b) => {
+        const ba = orderBucket[a.bucket] ?? 1;
+        const bb = orderBucket[b.bucket] ?? 1;
+        if (ba !== bb) return ba - bb;
+        return String(b.harvestDate || '').localeCompare(String(a.harvestDate || ''));
+      });
+
+      setDeliveryList(list);
+    } catch (err) {
+      console.warn('Delivery list fetch failed:', err);
+      setDeliveryList([]);
+    } finally {
+      setDeliveryListLoading(false);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (showDeliveryModal) fetchDeliveryList();
+  }, [showDeliveryModal, fetchDeliveryList]);
 
   useEffect(() => {
     if (!showDeliveryPanel) return;
@@ -1235,15 +1310,19 @@ const EnhancedFarmMap = forwardRef(({
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      // Handle Google Maps (when zoom is low) - zoom to a closer level first
-      if (googleGlobeRef.current?.flyTo) {
+      // Handle weather map (2D Google with OWM layers) - switch to 2D when weather layers enabled
+      if (weatherLayerEnabled && googleWeatherMapRef.current?.flyTo) {
+        googleWeatherMapRef.current.flyTo({ center: [lng, lat], zoom: 8 });
+      }
+      // Handle Google 3D globe (when zoom is low) - zoom to a closer level first
+      else if (googleGlobeRef.current?.flyTo) {
         googleGlobeRef.current.flyTo(lat, lng, 7);
       }
 
       // Handle Mapbox - use requestAnimationFrame to ensure map is ready and preserve marker animations
       requestAnimationFrame(() => {
         const map = mapRef.current && typeof mapRef.current.getMap === 'function' ? mapRef.current.getMap() : null;
-        if (map) {
+        if (map && !weatherLayerEnabled) {
           isMapAnimatingRef.current = true;
           popupFixedRef.current = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
           setPopupPosition({ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' });
@@ -1294,7 +1373,7 @@ const EnhancedFarmMap = forwardRef(({
     refreshData: () => {
       setRefreshTrigger(prev => prev + 1);
     }
-  }), [fetchLocationForProduct, fetchWeatherForProduct, isMobile]); // Removed viewState dependency to prevent unnecessary re-creation
+  }), [fetchLocationForProduct, fetchWeatherForProduct, isMobile, weatherLayerEnabled]); // Removed viewState dependency to prevent unnecessary re-creation
 
 
 
@@ -2723,7 +2802,7 @@ const EnhancedFarmMap = forwardRef(({
   }, [selectedProduct, viewState]);
 
   // Must be before any early return (rules of hooks)
-  // Set to true to test Google globe only (Mapbox hidden); set back to false for normal zoom-based switch.
+  // Keep Google 3D globe as the only base map (no Mapbox switching).
   const FORCE_GOOGLE_GLOBE_FOR_TESTING = true;
   const showGoogleGlobe = FORCE_GOOGLE_GLOBE_FOR_TESTING || (process.env.REACT_APP_GOOGLE_MAPS_API_KEY && viewState.zoom <= GLOBAL_VIEW_MAX_ZOOM);
 
@@ -3066,8 +3145,25 @@ const EnhancedFarmMap = forwardRef(({
       overflow: 'hidden'
     }}>
       <div className="stars-bg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0 }} />
-      {/* Map stack: Google globe (day/night terminator) at low zoom; zoom in to see Mapbox + markers */}
+      {/* Map stack: Weather mode = Google 2D with OWM layers; else Google globe + Mapbox */}
       <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+        {/* Weather mode: 2D Google Map with OpenWeatherMap overlays (reliable overlay support) */}
+        {weatherLayerEnabled && (
+          <GoogleMap2DWithWeather
+            ref={googleWeatherMapRef}
+            latitude={viewState.latitude}
+            longitude={viewState.longitude}
+            zoom={viewState.zoom}
+            onViewChange={onGoogleViewChange}
+            farms={filteredFarms}
+            onMarkerClick={(product) => handleProductClick(null, product)}
+            getMarkerSvg={getMarkerSvgForGoogle}
+            isMobile={isMobile}
+            iconDataUrlCache={iconDataUrlCache}
+          />
+        )}
+        {!weatherLayerEnabled && (
+        <>
         <GoogleGlobeMap
           ref={googleGlobeRef}
           visible={showGoogleGlobe}
@@ -3185,99 +3281,7 @@ const EnhancedFarmMap = forwardRef(({
               </Marker>
             )}
 
-            <div
-              style={{
-                position: 'absolute',
-                top: embedded ? (isMobile ? '110px' : '120px') : (isMobile ? '220px' : '265px'),
-                right: '10px',
-                zIndex: 1
-              }}
-            >
-              <button
-                onClick={() => {
-                  if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                      (pos) => {
-                        const { latitude, longitude } = pos.coords;
-                        setCurrentLocation({ latitude, longitude });
-                        if (mapRef.current) {
-                          mapRef.current.flyTo({ center: [longitude, latitude], zoom: 10, duration: 1000, essential: true });
-                        }
-                      },
-                      () => {
-                        setCurrentLocation(null);
-                        if (mapRef.current) {
-                          mapRef.current.flyTo({ center: [15, 45], zoom: 2, duration: 1000, essential: true });
-                        }
-                      }
-                    );
-                  }
-                }}
-                style={{
-                  background: '#fff',
-                  border: '2px solid rgba(0,0,0,.1)',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  padding: '0',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  color: '#333',
-                  boxShadow: '0 0 0 2px rgba(0,0,0,.1)',
-                  width: '29px',
-                  height: '29px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                title="Center on my location"
-              >
-                📍
-              </button>
-            </div>
-
-            {/* Home Control Button */}
-            <div
-              style={{
-                position: 'absolute',
-                top: isMobile ? '150px' : '200px',
-                right: '10px',
-                zIndex: 1
-              }}
-            >
-              <button
-                onClick={() => {
-                  setSelectedProduct(null); // Close any open popup
-                  setPopupPosition(null); // Also clear popup position
-                  setInsufficientFunds(false);
-                  if (mapRef.current) {
-                    mapRef.current.flyTo({ center: [15, 45], zoom: 2, duration: 1000, essential: true });
-                  }
-                }}
-                style={{
-                  background: '#fff',
-                  border: '2px solid rgba(0,0,0,.1)',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  padding: '0',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  color: '#333',
-                  boxShadow: '0 0 0 2px rgba(0,0,0,.1)',
-                  width: '29px',
-                  height: '29px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                title="Reset to home view"
-              >
-                <HomeWork style={{ fontSize: isMobile ? '18px' : '20px', color: '#2196F3' }} />
-              </button>
-            </div>
-
-
-
-            {/* Farm Markers */}
+            {/* Farm Markers - Geolocation/Home moved to shared overlay above */}
             {(() => {
 
               return filteredFarms.map((product) => {
@@ -3463,46 +3467,441 @@ const EnhancedFarmMap = forwardRef(({
 
           </MapboxMap>
         </div>
+        </>
+        )}
       </div>
 
-
-
-      {/* Delivery Toggle Icon - top-left of map container */}
-      <div
-        style={{
-          position: 'absolute',
-          top: isMobile ? '60px' : '120px',
-          left: '10px',
-          zIndex: 1100,
-          pointerEvents: 'auto'
-        }}
-      >
-        <button
-          ref={deliveryIconRef}
-          onClick={() => setShowDeliveryPanel(prev => !prev)}
+      {/* Map controls (Geolocation, Home) - only relevant for 2D weather map */}
+      {weatherLayerEnabled && (
+        <div
           style={{
-            background: 'linear-gradient(90deg, rgba(255, 235, 59, 0.18), rgba(255, 152, 0, 0.2))',
-            border: '2px solid rgba(255, 152, 0, 0.35)',
-            borderRadius: '50%',
-            cursor: 'pointer',
-            padding: '0',
-            fontSize: '20px',
-            fontWeight: 'bold',
-            boxShadow: '0 2px 8px rgba(33,150,243,0.15)',
-            width: '40px',
-            height: '40px',
+            position: 'absolute',
+            top: embedded ? (isMobile ? '110px' : '120px') : (isMobile ? '220px' : '265px'),
+            right: '10px',
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}
+        >
+          <button
+            onClick={() => {
+              if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    setCurrentLocation({ latitude, longitude });
+                    if (googleWeatherMapRef.current) {
+                      googleWeatherMapRef.current.flyTo({ center: [longitude, latitude], zoom: 10 });
+                    }
+                  },
+                  () => {
+                    setCurrentLocation(null);
+                    if (googleWeatherMapRef.current) {
+                      googleWeatherMapRef.current.flyTo({ center: [15, 45], zoom: 2 });
+                    }
+                  }
+                );
+              }
+            }}
+            style={{
+              background: '#fff',
+              border: '2px solid rgba(0,0,0,.1)',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              padding: '0',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: '#333',
+              boxShadow: '0 0 0 2px rgba(0,0,0,.1)',
+              width: '29px',
+              height: '29px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Center on my location"
+          >
+            📍
+          </button>
+          <button
+            onClick={() => {
+              setSelectedProduct(null);
+              setPopupPosition(null);
+              setInsufficientFunds(false);
+              if (googleWeatherMapRef.current) {
+                googleWeatherMapRef.current.flyTo({ center: [15, 45], zoom: 2 });
+              }
+            }}
+            style={{
+              background: '#fff',
+              border: '2px solid rgba(0,0,0,.1)',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              padding: '0',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: '#333',
+              boxShadow: '0 0 0 2px rgba(0,0,0,.1)',
+              width: '29px',
+              height: '29px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Reset view"
+          >
+            🏠
+          </button>
+        </div>
+      )}
+
+      {/* Small label so users know they're in weather mode and how to exit */}
+      {weatherLayerEnabled && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 10,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 999,
+            bgcolor: 'rgba(15,23,42,0.85)',
+            border: '1px solid rgba(148,163,184,0.7)',
+            color: 'rgba(226,232,240,0.95)',
+            fontSize: 11,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
+            gap: 0.75,
           }}
-          title={showDeliveryPanel ? 'Hide deliveries' : 'Show deliveries'}
         >
-          🚚
-        </button>
-      </div>
+          <Cloud sx={{ fontSize: 16 }} />
+          <span>Weather view – click the cloud icon to return</span>
+        </Box>
+      )}
 
-      {/* Custom Scale Bar */}
-      <CustomScaleBar map={mapRef.current?.getMap()} />
+      {/* Top-left controls: weather + delivery – same circle UI as header notification/message icons */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 10,
+          left: 10,
+          zIndex: 1100,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+        }}
+      >
+        <Tooltip title={weatherLayerEnabled ? 'Exit weather view (back to 3D globe)' : 'Weather view (2D map with overlays)'}>
+          <IconButton
+            onClick={() => setWeatherLayerEnabled((prev) => !prev)}
+            sx={(theme) => ({
+              backgroundColor: weatherLayerEnabled ? alpha(theme.palette.info.main, 0.25) : alpha(theme.palette.common.white, 0.12),
+              color: weatherLayerEnabled ? theme.palette.info.main : theme.palette.common.white,
+              border: `1px solid ${weatherLayerEnabled ? alpha(theme.palette.info.main, 0.4) : alpha(theme.palette.common.white, 0.25)}`,
+              '&:hover': {
+                backgroundColor: weatherLayerEnabled ? alpha(theme.palette.info.main, 0.35) : alpha(theme.palette.common.white, 0.2),
+                transform: 'scale(1.05)',
+              },
+              transition: 'all 0.2s ease-in-out',
+              '& .MuiSvgIcon-root': { fontSize: isMobile ? 20 : 24 },
+            })}
+          >
+            <Cloud />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Deliveries">
+          <IconButton
+            ref={deliveryIconRef}
+            onClick={() => setShowDeliveryModal(true)}
+            sx={(theme) => ({
+              backgroundColor: alpha(theme.palette.warning.main, 0.2),
+              color: theme.palette.warning.main,
+              border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
+              '&:hover': {
+                backgroundColor: alpha(theme.palette.warning.main, 0.3),
+                transform: 'scale(1.05)',
+              },
+              transition: 'all 0.2s ease-in-out',
+              '& .MuiSvgIcon-root': { fontSize: isMobile ? 20 : 24 },
+            })}
+          >
+            <LocalShipping />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* Delivery modal – center screen, list of user's delivery orders or "No deliveries" */}
+      <Dialog open={showDeliveryModal} onClose={() => setShowDeliveryModal(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LocalShipping color="primary" /> Deliveries
+          </Box>
+          <IconButton size="small" onClick={() => setShowDeliveryModal(false)}>
+            <Close fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {deliveryListLoading ? (
+            <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>Loading…</Box>
+          ) : deliveryList.length === 0 ? (
+            <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
+              <LocalShipping sx={{ fontSize: 48, opacity: 0.4, mb: 1 }} />
+              <Typography>No deliveries</Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>You have no delivery orders at the moment.</Typography>
+            </Box>
+          ) : (
+            <>
+              {(() => {
+                const buyerCount = deliveryList.filter((d) => d.role === 'buyer').length;
+                const farmerCount = deliveryList.filter((d) => d.role === 'farmer').length;
+                const hasBuyer = buyerCount > 0;
+                const hasFarmer = farmerCount > 0;
+                const effectiveRole =
+                  deliveryRoleTab && ((deliveryRoleTab === 'buyer' && hasBuyer) || (deliveryRoleTab === 'farmer' && hasFarmer))
+                    ? deliveryRoleTab
+                    : hasBuyer
+                      ? 'buyer'
+                      : 'farmer';
+
+                const filtered = deliveryList.filter((d) => d.role === effectiveRole);
+                const bucketOrder = ['current', 'upcoming', 'past'];
+                const bucketLabels = {
+                  current: 'Delivering now',
+                  upcoming: 'Upcoming deliveries',
+                  past: 'Past deliveries',
+                };
+                const bucketHelp = {
+                  current: 'Deliveries that should be happening today or very soon.',
+                  upcoming: 'Confirmed deliveries scheduled for future dates.',
+                  past: 'Deliveries that are already completed or cancelled.',
+                };
+
+                const statusColor = (status) => {
+                  const value = String(status || '').toLowerCase();
+                  if (value === 'completed') return 'success';
+                  if (value === 'active' || value === 'pending') return 'info';
+                  if (value === 'cancelled') return 'default';
+                  return 'default';
+                };
+
+                return (
+                  <>
+                    {(hasBuyer || hasFarmer) && (
+                      <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          View:
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          {hasBuyer && (
+                            <Chip
+                              size="small"
+                              color={effectiveRole === 'buyer' ? 'primary' : 'default'}
+                              variant={effectiveRole === 'buyer' ? 'filled' : 'outlined'}
+                              label={`Incoming (${buyerCount})`}
+                              onClick={() => setDeliveryRoleTab('buyer')}
+                              sx={{ borderRadius: 999 }}
+                            />
+                          )}
+                          {hasFarmer && (
+                            <Chip
+                              size="small"
+                              color={effectiveRole === 'farmer' ? 'primary' : 'default'}
+                              variant={effectiveRole === 'farmer' ? 'filled' : 'outlined'}
+                              label={`Outgoing (${farmerCount})`}
+                              onClick={() => setDeliveryRoleTab('farmer')}
+                              sx={{ borderRadius: 999 }}
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                    )}
+
+                    {bucketOrder.map((bucketKey) => {
+                      const items = filtered.filter((d) => d.bucket === bucketKey);
+                      if (!items.length) return null;
+
+                      return (
+                        <Box key={bucketKey} sx={{ mt: bucketKey === 'current' ? 0 : 2.5 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 0.75 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Box
+                                sx={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: '50%',
+                                  bgcolor:
+                                    bucketKey === 'current'
+                                      ? 'success.main'
+                                      : bucketKey === 'upcoming'
+                                        ? 'info.main'
+                                        : 'grey.500',
+                                }}
+                              />
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                {bucketLabels[bucketKey]} ({items.length})
+                              </Typography>
+                            </Box>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
+                            {bucketHelp[bucketKey]}
+                          </Typography>
+
+                          <Box component="ul" sx={{ m: 0, p: 0, listStyle: 'none' }}>
+                            {items.map((d) => {
+                              const o = d.order || {};
+                              const isBuyer = d.role === 'buyer';
+                              const counterpartyName = isBuyer ? o.farmer_name || 'Seller' : o.buyer_name || 'Customer';
+                              const counterpartyLabel = isBuyer ? 'From' : 'To';
+                              const location = o.location || d.deliveryAddress || '';
+                              const quantity = o.quantity;
+                              const totalPrice = o.total_price;
+                              const mode = o.mode_of_shipping || 'delivery';
+                              const crop = o.crop_type || o.field_name;
+                              const dateRaw = o.selected_harvest_date || o.created_at || d.harvestDate;
+                              const label = o.selected_harvest_label;
+
+                              let dateDisplay = '';
+                              if (dateRaw) {
+                                try {
+                                  const parsed = new Date(dateRaw);
+                                  // eslint-disable-next-line no-restricted-globals
+                                  if (!isNaN(parsed)) {
+                                    dateDisplay = parsed.toLocaleDateString(undefined, {
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric',
+                                    });
+                                  } else {
+                                    dateDisplay = String(dateRaw);
+                                  }
+                                } catch {
+                                  dateDisplay = String(dateRaw);
+                                }
+                              }
+
+                              const imageSrc = o.image_url;
+
+                              return (
+                                <Box
+                                  component="li"
+                                  key={d.id}
+                                  sx={{
+                                    py: 1.5,
+                                    borderBottom: '1px solid',
+                                    borderColor: 'divider',
+                                    display: 'flex',
+                                    gap: 1.5,
+                                  }}
+                                >
+                                  {imageSrc && (
+                                    <Box
+                                      sx={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: 1,
+                                        overflow: 'hidden',
+                                        bgcolor: 'grey.100',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      <img
+                                        src={imageSrc}
+                                        alt={d.productName}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                      />
+                                    </Box>
+                                  )}
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                      <Typography variant="subtitle2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {d.productName}
+                                      </Typography>
+                                      <Chip
+                                        size="small"
+                                        label={d.status}
+                                        color={statusColor(d.status)}
+                                        variant="outlined"
+                                        sx={{ textTransform: 'capitalize' }}
+                                      />
+                                    </Box>
+
+                                    <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                      {crop && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {crop}
+                                        </Typography>
+                                      )}
+                                      {typeof quantity !== 'undefined' && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Qty: {quantity}
+                                        </Typography>
+                                      )}
+                                      {typeof totalPrice !== 'undefined' && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Total: {totalPrice} coins
+                                        </Typography>
+                                      )}
+                                      {mode && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          Mode: {String(mode).toLowerCase()}
+                                        </Typography>
+                                      )}
+                                    </Box>
+
+                                    {(dateDisplay || label) && (
+                                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                        {dateDisplay}
+                                        {label ? ` • ${label}` : ''}
+                                      </Typography>
+                                    )}
+
+                                    {location && (
+                                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25 }}>
+                                        {location}
+                                      </Typography>
+                                    )}
+
+                                    <Typography variant="caption" sx={{ mt: 0.5, display: 'block', fontWeight: 500 }}>
+                                      {counterpartyLabel}: {counterpartyName}
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Box sx={{ flexGrow: 1 }} />
+          <button
+            type="button"
+            onClick={() => setShowDeliveryModal(false)}
+            style={{
+              borderRadius: 6,
+              border: '1px solid rgba(148,163,184,0.6)',
+              padding: '6px 14px',
+              fontSize: 13,
+              cursor: 'pointer',
+              background: '#f8fafc',
+            }}
+          >
+            Close
+          </button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Custom Scale Bar - Mapbox only; Google Maps 2D has different API */}
+      <CustomScaleBar map={!weatherLayerEnabled ? mapRef.current?.getMap() : null} />
 
       <div ref={harvestLayerRef} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1050 }}>
         {harvestGifs.map(g => (

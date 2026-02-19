@@ -1159,7 +1159,7 @@ const EnhancedHeader = forwardRef(({
                       {userCoins.toLocaleString()} coins
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '10px' }}>
-                      1 coin = $0.10 · ${(userCoins * 0.1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} value
+                      1 coin = $ 1 · ${(userCoins * 0.1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} value
                     </Typography>
                   </Box>
                   <MenuItem
