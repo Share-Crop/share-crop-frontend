@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, forwardRef, useRef, useImperativeHandle } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Typography, TextField, Paper, Checkbox, FormControlLabel, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, Chip, alpha } from '@mui/material';
-import { HomeWork, Cloud, LocalShipping, Close } from '@mui/icons-material';
+import { HomeWork, Cloud, LocalShipping, Close, Block, CloudQueue, Grain, DeviceThermostat, Compress, Air } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import coinService from '../../services/coinService';
 import fieldsService from '../../services/fields';
@@ -19,12 +19,20 @@ import { cachedReverseGeocode } from '../../utils/geocoding';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
 import { orderService } from '../../services/orders';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { configureGlobeMap, DARK_MAP_STYLE, GLOBAL_VIEW_MAX_ZOOM } from '../../utils/mapConfig';
-import GoogleGlobeMap from './GoogleGlobeMap';
-import GoogleMap2DWithWeather from './GoogleMap2DWithWeather';
+import { configureGlobeMap, DARK_MAP_STYLE } from '../../utils/mapConfig';
 import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
+import { WEATHER_LEGEND_DATA } from './weatherLegendData';
+
+const OWM_LAYERS = [
+  { id: 'none', label: 'None', Icon: Block },
+  { id: 'clouds_new', label: 'Clouds', Icon: CloudQueue },
+  { id: 'precipitation_new', label: 'Precipitation', Icon: Grain },
+  { id: 'temp_new', label: 'Temperature', Icon: DeviceThermostat },
+  { id: 'pressure_new', label: 'Pressure', Icon: Compress },
+  { id: 'wind_new', label: 'Wind', Icon: Air },
+];
 
 
 // Detect mobile screens
@@ -67,8 +75,6 @@ const EnhancedFarmMap = forwardRef(({
   minimal = false
 }, ref) => {
   const mapRef = useRef();
-  const googleGlobeRef = useRef(null);
-  const googleWeatherMapRef = useRef(null);
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isMobile = useIsMobile();
@@ -129,6 +135,8 @@ const EnhancedFarmMap = forwardRef(({
   const [iconTargets, setIconTargets] = useState({});
   const [harvestingIds, setHarvestingIds] = useState(new Set());
   const [weatherLayerEnabled, setWeatherLayerEnabled] = useState(false);
+  const [activeWeatherLayer, setActiveWeatherLayer] = useState('clouds_new');
+  const [weatherLayerPanelOpen, setWeatherLayerPanelOpen] = useState(true);
 
   // Define isProductPurchased early to avoid TDZ errors
   const isProductPurchased = useCallback((prod) => {
@@ -259,18 +267,13 @@ const EnhancedFarmMap = forwardRef(({
       const lat = Array.isArray(product.coordinates) ? product.coordinates[1] : product.coordinates?.lat;
       const lng = Array.isArray(product.coordinates) ? product.coordinates[0] : product.coordinates?.lng;
       if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
-        if (weatherLayerEnabled && googleWeatherMapRef.current?.flyTo) {
-          googleWeatherMapRef.current.flyTo({ center: [lng, lat], zoom: 8 });
-        } else if (googleGlobeRef.current?.flyTo) {
-          googleGlobeRef.current.flyTo(lat, lng, 7);
-        }
         const map = mapRef.current && typeof mapRef.current.getMap === 'function' ? mapRef.current.getMap() : null;
-        if (map && !weatherLayerEnabled) {
+        if (map) {
           isMapAnimatingRef.current = true;
           popupFixedRef.current = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
           setPopupPosition({ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' });
           map.flyTo({
-            center: product.coordinates,
+            center: [lng, lat],
             zoom: 8,
             duration: 1200,
             essential: true,
@@ -299,7 +302,7 @@ const EnhancedFarmMap = forwardRef(({
     if (onProductSelect) {
       onProductSelect(product);
     }
-  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile, isProductPurchased, weatherLayerEnabled]);
+  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile, isProductPurchased]);
   const [selectedIcons, setSelectedIcons] = useState(new Set());
   const [showPurchaseUI, setShowPurchaseUI] = useState(true);
   const celebratedHarvestIdsRef = useRef(new Set());
@@ -1310,19 +1313,10 @@ const EnhancedFarmMap = forwardRef(({
 
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      // Handle weather map (2D Google with OWM layers) - switch to 2D when weather layers enabled
-      if (weatherLayerEnabled && googleWeatherMapRef.current?.flyTo) {
-        googleWeatherMapRef.current.flyTo({ center: [lng, lat], zoom: 8 });
-      }
-      // Handle Google 3D globe (when zoom is low) - zoom to a closer level first
-      else if (googleGlobeRef.current?.flyTo) {
-        googleGlobeRef.current.flyTo(lat, lng, 7);
-      }
-
-      // Handle Mapbox - use requestAnimationFrame to ensure map is ready and preserve marker animations
+      // Center Mapbox globe on the farm - use requestAnimationFrame to ensure map is ready and preserve marker animations
       requestAnimationFrame(() => {
         const map = mapRef.current && typeof mapRef.current.getMap === 'function' ? mapRef.current.getMap() : null;
-        if (map && !weatherLayerEnabled) {
+        if (map) {
           isMapAnimatingRef.current = true;
           popupFixedRef.current = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
           setPopupPosition({ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' });
@@ -1373,7 +1367,7 @@ const EnhancedFarmMap = forwardRef(({
     refreshData: () => {
       setRefreshTrigger(prev => prev + 1);
     }
-  }), [fetchLocationForProduct, fetchWeatherForProduct, isMobile, weatherLayerEnabled]); // Removed viewState dependency to prevent unnecessary re-creation
+  }), [fetchLocationForProduct, fetchWeatherForProduct, isMobile]); // Removed viewState dependency to prevent unnecessary re-creation
 
 
 
@@ -2801,67 +2795,62 @@ const EnhancedFarmMap = forwardRef(({
     }
   }, [selectedProduct, viewState]);
 
-  // Must be before any early return (rules of hooks)
-  // Keep Google 3D globe as the only base map (no Mapbox switching).
-  const FORCE_GOOGLE_GLOBE_FOR_TESTING = true;
-  const showGoogleGlobe = FORCE_GOOGLE_GLOBE_FOR_TESTING || (process.env.REACT_APP_GOOGLE_MAPS_API_KEY && viewState.zoom <= GLOBAL_VIEW_MAX_ZOOM);
-
-  /** Preload product icon images as data URLs when Google globe is shown so marker SVGs can embed them. */
-  useEffect(() => {
-    if (!showGoogleGlobe || !Array.isArray(filteredFarms) || filteredFarms.length === 0) return;
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const uniqueUrls = [...new Set(filteredFarms.map((f) => getProductImageSrc(f)).filter(Boolean))];
-    let cancelled = false;
-    uniqueUrls.forEach((urlKey) => {
-      const absoluteUrl = urlKey.startsWith('http') ? urlKey : origin + (urlKey.startsWith('/') ? urlKey : '/' + urlKey);
-      fetch(absoluteUrl)
-        .then((r) => r.blob())
-        .then((blob) => {
-          if (cancelled) return;
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        })
-        .then((dataUrl) => {
-          if (cancelled) return;
-          setIconDataUrlCache((prev) => (prev[urlKey] === dataUrl ? prev : { ...prev, [urlKey]: dataUrl }));
-        })
-        .catch(() => { /* ignore per-icon failure */ });
-    });
-    return () => { cancelled = true; };
-  }, [showGoogleGlobe, filteredFarms, getProductImageSrc]);
-
-  const onGoogleViewChange = useCallback((next) => {
-    setViewState((prev) => {
-      const zoomDiff = Math.abs((next.zoom ?? prev.zoom) - prev.zoom);
-      const centerDiff = Math.hypot(
-        (next.longitude ?? prev.longitude) - prev.longitude,
-        (next.latitude ?? prev.latitude) - prev.latitude
-      );
-      if (zoomDiff < 0.1 && centerDiff < 0.005) return prev;
-      return { longitude: next.longitude ?? prev.longitude, latitude: next.latitude ?? prev.latitude, zoom: next.zoom ?? prev.zoom };
-    });
-  }, []);
-
-  // When switching from Google globe to Mapbox (zoom in), resize Mapbox so it paints and markers show
-  const prevShowGoogleRef = useRef(showGoogleGlobe);
-  useEffect(() => {
-    const wasGoogle = prevShowGoogleRef.current;
-    prevShowGoogleRef.current = showGoogleGlobe;
-    if (wasGoogle && !showGoogleGlobe) {
-      const t = setTimeout(() => {
-        const map = mapRef.current?.getMap?.();
-        if (typeof map?.resize === 'function') map.resize();
-      }, 50);
-      return () => clearTimeout(t);
-    }
-  }, [showGoogleGlobe]);
-
   // Guard: require Mapbox token to render the map
   const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
+  const owmKey = process.env.REACT_APP_OPENWEATHER_API_KEY;
+
+  // Manage OpenWeatherMap raster overlay on the Mapbox globe
+  useEffect(() => {
+    const map = mapRef.current?.getMap?.();
+    if (!map) return;
+
+    const sourceId = 'owm-weather';
+    const layerId = 'owm-weather';
+
+    const removeOverlay = () => {
+      try {
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      } catch (_) { /* ignore */ }
+      try {
+        if (map.getSource(sourceId)) map.removeSource(sourceId);
+      } catch (_) { /* ignore */ }
+    };
+
+    if (!weatherLayerEnabled || !owmKey || activeWeatherLayer === 'none') {
+      removeOverlay();
+      return;
+    }
+
+    removeOverlay();
+
+    try {
+      map.addSource(sourceId, {
+        type: 'raster',
+        tiles: [
+          `https://tile.openweathermap.org/map/${activeWeatherLayer}/{z}/{x}/{y}.png?appid=${owmKey}`,
+        ],
+        tileSize: 256,
+        maxzoom: 18,
+      });
+
+      map.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: sourceId,
+        paint: {
+          'raster-opacity': 0.7,
+        },
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to add OpenWeatherMap overlay to Mapbox:', e);
+    }
+
+    return () => {
+      removeOverlay();
+    };
+  }, [weatherLayerEnabled, activeWeatherLayer, owmKey]);
+
   if (!MAPBOX_TOKEN) {
     return (
       <div style={{
@@ -3145,333 +3134,293 @@ const EnhancedFarmMap = forwardRef(({
       overflow: 'hidden'
     }}>
       <div className="stars-bg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0 }} />
-      {/* Map stack: Weather mode = Google 2D with OWM layers; else Google globe + Mapbox */}
       <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-        {/* Weather mode: 2D Google Map with OpenWeatherMap overlays (reliable overlay support) */}
-        {weatherLayerEnabled && (
-          <GoogleMap2DWithWeather
-            ref={googleWeatherMapRef}
-            latitude={viewState.latitude}
-            longitude={viewState.longitude}
-            zoom={viewState.zoom}
-            onViewChange={onGoogleViewChange}
-            farms={filteredFarms}
-            onMarkerClick={(product) => handleProductClick(null, product)}
-            getMarkerSvg={getMarkerSvgForGoogle}
-            isMobile={isMobile}
-            iconDataUrlCache={iconDataUrlCache}
-          />
-        )}
-        {!weatherLayerEnabled && (
-        <>
-        <GoogleGlobeMap
-          ref={googleGlobeRef}
-          visible={showGoogleGlobe}
-          latitude={viewState.latitude}
-          longitude={viewState.longitude}
-          zoom={viewState.zoom}
-          onViewChange={onGoogleViewChange}
-          farms={filteredFarms}
-          onMarkerClick={(product) => handleProductClick(null, product)}
-          getMarkerSvg={getMarkerSvgForGoogle}
-          isMobile={isMobile}
-          iconDataUrlCache={iconDataUrlCache}
-        />
-        <div style={{
-          position: 'absolute', inset: 0,
-          zIndex: showGoogleGlobe ? 0 : 2,
-          visibility: showGoogleGlobe ? 'hidden' : 'visible',
-          pointerEvents: showGoogleGlobe ? 'none' : 'auto',
-        }}>
-          <MapboxMap
-            ref={mapRef}
-            {...viewState}
-            onMove={evt => {
-              if (!isMapAnimatingRef.current) {
-                setViewState(evt.viewState);
+        <MapboxMap
+          ref={mapRef}
+          {...viewState}
+          onMove={evt => {
+            if (!isMapAnimatingRef.current) {
+              setViewState(evt.viewState);
+            }
+          }}
+          attributionControl={false}
+          onClick={() => {
+            setSelectedProduct(null);
+            setPopupPosition(null); // Also clear popup position
+            setInsufficientFunds(false);
+          }}
+          mapStyle={DARK_MAP_STYLE}
+          onLoad={(e) => configureGlobeMap(e.target)}
+          style={{ width: '100%', height: '100%' }}
+          mapboxAccessToken={MAPBOX_TOKEN}
+          projection="globe"
+          initialViewState={{
+            longitude: 12.5674,
+            latitude: 41.8719,
+            zoom: 1.5,
+          }}
+        >
+
+          <NavigationControl position="top-right" style={{ marginTop: embedded ? '55px' : (isMobile ? '80px' : '110px'), marginRight: '10px' }} />
+          <FullscreenControl position="top-right" style={{ marginTop: embedded ? '10px' : (isMobile ? '30px' : '35px'), marginRight: '10px' }} />
+
+          {/* Current Location Marker with Pulsing Animation */}
+          {currentLocation && (
+            <Marker
+              longitude={currentLocation.longitude}
+              latitude={currentLocation.latitude}
+              anchor="center"
+            >
+              <div style={{ position: 'relative', width: '40px', height: '40px' }}>
+                {/* Pulsing circles */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(66, 133, 244, 0.3)',
+                    animation: 'locationPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '30px',
+                    height: '30px',
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(66, 133, 244, 0.4)',
+                    animation: 'locationPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.5s',
+                  }}
+                />
+                {/* Blue location icon */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    backgroundColor: '#4285F4',
+                    border: '3px solid white',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                    zIndex: 10,
+                  }}
+                />
+                {/* Inner dot */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: 'white',
+                    zIndex: 11,
+                  }}
+                />
+              </div>
+            </Marker>
+          )}
+
+          {/* Farm Markers */}
+          {(() => {
+
+            return filteredFarms.map((product) => {
+
+              // Handle coordinate format conversion and null checks
+              let longitude, latitude;
+
+              if (!product.coordinates) {
+                console.warn('⚠️ Skipping product with no coordinates:', product.name);
+                return null; // Skip rendering if no coordinates
               }
-            }}
-            attributionControl={false}
-            onClick={() => {
-              setSelectedProduct(null);
-              setPopupPosition(null); // Also clear popup position
-              setInsufficientFunds(false);
-            }}
-            mapStyle={DARK_MAP_STYLE}
-            onLoad={(e) => configureGlobeMap(e.target)}
-            style={{ width: '100%', height: '100%' }}
-            mapboxAccessToken={MAPBOX_TOKEN}
-            projection="globe"
-            initialViewState={{
-              longitude: 12.5674,
-              latitude: 41.8719,
-              zoom: 1.5,
-            }}
-          >
 
-            <NavigationControl position="top-right" style={{ marginTop: embedded ? '55px' : (isMobile ? '80px' : '110px'), marginRight: '10px' }} />
-            <FullscreenControl position="top-right" style={{ marginTop: embedded ? '10px' : (isMobile ? '30px' : '35px'), marginRight: '10px' }} />
+              if (Array.isArray(product.coordinates)) {
+                // Array format: [longitude, latitude]
+                longitude = product.coordinates[0];
+                latitude = product.coordinates[1];
+              } else if (typeof product.coordinates === 'object') {
+                // Object format: { lat: ..., lng: ... } or { latitude: ..., longitude: ... }
+                longitude = product.coordinates.lng || product.coordinates.longitude;
+                latitude = product.coordinates.lat || product.coordinates.latitude;
+              } else {
+                return null; // Skip if coordinates format is unknown
+              }
 
-            {/* Current Location Marker with Pulsing Animation */}
-            {currentLocation && (
-              <Marker
-                longitude={currentLocation.longitude}
-                latitude={currentLocation.latitude}
-                anchor="center"
-              >
-                <div style={{ position: 'relative', width: '40px', height: '40px' }}>
-                  {/* Pulsing circles */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      backgroundColor: 'rgba(66, 133, 244, 0.3)',
-                      animation: 'locationPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '30px',
-                      height: '30px',
-                      borderRadius: '50%',
-                      backgroundColor: 'rgba(66, 133, 244, 0.4)',
-                      animation: 'locationPulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.5s',
-                    }}
-                  />
-                  {/* Blue location icon */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '50%',
-                      backgroundColor: '#4285F4',
-                      border: '3px solid white',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                      zIndex: 10,
-                    }}
-                  />
-                  {/* Inner dot */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      backgroundColor: 'white',
-                      zIndex: 11,
-                    }}
-                  />
-                </div>
-              </Marker>
-            )}
-
-            {/* Farm Markers - Geolocation/Home moved to shared overlay above */}
-            {(() => {
-
-              return filteredFarms.map((product) => {
-
-                // Handle coordinate format conversion and null checks
-                let longitude, latitude;
-
-                if (!product.coordinates) {
-                  console.warn('⚠️ Skipping product with no coordinates:', product.name);
-                  return null; // Skip rendering if no coordinates
-                }
-
-                if (Array.isArray(product.coordinates)) {
-                  // Array format: [longitude, latitude]
-                  longitude = product.coordinates[0];
-                  latitude = product.coordinates[1];
-                } else if (typeof product.coordinates === 'object') {
-                  // Object format: { lat: ..., lng: ... } or { latitude: ..., longitude: ... }
-                  longitude = product.coordinates.lng || product.coordinates.longitude;
-                  latitude = product.coordinates.lat || product.coordinates.latitude;
-                } else {
-                  return null; // Skip if coordinates format is unknown
-                }
-
-                // Skip if coordinates are still null/undefined
-                if (longitude == null || latitude == null) {
-                  return null;
-                }
+              // Skip if coordinates are still null/undefined
+              if (longitude == null || latitude == null) {
+                return null;
+              }
 
 
-                return (
-                  <Marker
-                    key={product.id}
-                    longitude={longitude}
-                    latitude={latitude}
-                    anchor="center"
-                  >
-                    <div style={{ position: 'relative', cursor: 'pointer', transition: 'all 0.3s ease' }} onClick={(e) => handleProductClick(e, product)} >
-                      {(isProductPurchased(product) && showHarvestGifIds.has(product.id)) && (
-                        <img
-                          src={'/icons/effects/fric.gif'}
-                          alt="Harvest celebration effect"
-                          style={{
-                            position: 'absolute',
-                            left: '50%',
-                            top: '50%',
-                            width: `${harvestGifSize}px`,
-                            height: `${harvestGifSize}px`,
-                            transform: 'translate(-50%, -50%)',
-                            pointerEvents: 'none',
-                            zIndex: 9999,
-                            willChange: 'transform',
-                          }}
-                        />
-                      )}
-                      {isProductPurchased(product) && (() => {
-                        const size = isMobile ? 46 : 60;
-                        const strokeW = isMobile ? 4 : 5;
-                        const innerR = isMobile ? 18 : 22;
-                        const { progress } = getHarvestProgressInfo(product);
-                        const grad = getRingGradientByHarvest(product);
-                        const occ = getOccupiedArea(product);
-                        const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
-                        const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
-                        const r = (size / 2) - (strokeW / 2);
-                        const circumference = 2 * Math.PI * r;
-                        const dash = Math.max(0, Math.min(circumference, progress * circumference));
-                        const path = getPiePath(innerR, occRatio);
-                        const cx = size / 2;
-                        const cy = size / 2;
-                        const ringGradId = `ringGrad-${product.id}`;
-                        const glowId = `ringGlow-${product.id}`;
-                        const rentGradId = `rentGrad-${product.id}`;
-
-                        return (
-                          <svg
-                            width={size}
-                            height={size}
-                            style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1 }}
-                          >
-                            <defs>
-                              <linearGradient id={ringGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" stopColor={grad.start} stopOpacity="0.95" />
-                                <stop offset="100%" stopColor={grad.end} stopOpacity="0.95" />
-                              </linearGradient>
-                              <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
-                                <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#FFD8A8" floodOpacity="0.45" />
-                              </filter>
-                              <radialGradient id={rentGradId} cx="50%" cy="50%" r="50%">
-                                <stop offset="0%" stopColor="rgba(33,150,243,0.7)" />
-                                <stop offset="100%" stopColor="rgba(33,150,243,0.4)" />
-                              </radialGradient>
-                            </defs>
-                            <circle cx={cx} cy={cy} r={r} stroke={'rgba(255,255,255,0.30)'} strokeWidth={strokeW} fill="none" />
-                            <circle
-                              cx={cx}
-                              cy={cy}
-                              r={r}
-                              stroke={`url(#${ringGradId})`}
-                              strokeWidth={strokeW}
-                              fill="none"
-                              strokeLinecap="round"
-                              strokeDasharray={`${dash} ${circumference}`}
-                              strokeDashoffset={0}
-                              transform={`rotate(-90 ${cx} ${cy})`}
-                              filter={`url(#${glowId})`}
-                            />
-                            <path d={path} fill={`url(#${rentGradId})`} stroke={'rgba(33,150,243,0.85)'} strokeWidth={1.1} transform={`translate(${cx - innerR}, ${cy - innerR})`} />
-                          </svg>
-                        );
-                      })()}
-                      {(isProductPurchased(product) && isHarvestWithinGrace(product, 4)) && (() => {
-                        const modes = getShippingModes(product).map(m => (m || '').toLowerCase());
-                        const mode = modes.includes('pickup') ? 'pickup' : (modes.includes('delivery') ? 'delivery' : null);
-                        return mode ? addShippingOrbit(product, mode) : null;
-                      })()}
+              return (
+                <Marker
+                  key={product.id}
+                  longitude={longitude}
+                  latitude={latitude}
+                  anchor="center"
+                >
+                  <div style={{ position: 'relative', cursor: 'pointer', transition: 'all 0.3s ease' }} onClick={(e) => handleProductClick(e, product)} >
+                    {(isProductPurchased(product) && showHarvestGifIds.has(product.id)) && (
                       <img
-                        src={getProductImageSrc(product)}
-                        alt={product.name || product.productName || 'Product'}
-                        onError={(e) => {
-                          // Debug: image failed, fallback to product icon
-                          // eslint-disable-next-line no-console
-                          console.warn('[Marker Image Error] Fallback to icon:', product.id, product.name, product.image);
-                          const fallback = getProductIcon(product.subcategory || product.category);
-                          if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
-                        }}
+                        src={'/icons/effects/fric.gif'}
+                        alt="Harvest celebration effect"
                         style={{
-                          width: isMobile ? '20px' : '30px',
-                          height: isMobile ? '20px' : '30px',
-                          borderRadius: '50%',
-                          objectFit: 'cover',
-                          display: 'block',
-                          position: 'relative',
-                          zIndex: 5,
-                          border: product.isFarmerCreated ? '3px solid #4CAF50' : 'none',
-                          filter: isProductPurchased(product)
-                            ? 'brightness(1) drop-shadow(0 0 12px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.7))'
-                            : product.isFarmerCreated
-                              ? 'brightness(1.1) drop-shadow(0 0 8px rgba(76, 175, 80, 0.6)) drop-shadow(0 0 16px rgba(76, 175, 80, 0.4))'
-                              : 'none',
-                          backgroundColor: 'transparent',
-                          padding: '0',
-                          transition: 'all 0.3s ease',
-                          transformOrigin: 'center bottom',
-
-                          animation: isProductPurchased(product)
-                            ? 'glow-pulse-white 1.5s infinite, heartbeat 2s infinite'
-                            : product.isFarmerCreated
-                              ? 'glow-farmer-created 3s infinite'
-                              : 'none',
-                          ...(harvestingIds.has(product.id) ? { animation: 'harvest-bounce 700ms ease-in-out infinite' } : {})
+                          position: 'absolute',
+                          left: '50%',
+                          top: '50%',
+                          width: `${harvestGifSize}px`,
+                          height: `${harvestGifSize}px`,
+                          transform: 'translate(-50%, -50%)',
+                          pointerEvents: 'none',
+                          zIndex: 9999,
+                          willChange: 'transform',
                         }}
                       />
-                      {/* Farmer Created Badge */}
-                      {product.isFarmerCreated && (
-                        <div style={{
-                          position: 'absolute',
-                          top: isMobile ? '-5px' : '-8px',
-                          right: isMobile ? '-5px' : '-8px',
-                          width: isMobile ? '12px' : '16px',
-                          height: isMobile ? '12px' : '16px',
-                          backgroundColor: '#4CAF50',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: isMobile ? '8px' : '10px',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          border: '2px solid white',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                          zIndex: 10
-                        }}>
-                          F
-                        </div>
-                      )}
-                    </div>
-                  </Marker>
-                );
-              }).filter(Boolean);
-            })()}
+                    )}
+                    {isProductPurchased(product) && (() => {
+                      const size = isMobile ? 46 : 60;
+                      const strokeW = isMobile ? 4 : 5;
+                      const innerR = isMobile ? 18 : 22;
+                      const { progress } = getHarvestProgressInfo(product);
+                      const grad = getRingGradientByHarvest(product);
+                      const occ = getOccupiedArea(product);
+                      const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
+                      const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
+                      const r = (size / 2) - (strokeW / 2);
+                      const circumference = 2 * Math.PI * r;
+                      const dash = Math.max(0, Math.min(circumference, progress * circumference));
+                      const path = getPiePath(innerR, occRatio);
+                      const cx = size / 2;
+                      const cy = size / 2;
+                      const ringGradId = `ringGrad-${product.id}`;
+                      const glowId = `ringGlow-${product.id}`;
+                      const rentGradId = `rentGrad-${product.id}`;
+
+                      return (
+                        <svg
+                          width={size}
+                          height={size}
+                          style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1 }}
+                        >
+                          <defs>
+                            <linearGradient id={ringGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor={grad.start} stopOpacity="0.95" />
+                              <stop offset="100%" stopColor={grad.end} stopOpacity="0.95" />
+                            </linearGradient>
+                            <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
+                              <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#FFD8A8" floodOpacity="0.45" />
+                            </filter>
+                            <radialGradient id={rentGradId} cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stopColor="rgba(33,150,243,0.7)" />
+                              <stop offset="100%" stopColor="rgba(33,150,243,0.4)" />
+                            </radialGradient>
+                          </defs>
+                          <circle cx={cx} cy={cy} r={r} stroke={'rgba(255,255,255,0.30)'} strokeWidth={strokeW} fill="none" />
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={r}
+                            stroke={`url(#${ringGradId})`}
+                            strokeWidth={strokeW}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={`${dash} ${circumference}`}
+                            strokeDashoffset={0}
+                            transform={`rotate(-90 ${cx} ${cy})`}
+                            filter={`url(#${glowId})`}
+                          />
+                          <path d={path} fill={`url(#${rentGradId})`} stroke={'rgba(33,150,243,0.85)'} strokeWidth={1.1} transform={`translate(${cx - innerR}, ${cy - innerR})`} />
+                        </svg>
+                      );
+                    })()}
+                    {(isProductPurchased(product) && isHarvestWithinGrace(product, 4)) && (() => {
+                      const modes = getShippingModes(product).map(m => (m || '').toLowerCase());
+                      const mode = modes.includes('pickup') ? 'pickup' : (modes.includes('delivery') ? 'delivery' : null);
+                      return mode ? addShippingOrbit(product, mode) : null;
+                    })()}
+                    <img
+                      src={getProductImageSrc(product)}
+                      alt={product.name || product.productName || 'Product'}
+                      onError={(e) => {
+                        // Debug: image failed, fallback to product icon
+                        // eslint-disable-next-line no-console
+                        console.warn('[Marker Image Error] Fallback to icon:', product.id, product.name, product.image);
+                        const fallback = getProductIcon(product.subcategory || product.category);
+                        if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                      }}
+                      style={{
+                        width: isMobile ? '20px' : '30px',
+                        height: isMobile ? '20px' : '30px',
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        display: 'block',
+                        position: 'relative',
+                        zIndex: 5,
+                        border: product.isFarmerCreated ? '3px solid #4CAF50' : 'none',
+                        filter: isProductPurchased(product)
+                          ? 'brightness(1) drop-shadow(0 0 12px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 25px rgba(255, 255, 255, 0.7))'
+                          : product.isFarmerCreated
+                            ? 'brightness(1.1) drop-shadow(0 0 8px rgba(76, 175, 80, 0.6)) drop-shadow(0 0 16px rgba(76, 175, 80, 0.4))'
+                            : 'none',
+                        backgroundColor: 'transparent',
+                        padding: '0',
+                        transition: 'all 0.3s ease',
+                        transformOrigin: 'center bottom',
+
+                        animation: isProductPurchased(product)
+                          ? 'glow-pulse-white 1.5s infinite, heartbeat 2s infinite'
+                          : product.isFarmerCreated
+                            ? 'glow-farmer-created 3s infinite'
+                            : 'none',
+                        ...(harvestingIds.has(product.id) ? { animation: 'harvest-bounce 700ms ease-in-out infinite' } : {})
+                      }}
+                    />
+                    {/* Farmer Created Badge */}
+                    {product.isFarmerCreated && (
+                      <div style={{
+                        position: 'absolute',
+                        top: isMobile ? '-5px' : '-8px',
+                        right: isMobile ? '-5px' : '-8px',
+                        width: isMobile ? '12px' : '16px',
+                        height: isMobile ? '12px' : '16px',
+                        backgroundColor: '#4CAF50',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: isMobile ? '8px' : '10px',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        border: '2px solid white',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                        zIndex: 10
+                      }}>
+                        F
+                      </div>
+                    )}
+                  </div>
+                </Marker>
+              );
+            }).filter(Boolean);
+          })()}
 
 
-          </MapboxMap>
-        </div>
-        </>
-        )}
+        </MapboxMap>
       </div>
 
-      {/* Map controls (Geolocation, Home) - only relevant for 2D weather map */}
+      {/* Map controls (Geolocation, Home) when weather overlay is enabled */}
       {weatherLayerEnabled && (
         <div
           style={{
@@ -3491,14 +3440,16 @@ const EnhancedFarmMap = forwardRef(({
                   (pos) => {
                     const { latitude, longitude } = pos.coords;
                     setCurrentLocation({ latitude, longitude });
-                    if (googleWeatherMapRef.current) {
-                      googleWeatherMapRef.current.flyTo({ center: [longitude, latitude], zoom: 10 });
+                    const map = mapRef.current?.getMap?.();
+                    if (map) {
+                      map.flyTo({ center: [longitude, latitude], zoom: 10 });
                     }
                   },
                   () => {
                     setCurrentLocation(null);
-                    if (googleWeatherMapRef.current) {
-                      googleWeatherMapRef.current.flyTo({ center: [15, 45], zoom: 2 });
+                    const map = mapRef.current?.getMap?.();
+                    if (map) {
+                      map.flyTo({ center: [15, 45], zoom: 2 });
                     }
                   }
                 );
@@ -3529,8 +3480,9 @@ const EnhancedFarmMap = forwardRef(({
               setSelectedProduct(null);
               setPopupPosition(null);
               setInsufficientFunds(false);
-              if (googleWeatherMapRef.current) {
-                googleWeatherMapRef.current.flyTo({ center: [15, 45], zoom: 2 });
+              const map = mapRef.current?.getMap?.();
+              if (map) {
+                map.flyTo({ center: [15, 45], zoom: 2 });
               }
             }}
             style={{
@@ -3578,8 +3530,128 @@ const EnhancedFarmMap = forwardRef(({
           }}
         >
           <Cloud sx={{ fontSize: 16 }} />
-          <span>Weather view – click the cloud icon to return</span>
+          <span>Weather overlay – click the cloud icon to hide</span>
         </Box>
+      )}
+
+      {/* Weather legend for selected layer – gradient + labels */}
+      {owmKey && weatherLayerEnabled && activeWeatherLayer && activeWeatherLayer !== 'none' && (() => {
+        const legendConfig = WEATHER_LEGEND_DATA[activeWeatherLayer];
+        if (!legendConfig || !legendConfig.stops || legendConfig.stops.length < 2) return null;
+        const min = legendConfig.stops[0].value;
+        const max = legendConfig.stops[legendConfig.stops.length - 1].value;
+        const range = max - min || 1;
+        const parts = legendConfig.stops
+          .map((s) => `${s.color} ${((s.value - min) / range) * 100}%`)
+          .join(', ');
+        const gradientCss = `linear-gradient(to right, ${parts})`;
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: !isMobile ? '72px' : 'auto',
+              top: isMobile ? '70px' : 'auto',
+              right: isMobile ? '12px' : '16px',
+              zIndex: 1000,
+              background: 'rgba(10,10,16,0.96)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              borderRadius: '10px',
+              padding: '12px 14px',
+              minWidth: '180px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.45)',
+            }}
+          >
+            <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', marginBottom: '8px' }}>
+              {legendConfig.title}
+            </div>
+            <div
+              style={{
+                height: '14px',
+                borderRadius: '6px',
+                background: gradientCss,
+                marginBottom: '6px',
+                border: '1px solid rgba(255,255,255,0.2)',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'rgba(255,255,255,0.85)' }}>
+              <span>{legendConfig.stops[0].value}{legendConfig.unit}</span>
+              <span>{legendConfig.stops[legendConfig.stops.length - 1].value}{legendConfig.unit}</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Weather layer selector – on mobile sit above bottom UI */}
+      {owmKey && weatherLayerEnabled && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: isMobile ? '100px' : '16px',
+            left: '16px',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '4px',
+          }}
+        >
+          <button
+            onClick={() => setWeatherLayerPanelOpen((p) => !p)}
+            style={{
+              background: 'rgba(15,15,20,0.9)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '8px',
+              padding: '8px 12px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            }}
+          >
+            🌤️ Weather layers {weatherLayerPanelOpen ? '▼' : '▶'}
+          </button>
+          {weatherLayerPanelOpen && (
+            <div
+              style={{
+                background: 'rgba(10,10,16,0.96)',
+                borderRadius: '8px',
+                padding: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+                minWidth: '160px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              }}
+            >
+              {OWM_LAYERS.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => setActiveWeatherLayer(l.id)}
+                  style={{
+                    background: activeWeatherLayer === l.id ? 'rgba(76, 175, 80, 0.4)' : 'transparent',
+                    color: '#fff',
+                    border: activeWeatherLayer === l.id ? '1px solid #4CAF50' : '1px solid transparent',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  {l.Icon && <l.Icon sx={{ fontSize: 16 }} />}
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Top-left controls: weather + delivery – same circle UI as header notification/message icons */}
@@ -3901,7 +3973,7 @@ const EnhancedFarmMap = forwardRef(({
       </Dialog>
 
       {/* Custom Scale Bar - Mapbox only; Google Maps 2D has different API */}
-      <CustomScaleBar map={!weatherLayerEnabled ? mapRef.current?.getMap() : null} />
+      <CustomScaleBar map={mapRef.current?.getMap()} />
 
       <div ref={harvestLayerRef} style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1050 }}>
         {harvestGifs.map(g => (
