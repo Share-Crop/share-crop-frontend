@@ -577,11 +577,10 @@ const EnhancedHeader = forwardRef(({
       },
       {
         id: 'main',
-        title: 'Farms & Fields',
+        title: 'Rented Fields',
         items: [
-          { text: 'My Fields', icon: <Landscape />, path: isFarmer ? '/farmer/rented-fields' : '/buyer/rented-fields' },
+          { text: 'Rented Fields', icon: <Landscape />, path: isFarmer ? '/farmer/rented-fields' : '/buyer/rented-fields' },
           { text: 'My Orders', icon: <History />, path: isFarmer ? '/farmer/orders' : '/buyer/orders' },
-          { text: 'Profile', icon: <Person />, path: isFarmer ? '/farmer/profile' : '/buyer/profile' },
         ]
       },
       {
@@ -589,7 +588,7 @@ const EnhancedHeader = forwardRef(({
         title: isFarmer ? 'Farmer' : 'Information',
         items: [
           { text: 'My Farms', icon: <Agriculture />, path: '/farmer/my-farms' },
-          { text: 'Farm Orders', icon: <Receipt />, path: '/farmer/farm-orders' },
+          { text: 'Rented out Fields', icon: <Receipt />, path: '/farmer/farm-orders' },
           { text: 'License Info', icon: <Nature />, path: isFarmer ? '/farmer/license-info' : '/buyer/license-info' },
           { text: 'Transaction', icon: <AccountBalance />, path: isFarmer ? '/farmer/transaction' : '/buyer/transaction' },
         ]
@@ -1586,7 +1585,7 @@ const EnhancedHeader = forwardRef(({
           }}
         >
           <Box sx={{ p: isMobile ? 1.5 : 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: isMobile ? 1.5 : 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
               <Typography
                 variant="h6"
                 sx={{
@@ -1601,43 +1600,64 @@ const EnhancedHeader = forwardRef(({
               </IconButton>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: isMobile ? 1.5 : 2 }}>
-              <Avatar
-                src={user?.profile_image_url}
-                sx={{
-                  mr: isMobile ? 1.5 : 2,
-                  bgcolor: 'primary.main',
-                  width: isMobile ? 36 : 40,
-                  height: isMobile ? 36 : 40,
-                  fontSize: isMobile ? '0.9rem' : '1rem'
-                }}
-              >
-                {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
-              </Avatar>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography
-                  variant="body1"
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: isMobile ? 1.5 : 2, mt: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1 }}>
+                <Avatar
+                  src={user?.profile_image_url}
                   sx={{
-                    fontWeight: 'bold',
-                    fontSize: isMobile ? '0.9rem' : '1rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
+                    mr: isMobile ? 1.5 : 2,
+                    bgcolor: 'primary.main',
+                    width: isMobile ? 36 : 40,
+                    height: isMobile ? 36 : 40,
+                    fontSize: isMobile ? '0.9rem' : '1rem'
                   }}
                 >
-                  {user?.name?.split(' ')[0] || user?.name || 'User'}
-                </Typography>
-                <Chip
-                  label={user?.user_type || 'User'}
-                  size="small"
-                  color={user?.user_type === 'farmer' ? 'primary' : 'secondary'}
-                  sx={{
-                    textTransform: 'capitalize',
-                    fontSize: isMobile ? '0.7rem' : '0.75rem',
-                    height: isMobile ? 20 : 24
-                  }}
-                />
+                  {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      fontWeight: 'bold',
+                      fontSize: isMobile ? '0.9rem' : '1rem',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {user?.name?.split(' ')[0] || user?.name || 'User'}
+                  </Typography>
+                  <Chip
+                    label={user?.user_type || 'User'}
+                    size="small"
+                    color={user?.user_type === 'farmer' ? 'primary' : 'secondary'}
+                    sx={{
+                      textTransform: 'capitalize',
+                      fontSize: isMobile ? '0.7rem' : '0.75rem',
+                      height: isMobile ? 20 : 24
+                    }}
+                  />
+                </Box>
               </Box>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<Person sx={{ fontSize: 16 }} />}
+                onClick={() => {
+                  const path = userType === 'farmer' ? '/farmer/profile' : '/buyer/profile';
+                  navigate(path);
+                  setDrawerOpen(false);
+                }}
+                sx={{
+                  ml: 1,
+                  fontSize: '0.75rem',
+                  textTransform: 'none',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                Profile
+              </Button>
             </Box>
           </Box>
 

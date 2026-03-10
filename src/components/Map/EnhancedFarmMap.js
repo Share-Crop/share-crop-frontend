@@ -2414,10 +2414,29 @@ const EnhancedFarmMap = forwardRef(({
         // The purchase status is now managed via the database, so we just update the local UI state
         // In a full implementation, we would reload the fields from the API to get updated status
 
-        // If this is a farmer-created field, farm orders and notifications are managed via API above.
-        // (Order creation and farmer notification already handled; no hardcoded owner/buyer.)
-        if (product.isFarmerCreated) {
-          // Notification already sent above for product.farmer_id / product.owner_id
+        // Notify buyer that chat with the field owner is now unlocked
+        try {
+          const ownerId = product.farmer_id || product.created_by;
+          const ownerName = product.farmer_name || 'field owner';
+          if (ownerId) {
+            if (onNotification) {
+              onNotification(
+                `Chat unlocked! You can now message ${ownerName} about "${product.name}" from the Messages screen.`,
+                'info'
+              );
+            }
+            try {
+              await notificationsService.create({
+                user_id: currentUser.id,
+                message: `Chat unlocked with ${ownerName} for your order on "${product.name}". Open Messages to start chatting.`,
+                type: 'info'
+              });
+            } catch (notifError) {
+              console.error('Failed to create buyer chat notification:', notifError);
+            }
+          }
+        } catch (e) {
+          console.error('Chat unlock notification error:', e);
         }
 
       } catch (error) {
@@ -2501,6 +2520,31 @@ const EnhancedFarmMap = forwardRef(({
       });
       if (onNotification) {
         onNotification(`Rented ${quantity}m² of "${product.name || 'field'}" until ${endDate}.`, 'success');
+      }
+
+      // Notify buyer that chat with the field owner is now unlocked for this rental
+      try {
+        const ownerId = product.farmer_id || product.created_by;
+        const ownerName = product.farmer_name || 'field owner';
+        if (ownerId) {
+          if (onNotification) {
+            onNotification(
+              `Chat unlocked! You can now message ${ownerName} about your rental of "${product.name || 'field'}".`,
+              'info'
+            );
+          }
+          try {
+            await notificationsService.create({
+              user_id: currentUser.id,
+              message: `Chat unlocked with ${ownerName} for your rental of "${product.name || 'field'}". Open Messages to start chatting.`,
+              type: 'info'
+            });
+          } catch (notifError) {
+            console.error('Failed to create buyer rental chat notification:', notifError);
+          }
+        }
+      } catch (e) {
+        console.error('Rental chat unlock notification error:', e);
       }
       setSelectedProduct(null);
       setQuantity(1);
@@ -3052,6 +3096,16 @@ const EnhancedFarmMap = forwardRef(({
                       const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
                       const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
                       if (!ownerId || isOwner) return null;
+
+                      // Only enable chat when the current user has an order/purchase for this field
+                      const fieldKey = String(selectedProduct?.id ?? selectedProduct?.field_id ?? '');
+                      const purchaseEntry = purchasedProducts.find(p => String(p.id ?? p.field_id) === fieldKey);
+                      const hasOrderInProgress = !!purchaseEntry && (
+                        purchaseEntry.last_order_purchased === true ||
+                        (typeof purchaseEntry.purchased_area === 'number' && purchaseEntry.purchased_area > 0)
+                      );
+                      if (!hasOrderInProgress) return null;
+
                       const messagesPath = userType === 'farmer' ? '/farmer/messages' : '/buyer/messages';
                       return (
                         <button
@@ -3161,8 +3215,10 @@ const EnhancedFarmMap = forwardRef(({
           }}
         >
 
-          <NavigationControl position="top-right" style={{ marginTop: embedded ? '55px' : (isMobile ? '80px' : '110px'), marginRight: '10px' }} />
-          <FullscreenControl position="top-right" style={{ marginTop: embedded ? '10px' : (isMobile ? '30px' : '35px'), marginRight: '10px' }} />
+          {/* Zoom controls pinned to very top-right */}
+          <NavigationControl position="top-right" style={{ marginTop: 10, marginRight: 10 }} />
+          {/* Fullscreen button just below locate/home stack, not too low */}
+          {/* <FullscreenControl position="top-right" style={{ marginTop: 120, marginRight: 10 }} /> */}
 
           {/* Current Location Marker with Pulsing Animation */}
           {currentLocation && (
@@ -3293,14 +3349,13 @@ const EnhancedFarmMap = forwardRef(({
                       const size = isMobile ? 46 : 60;
                       const strokeW = isMobile ? 4 : 5;
                       const innerR = isMobile ? 18 : 22;
-                      const { progress } = getHarvestProgressInfo(product);
                       const grad = getRingGradientByHarvest(product);
                       const occ = getOccupiedArea(product);
                       const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
                       const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
                       const r = (size / 2) - (strokeW / 2);
                       const circumference = 2 * Math.PI * r;
-                      const dash = Math.max(0, Math.min(circumference, progress * circumference));
+                      const dash = Math.max(0, Math.min(circumference, occRatio * circumference));
                       const path = getPiePath(innerR, occRatio);
                       const cx = size / 2;
                       const cy = size / 2;
@@ -3420,12 +3475,12 @@ const EnhancedFarmMap = forwardRef(({
         </MapboxMap>
       </div>
 
-      {/* Map controls (Geolocation, Home) when weather overlay is enabled */}
-      {weatherLayerEnabled && (
+      {/* Map controls (Geolocation, Home) – always visible, placed below zoom/fullscreen controls */}
+      {true && (
         <div
           style={{
             position: 'absolute',
-            top: embedded ? (isMobile ? '110px' : '120px') : (isMobile ? '220px' : '265px'),
+            top: 100,
             right: '10px',
             zIndex: 100,
             display: 'flex',

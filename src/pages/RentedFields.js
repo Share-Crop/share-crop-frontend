@@ -786,7 +786,7 @@ const RentedFields = () => {
                 fontSize: '1.75rem'
               }}
             >
-              My Fields
+              Rented fields
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
               View and manage your owned and rented fields

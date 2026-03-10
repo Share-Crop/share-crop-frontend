@@ -163,6 +163,12 @@ const Orders = () => {
     }
   };
 
+  const getStatusLabel = (status) => {
+    const value = (status || '').toLowerCase();
+    if (value === 'pending') return 'active';
+    return status || 'pending';
+  };
+
   const handleReportClick = () => {
     setReportOpen(true);
   };
@@ -648,7 +654,7 @@ const Orders = () => {
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
                         <Chip
-                          label={order.status}
+                          label={getStatusLabel(order.status)}
                           color={getStatusColor(order.status)}
                           size="small"
                           sx={{
@@ -863,7 +869,7 @@ const Orders = () => {
                       </Typography>
                       <Box sx={{ mt: 0.5 }}>
                         <Chip
-                          label={selectedOrder.status}
+                          label={getStatusLabel(selectedOrder.status)}
                           color={getStatusColor(selectedOrder.status)}
                           size="small"
                           sx={{

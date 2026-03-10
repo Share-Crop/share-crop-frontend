@@ -63,13 +63,14 @@ const Sidebar = ({ user, onLogout, open, onClose }) => {
     { text: 'My Fields', icon: <Agriculture />, path: '/farmer/fields' },
     { text: 'Products', icon: <Store />, path: '/farmer/products' },
     { text: 'Orders', icon: <ShoppingCart />, path: '/farmer/farm-orders' },
+    { text: 'Profile', icon: <Person />, path: '/farmer/profile' },
     { text: 'Map View', icon: <Map />, path: '/farmer/map' },
     { text: 'Complaints', icon: <ReportProblem />, path: '/farmer/complaints' },
   ];
 
   const buyerMenuItems = [
     { text: 'Home', icon: <Home />, path: '/' },
-    { text: 'My Fields', icon: <Landscape />, path: '/buyer/rented-fields' },
+    { text: 'Rented Fields', icon: <Landscape />, path: '/buyer/rented-fields' },
     { text: 'My Orders', icon: <History />, path: '/buyer/orders' },
     { text: 'Profile', icon: <Person />, path: '/buyer/profile' },
     { text: 'Messages', icon: <Message />, path: '/buyer/messages' },
