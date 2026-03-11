@@ -353,55 +353,36 @@ const Orders = () => {
         </Stack>
 
         {/* Stats Overview */}
-        <Grid
-          container
-          spacing={2}
-          sx={{
-            mb: 3,
-            maxWidth: { xs: 480, md: '100%' },
-            mx: { xs: 'auto', md: 0 },
-          }}
-        >
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<ShoppingCart sx={{ fontSize: 20 }} />}
-              iconBg="#dbeafe"
-              iconColor="#1d4ed8"
-              value={orders.length}
-              label="Total Orders"
-            />
-          </Grid>
-
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<LocalShipping sx={{ fontSize: 20 }} />}
-              iconBg="#dcfce7"
-              iconColor="#059669"
-              value={activeOrders}
-              label="Active Orders"
-            />
-          </Grid>
-
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<TrendingUp sx={{ fontSize: 20 }} />}
-              iconBg="#fef3c7"
-              iconColor="#d97706"
-              value={`$${totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              label="Total Spent"
-            />
-          </Grid>
-
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Assessment sx={{ fontSize: 20 }} />}
-              iconBg="#f3e8ff"
-              iconColor="#7c3aed"
-              value={`${completionRate.toFixed(0)}%`}
-              label="Completion Rate"
-            />
-          </Grid>
-        </Grid>
+        <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
+          <StatCard
+            icon={<ShoppingCart sx={{ fontSize: 20 }} />}
+            iconBg="#dbeafe"
+            iconColor="#1d4ed8"
+            value={orders.length}
+            label="Total Orders"
+          />
+          <StatCard
+            icon={<LocalShipping sx={{ fontSize: 20 }} />}
+            iconBg="#dcfce7"
+            iconColor="#059669"
+            value={activeOrders}
+            label="Active Orders"
+          />
+          <StatCard
+            icon={<TrendingUp sx={{ fontSize: 20 }} />}
+            iconBg="#fef3c7"
+            iconColor="#d97706"
+            value={`$${totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label="Total Spent"
+          />
+          <StatCard
+            icon={<Assessment sx={{ fontSize: 20 }} />}
+            iconBg="#f3e8ff"
+            iconColor="#7c3aed"
+            value={`${completionRate.toFixed(0)}%`}
+            label="Completion Rate"
+          />
+        </div>
 
         {/* Filter Buttons */}
         <Paper

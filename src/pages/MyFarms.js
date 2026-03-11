@@ -577,250 +577,142 @@ const MyFarms = () => {
         </Stack>
 
         {/* Stats Overview */}
-        <Grid
-          container
-          spacing={2}
-          sx={{
-            mb: 3,
-            maxWidth: { xs: 480, md: '100%' },
-            mx: { xs: 'auto', md: 0 },
-          }}
-        >
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Agriculture sx={{ fontSize: 20 }} />}
-              iconBg="#dbeafe"
-              iconColor="#1d4ed8"
-              value={totalFarms}
-              label="Total Farms"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Nature sx={{ fontSize: 20 }} />}
-              iconBg="#dcfce7"
-              iconColor="#16a34a"
-              value={activeFarms}
-              label="Active Farms"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<TrendingUp sx={{ fontSize: 20 }} />}
-              iconBg="#ffedd5"
-              iconColor="#ea580c"
-              value={formatCurrency(totalMonthlyRevenue)}
-              label="Monthly Revenue"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Assessment sx={{ fontSize: 20 }} />}
-              iconBg="#e0e7ff"
-              iconColor="#4f46e5"
-              value={`${avgProgress}%`}
-              label="Avg. Occupied Area"
-            />
-          </Grid>
-        </Grid>
+        <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
+          <StatCard
+            icon={<Agriculture sx={{ fontSize: 20 }} />}
+            iconBg="#dbeafe"
+            iconColor="#1d4ed8"
+            value={totalFarms}
+            label="Total Farms"
+          />
+          <StatCard
+            icon={<Nature sx={{ fontSize: 20 }} />}
+            iconBg="#dcfce7"
+            iconColor="#16a34a"
+            value={activeFarms}
+            label="Active Farms"
+          />
+          <StatCard
+            icon={<TrendingUp sx={{ fontSize: 20 }} />}
+            iconBg="#ffedd5"
+            iconColor="#ea580c"
+            value={formatCurrency(totalMonthlyRevenue)}
+            label="Monthly Revenue"
+          />
+          <StatCard
+            icon={<Assessment sx={{ fontSize: 20 }} />}
+            iconBg="#e0e7ff"
+            iconColor="#4f46e5"
+            value={`${avgProgress}%`}
+            label="Avg. Occupied Area"
+          />
+        </div>
 
-        {/* Farms List */}
-        <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            md: 'repeat(3, 1fr)'
-          },
-          gap: 3,
-          alignItems: 'stretch',
-          width: '100%'
-        }}>
+        {/* Farms List - Tailwind cards */}
+        <div className="grid w-full gap-4 sm:grid-cols-2 md:grid-cols-3">
           {displayedFarms.map((farm) => (
-            <Card
+            <div
               key={farm.id}
-              elevation={0}
-              sx={{
-                height: 450,
-                minHeight: 450,
-                maxHeight: 450,
-                minWidth: 0,
-                maxWidth: '100%',
-                width: '100%',
-                borderRadius: 2,
-                border: '1px solid #e5e7eb',
-                backgroundColor: '#ffffff',
-                transition: 'all 0.2s ease-in-out',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                '&:hover': {
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                  transform: 'translateY(-2px)'
-                }
-              }}
               onClick={() => handleFarmClick(farm)}
+              className="flex h-[400px] min-h-[400px] max-h-[400px] w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
             >
-              <CardContent sx={{
-                p: 2.5,
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                justifyContent: 'space-between',
-                minWidth: 0,
-                width: '100%',
-                boxSizing: 'border-box'
-              }}>
+              <div className="flex h-full w-full flex-col p-3 box-border">
                 {/* Top Section */}
-                <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-                  {/* Farm name title */}
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.1rem', mb: 0.5 }} noWrap title={farm.name}>
-                    {farm.name || 'Unnamed Farm'}
-                  </Typography>
-                  {/* Header with location and Edit */}
-                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5} mb={1}>
-                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
-                      <LocationOn sx={{ fontSize: 16, color: '#6b7280', flexShrink: 0 }} />
-                      <Typography variant="body2" color="#6b7280" sx={{ fontSize: '0.875rem' }} noWrap>
-                        {farm.location}
-                      </Typography>
-                    </Stack>
-                    <IconButton
-                      size="small"
+                <div className="w-full min-w-0">
+                  {/* Header: name + location + edit */}
+                  <div className="mb-1 flex items-start justify-between gap-1">
+                    <div className="min-w-0">
+                      <div
+                        className="mb-0.5 truncate text-[1.05rem] font-semibold text-slate-900"
+                        title={farm.name}
+                      >
+                        {farm.name || 'Unnamed Farm'}
+                      </div>
+                      <div className="flex items-center gap-1 text-xs text-slate-500 min-w-0">
+                        <LocationOn sx={{ fontSize: 16, color: '#6b7280', flexShrink: 0 }} />
+                        <span className="truncate">{farm.location}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); openEditFarm(farm); }}
-                      sx={{ color: '#4caf50', flexShrink: 0, '&:hover': { bgcolor: 'rgba(76, 175, 80, 0.1)' } }}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
                       title="Edit farm"
                     >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
+                      <EditIcon sx={{ fontSize: 16 }} />
+                    </button>
+                  </div>
 
-                  {/* Status Badge */}
-                  <Box sx={{ mb: 2 }}>
-                    <Chip
-                      label={farm.status}
-                      size="small"
-                      sx={{
-                        backgroundColor: '#dcfce7',
-                        color: '#166534',
-                        fontSize: '0.75rem',
-                        height: 24,
-                        fontWeight: 600,
-                        borderRadius: 1
-                      }}
-                    />
-                  </Box>
+                  {/* Status badge */}
+                  <div className="mb-2">
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[0.7rem] font-semibold text-emerald-700">
+                      {farm.status}
+                    </span>
+                  </div>
 
-                  {/* Farm Details in Rows */}
-                  <Stack spacing={1.5} mb={2.5}>
-                    {/* Crop Type Row */}
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                  {/* Farm details rows */}
+                  <div className="mb-3 space-y-1.5 text-sm">
+                    <div className="flex items-center gap-1">
                       <Park sx={{ fontSize: 16, color: '#10b981' }} />
-                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#374151' }}>
-                        Crop Type
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', ml: 'auto' }}>
-                        {farm.cropType}
-                      </Typography>
-                    </Stack>
-
-                    {/* Area Row */}
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <span className="text-slate-600">Crop Type</span>
+                      <span className="ml-auto font-semibold text-slate-900">{farm.cropType}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
                       <Terrain sx={{ fontSize: 16, color: '#8b5cf6' }} />
-                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#374151' }}>
-                        Area
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', ml: 'auto' }}>
+                      <span className="text-slate-600">Area</span>
+                      <span className="ml-auto font-semibold text-slate-900">
                         {farm.areaValue} {farm.areaUnit}
-                      </Typography>
-                    </Stack>
-
-                    {/* Soil Type Row */}
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
                       <Nature sx={{ fontSize: 16, color: '#f59e0b' }} />
-                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#374151' }}>
-                        Soil Type
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', ml: 'auto' }}>
-                        {farm.soilType}
-                      </Typography>
-                    </Stack>
-
-                    {/* Irrigation Row */}
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <span className="text-slate-600">Soil Type</span>
+                      <span className="ml-auto font-semibold text-slate-900">{farm.soilType}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
                       <WaterDrop sx={{ fontSize: 16, color: '#3b82f6' }} />
-                      <Typography variant="body2" sx={{ fontWeight: 500, color: '#374151' }}>
-                        Irrigation
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', ml: 'auto' }}>
-                        {farm.irrigationType}
-                      </Typography>
-                    </Stack>
-                  </Stack>
+                      <span className="text-slate-600">Irrigation</span>
+                      <span className="ml-auto font-semibold text-slate-900">{farm.irrigationType}</span>
+                    </div>
+                  </div>
 
-                  {/* Occupied Area Section */}
-                  <Box sx={{ mb: 2.5 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500, color: '#374151', mb: 1.5 }}>
-                      Occupied Area
-                    </Typography>
-                    <LinearProgress
-                      variant="determinate"
-                      value={farm.progress}
-                      sx={{
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: '#e5e7eb',
-                        '& .MuiLinearProgress-bar': {
-                          backgroundColor: '#3b82f6',
-                          borderRadius: 4
-                        }
-                      }}
-                    />
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#111827', mt: 0.5, textAlign: 'right' }}>
+                  {/* Occupied area progress */}
+                  <div className="mb-3">
+                    <div className="mb-1.5 text-sm font-medium text-slate-700">Occupied Area</div>
+                    <div className="h-2 w-full rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-sky-500 transition-all"
+                        style={{ width: `${farm.progress}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 text-right text-xs font-semibold text-slate-800">
                       {farm.progress}%
-                    </Typography>
-                  </Box>
-                </Box>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Bottom Section */}
-                <Box sx={{ minWidth: 0, width: '100%' }}>
-                  {/* Revenue */}
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#111827', mb: 2.5 }}>
+                <div className="w-full">
+                  <div className="mb-2.5 text-base font-semibold text-slate-900">
                     {formatCurrency(farm.monthlyRevenue)}
-                    <Typography component="span" variant="body2" sx={{ color: '#6b7280', fontWeight: 400 }}>
-                      /month
-                    </Typography>
-                  </Typography>
-
-                  {/* Action Button */}
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    size="small"
-                    startIcon={<Visibility />}
+                    <span className="ml-1 text-xs font-normal text-slate-500">/month</span>
+                  </div>
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleFarmClick(farm);
                     }}
-                    sx={{
-                      borderRadius: 1.5,
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      fontSize: '0.75rem',
-                      bgcolor: '#4caf50',
-                      color: 'white',
-                      py: 1
-
-                    }}
+                    className="flex w-full items-center justify-center gap-1 rounded-xl bg-emerald-500 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-600"
                   >
-                    View Details
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
+                    <Visibility sx={{ fontSize: 16 }} />
+                    <span>View Details</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           ))}
-        </Box>
+        </div>
 
         {/* Pagination Controls */}
         {displayFarms.length > itemsPerPage && (
@@ -891,367 +783,197 @@ const MyFarms = () => {
           </Box>
         )}
 
-        {/* Farm Detail Modal */}
-        <Dialog
-          open={farmDetailOpen}
-          onClose={handleCloseFarmDetail}
-          maxWidth="md"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: 3,
-              maxHeight: '90vh'
-            }
-          }}
-        >
-          <DialogTitle sx={{ pb: 1 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                  {selectedFarm?.name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Farm Details & Affiliated Fields
-                </Typography>
-              </Box>
-              <Stack direction="row" alignItems="center" spacing={0.5}>
-                <IconButton onClick={() => selectedFarm && openEditFarm(selectedFarm)} sx={{ color: '#4caf50' }} title="Edit farm">
-                  <EditIcon />
-                </IconButton>
-                <IconButton onClick={handleCloseFarmDetail} sx={{ color: '#64748b' }}>
-                  <Close />
-                </IconButton>
-              </Stack>
-            </Stack>
-          </DialogTitle>
-          <DialogContent sx={{ mt: 2 }}>
-            {selectedFarm && (
-              <Box>
-                {/* Farm Image */}
+        {/* Farm Detail Modal - Tailwind overlay */}
+        {farmDetailOpen && selectedFarm && (
+          <div
+            className="fixed inset-0 z-50 flex justify-center bg-black/40"
+            style={{
+              alignItems: 'flex-start',
+              paddingTop: 'calc(var(--app-header-height, 64px) + 12px)',
+            }}
+          >
+            <div className="max-h-[calc(90vh-var(--app-header-height,64px))] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl md:p-6">
+              {/* Header */}
+              <div className="mb-4 flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {selectedFarm.name}
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Farm details &amp; affiliated fields
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => selectedFarm && openEditFarm(selectedFarm)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                    title="Edit farm"
+                  >
+                    <EditIcon sx={{ fontSize: 18 }} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCloseFarmDetail}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  >
+                    <Close sx={{ fontSize: 18 }} />
+                  </button>
+                </div>
+              </div>
 
+              {/* Farm info + metrics */}
+              <div className="mb-4 grid gap-3 md:grid-cols-2">
+                <div className="flex min-height-[80px] flex-col rounded-xl bg-slate-50 p-3">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                    Farm Information
+                  </h3>
+                  <div className="flex flex-1 flex-col gap-1.5 text-sm text-slate-700">
+                    <div className="flex items-center gap-1.5">
+                      <LocationOn sx={{ fontSize: 18, color: '#3b82f6' }} />
+                      <span>{selectedFarm.location}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Park sx={{ fontSize: 18, color: '#10b981' }} />
+                      <span>{selectedFarm.cropType}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Terrain sx={{ fontSize: 18, color: '#8b5cf6' }} />
+                      <span>
+                        {selectedFarm.areaValue} {selectedFarm.areaUnit} • {selectedFarm.soilType}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <WaterDrop sx={{ fontSize: 18, color: '#06b6d4' }} />
+                      <span>{selectedFarm.irrigationType}</span>
+                    </div>
+                  </div>
+                </div>
 
-                {/* Farm Information */}
-                <Grid container spacing={3} mb={3}>
-                  <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 2, backgroundColor: '#f8fafc', borderRadius: 2, minHeight: '80px', display: 'flex', flexDirection: 'column' }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                        Farm Information
-                      </Typography>
-                      <Stack spacing={1.5} sx={{ flex: 1 }}>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <LocationOn sx={{ fontSize: 18, color: '#3b82f6' }} />
-                          <Typography variant="body2">{selectedFarm.location}</Typography>
-                        </Stack>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <Park sx={{ fontSize: 18, color: '#10b981' }} />
-                          <Typography variant="body2">{selectedFarm.cropType}</Typography>
-                        </Stack>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <Terrain sx={{ fontSize: 18, color: '#8b5cf6' }} />
-                          <Typography variant="body2">{selectedFarm.areaValue} {selectedFarm.areaUnit} • {selectedFarm.soilType}</Typography>
-                        </Stack>
-                        <Stack direction="row" alignItems="center" spacing={1}>
-                          <WaterDrop sx={{ fontSize: 18, color: '#06b6d4' }} />
-                          <Typography variant="body2">{selectedFarm.irrigationType}</Typography>
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 2, backgroundColor: '#f0fdf4', borderRadius: 2, minHeight: '80px', display: 'flex', flexDirection: 'column' }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                        Performance Metrics
-                      </Typography>
-                      <Stack spacing={2.5} sx={{ flex: 1, justifyContent: 'space-between' }}>
-                        <Box>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                            <Typography variant="body2" color="text.secondary">Occupied Area</Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{selectedFarm.progress}%</Typography>
-                          </Stack>
-                          <LinearProgress
-                            variant="determinate"
-                            value={selectedFarm.progress}
-                            sx={{
-                              height: 8,
-                              borderRadius: 4,
-                              backgroundColor: '#e2e8f0',
-                              '& .MuiLinearProgress-bar': {
-                                backgroundColor: '#10b981',
-                                borderRadius: 4
-                              }
-                            }}
-                          />
-                        </Box>
-                        <Stack direction="row" justifyContent="space-between">
-                          <Typography variant="body2" color="text.secondary">Monthly Revenue</Typography>
-                          <Typography variant="body1" sx={{ fontWeight: 700, color: '#10b981' }}>
-                            {formatCurrency(selectedFarm.monthlyRevenue)}
-                          </Typography>
-                        </Stack>
-                        <Stack direction="row" justifyContent="space-between">
-                          <Typography variant="body2" color="text.secondary">Status</Typography>
-                          <Chip
-                            label={selectedFarm.status}
-                            color={getStatusColor(selectedFarm.status)}
-                            size="small"
-                            sx={{
-                              fontWeight: 600,
-                              ...(selectedFarm.status === 'Active' && {
-                                color: '#ffffff'
-                              })
-                            }}
-                          />
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  </Grid>
-                </Grid>
+                <div className="flex min-h-[80px] flex-col rounded-xl bg-emerald-50 p-3">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                    Performance Metrics
+                  </h3>
+                  <div className="flex flex-1 flex-col justify-between gap-3 text-sm">
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                        <span>Occupied Area</span>
+                        <span className="font-semibold text-slate-900">
+                          {selectedFarm.progress}%
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-200">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${selectedFarm.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Monthly Revenue</span>
+                      <span className="text-sm font-semibold text-emerald-600">
+                        {formatCurrency(selectedFarm.monthlyRevenue)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Status</span>
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-semibold"
+                        style={{
+                          backgroundColor:
+                            selectedFarm.status === 'Active' ? '#22c55e' : '#e5e7eb',
+                          color:
+                            selectedFarm.status === 'Active' ? '#ffffff' : '#374151',
+                        }}
+                      >
+                        {selectedFarm.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                {/* Affiliated Fields */}
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                    Affiliated Fields
-                  </Typography>
-                  <Grid container spacing={2}>
-                    {/* Show fields associated with this farm */}
-                    {myFields.filter(field => field.farmId === selectedFarm?.id || field.farm_id === selectedFarm?.id).length > 0 ? (
-                      myFields
-                        .filter(field => field.farmId === selectedFarm?.id || field.farm_id === selectedFarm?.id)
-                        .map((field) => (
-                          <Grid item xs={12} sm={6} md={4} key={field.id}>
-                            <Card
-                              sx={{
-                                height: 220,
-                                minHeight: 220,
-                                maxHeight: 220,
-                                width: '195px',
-                                borderRadius: 2,
-                                border: '1px solid #e5e7eb',
-                                backgroundColor: '#ffffff',
-                                transition: 'all 0.2s ease-in-out',
-                                '&:hover': {
-                                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                                  transform: 'translateY(-2px)'
-                                }
-                              }}
-                            >
-                              <CardContent sx={{
-                                p: 2,
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                justifyContent: 'space-between'
-                              }}>
-                                <Box sx={{ flex: 1 }}>
-                                  {/* Field Header */}
-                                  <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#111827', fontSize: '0.9rem' }}>
-                                      {field.name}
-                                    </Typography>
-                                    <Chip
-                                      label={field.status}
-                                      size="small"
-                                      sx={{
-                                        backgroundColor: '#dcfce7',
-                                        color: '#166534',
-                                        fontSize: '0.7rem',
-                                        height: 20,
-                                        fontWeight: 600
-                                      }}
-                                    />
-                                  </Stack>
+              {/* Affiliated fields */}
+              <div className="mt-3">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                  Affiliated Fields
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  {myFields.filter(field => field.farmId === selectedFarm?.id || field.farm_id === selectedFarm?.id).length > 0 ? (
+                    myFields
+                      .filter(field => field.farmId === selectedFarm?.id || field.farm_id === selectedFarm?.id)
+                      .map((field) => (
+                        <div
+                          key={field.id}
+                          className="flex h-[220px] min-h-[220px] max-h-[220px] w-full flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                        >
+                          <div className="flex-1">
+                            <div className="mb-1 flex items-center justify-between gap-1">
+                              <div className="truncate text-sm font-semibold text-slate-900">
+                                {field.name}
+                              </div>
+                              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[0.7rem] font-semibold text-emerald-700">
+                                {field.status}
+                              </span>
+                            </div>
+                            <div className="mb-1.5 space-y-0.5 text-xs text-slate-600">
+                              <div className="flex items-center gap-1">
+                                <Park sx={{ fontSize: 14, color: '#10b981' }} />
+                                <span>{field.cropType}</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Terrain sx={{ fontSize: 14, color: '#8b5cf6' }} />
+                                <span>{field.area}</span>
+                              </div>
+                              {field.soilType && (
+                                <div className="flex items-center gap-1">
+                                  <Nature sx={{ fontSize: 14, color: '#f59e0b' }} />
+                                  <span>{field.soilType}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div className="h-1.5 w-full rounded-full bg-slate-200">
+                                <div
+                                  className="h-full rounded-full bg-sky-500"
+                                  style={{ width: `${field.progress}%` }}
+                                />
+                              </div>
+                              <div className="mt-0.5 text-right text-[0.7rem] text-slate-500">
+                                {field.progress}% Occupied
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-1 text-xs font-semibold text-emerald-600">
+                            {formatCurrency(field.monthlyRevenue || 0)}
+                            <span className="ml-1 text-[0.65rem] font-normal text-slate-500">
+                              /month
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <p className="col-span-full text-xs text-slate-500">
+                      No fields associated with this farm yet.
+                    </p>
+                  )}
+                </div>
+              </div>
 
-                                  {/* Field Details */}
-                                  <Stack spacing={0.5} mb={1.5}>
-                                    <Stack direction="row" alignItems="center" spacing={1}>
-                                      <Park sx={{ fontSize: 14, color: '#10b981' }} />
-                                      <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                        {field.cropType}
-                                      </Typography>
-                                    </Stack>
-                                    <Stack direction="row" alignItems="center" spacing={1}>
-                                      <Terrain sx={{ fontSize: 14, color: '#8b5cf6' }} />
-                                      <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                        {field.area}
-                                      </Typography>
-                                    </Stack>
-                                    <Stack direction="row" alignItems="center" spacing={1}>
-                                      <Nature sx={{ fontSize: 14, color: '#f59e0b' }} />
-                                      <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                        {field.soilType}
-                                      </Typography>
-                                    </Stack>
-                                  </Stack>
-
-                                  {/* Field Occupied Area */}
-                                  <Box sx={{ mb: 1 }}>
-                                    <LinearProgress
-                                      variant="determinate"
-                                      value={field.progress}
-                                      sx={{
-                                        height: 6,
-                                        borderRadius: 3,
-                                        backgroundColor: '#e5e7eb',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: '#3b82f6',
-                                          borderRadius: 3
-                                        }
-                                      }}
-                                    />
-                                    <Typography variant="caption" sx={{ color: '#6b7280', fontSize: '0.7rem' }}>
-                                      {field.progress}% Occupied
-                                    </Typography>
-                                  </Box>
-                                </Box>
-
-                                {/* Field Revenue */}
-                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#10b981', fontSize: '0.85rem', marginBottom: '30px' }}>
-                                  {formatCurrency(field.monthlyRevenue)}/month
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))
-                    ) : (
-                      selectedFarm?.fields?.length > 0 ? (
-                        selectedFarm.fields.map((field) => (
-                          <Grid item xs={12} sm={6} md={4} key={field.id}>
-                            <Card
-                              sx={{
-                                height: 280,
-                                minHeight: 280,
-                                maxHeight: 280,
-                                width: '100%',
-                                borderRadius: 2,
-                                border: '1px solid #e5e7eb',
-                                backgroundColor: '#ffffff',
-                                transition: 'all 0.2s ease-in-out',
-                                '&:hover': {
-                                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                                  transform: 'translateY(-2px)'
-                                }
-                              }}
-                            >
-                              <CardContent sx={{
-                                p: 2,
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                justifyContent: 'space-between'
-                              }}>
-                                <Box sx={{ flex: 1 }}>
-                                  {/* Field Header */}
-                                  <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#111827', fontSize: '0.9rem' }}>
-                                      {field.name}
-                                    </Typography>
-                                    <Chip
-                                      label={field.status || 'Active'}
-                                      size="small"
-                                      sx={{
-                                        backgroundColor: '#dcfce7',
-                                        color: '#166534',
-                                        fontSize: '0.7rem',
-                                        height: 20,
-                                        fontWeight: 600
-                                      }}
-                                    />
-                                  </Stack>
-
-                                  {/* Field Details */}
-                                  <Stack spacing={0.5} mb={1.5}>
-                                    <Stack direction="row" alignItems="center" spacing={1}>
-                                      <Park sx={{ fontSize: 14, color: '#10b981' }} />
-                                      <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                        {field.crop || field.cropType}
-                                      </Typography>
-                                    </Stack>
-                                    <Stack direction="row" alignItems="center" spacing={1}>
-                                      <Terrain sx={{ fontSize: 14, color: '#8b5cf6' }} />
-                                      <Typography variant="body2" sx={{ fontSize: '0.8rem', color: '#6b7280' }}>
-                                        {field.area}
-                                      </Typography>
-                                    </Stack>
-                                  </Stack>
-
-                                  {/* Field Occupied Area */}
-                                  <Box sx={{ mb: 1 }}>
-                                    <LinearProgress
-                                      variant="determinate"
-                                      value={field.progress || 0}
-                                      sx={{
-                                        height: 6,
-                                        borderRadius: 3,
-                                        backgroundColor: '#e5e7eb',
-                                        '& .MuiLinearProgress-bar': {
-                                          backgroundColor: '#3b82f6',
-                                          borderRadius: 3
-                                        }
-                                      }}
-                                    />
-                                    <Typography variant="caption" sx={{ color: '#6b7280', fontSize: '0.7rem' }}>
-                                      {field.progress || 0}% Occupied
-                                    </Typography>
-                                  </Box>
-                                </Box>
-
-                                {/* Field Revenue */}
-                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#10b981', fontSize: '0.85rem' }}>
-                                  {formatCurrency(field.monthlyRevenue || 0)}/month
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))
-                      ) : (
-                        <Grid item xs={12}>
-                          <Paper sx={{ p: 3, textAlign: 'center', backgroundColor: '#f9fafb', borderRadius: 2 }}>
-                            <Typography variant="body2" color="text.secondary">
-                              No fields associated with this farm yet.
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                      )
-                    )}
-                  </Grid>
-                </Box>
-
-                {/* Farm Description */}
-                {selectedFarm.description && (
-                  <Box sx={{ mt: 3 }}>
-                    <Typography variant="h6" sx={{ fontWeight: 600, mb: 1, color: '#1e293b' }}>
-                      Description
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                      {selectedFarm.description}
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            )}
-          </DialogContent>
-          <DialogActions sx={{ p: 2.5, pt: 2, borderTop: '1px solid #e2e8f0' }}>
-            <Button
-              onClick={handleCloseFarmDetail}
-              variant="outlined"
-              sx={{
-                borderRadius: 2,
-                textTransform: 'none',
-                fontWeight: 600,
-                px: 3,
-                borderColor: '#e2e8f0',
-                color: '#64748b',
-                '&:hover': {
-                  borderColor: '#059669',
-                  color: '#059669',
-                  bgcolor: '#f0fdf4'
-                }
-              }}
-            >
-              Close
-            </Button>
-          </DialogActions>
-        </Dialog>
+              {/* Description */}
+              {selectedFarm.description && (
+                <div className="mt-4">
+                  <h3 className="mb-1 text-sm font-semibold text-slate-900">
+                    Description
+                  </h3>
+                  <p className="text-sm leading-relaxed text-slate-600">
+                    {selectedFarm.description}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Farm Report Modal */}
         <Dialog

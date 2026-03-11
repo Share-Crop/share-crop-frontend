@@ -909,146 +909,120 @@ const RentedFields = () => {
         </Stack>
 
         {/* Stats Overview */}
-        <Grid
-          container
-          spacing={2}
-          sx={{
-            mb: 3,
-            maxWidth: { xs: 480, md: '100%' },
-            mx: { xs: 'auto', md: 0 },
-          }}
-        >
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Agriculture sx={{ fontSize: 20 }} />}
-              iconBg="#dbeafe"
-              iconColor="#1d4ed8"
-              value={totalFields}
-              label="Total Fields"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<TrendingUp sx={{ fontSize: 20 }} />}
-              iconBg="#dcfce7"
-              iconColor="#059669"
-              value={activeFields}
-              label="Active Rentals"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Assessment sx={{ fontSize: 20 }} />}
-              iconBg="#f3e8ff"
-              iconColor="#7c3aed"
-              value={`${avgProgress}%`}
-              label="Avg Progress"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Schedule sx={{ fontSize: 20 }} />}
-              iconBg="#fef3c7"
-              iconColor="#d97706"
-              value={`${currencySymbols[userCurrency]}${totalMonthlyRent.toLocaleString()}`}
-              label="Monthly Revenue"
-            />
-          </Grid>
-        </Grid>
+        <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
+          <StatCard
+            icon={<Agriculture sx={{ fontSize: 20 }} />}
+            iconBg="#dbeafe"
+            iconColor="#1d4ed8"
+            value={totalFields}
+            label="Total Fields"
+          />
+          <StatCard
+            icon={<TrendingUp sx={{ fontSize: 20 }} />}
+            iconBg="#dcfce7"
+            iconColor="#059669"
+            value={activeFields}
+            label="Active Rentals"
+          />
+          <StatCard
+            icon={<Assessment sx={{ fontSize: 20 }} />}
+            iconBg="#f3e8ff"
+            iconColor="#7c3aed"
+            value={`${avgProgress}%`}
+            label="Avg Progress"
+          />
+          <StatCard
+            icon={<Schedule sx={{ fontSize: 20 }} />}
+            iconBg="#fef3c7"
+            iconColor="#d97706"
+            value={`${currencySymbols[userCurrency]}${totalMonthlyRent.toLocaleString()}`}
+            label="Monthly Revenue"
+          />
+        </div>
 
-        {/* Filters: segment, search, category */}
-        <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid #e2e8f0', borderRadius: 2 }}>
-          <Tabs
-            value={segment}
-            onChange={(_, v) => { setSegment(v); setCurrentPage(1); }}
-            variant="scrollable"
-            scrollButtons="auto"
-            allowScrollButtonsMobile
-            sx={{
-              minHeight: 40,
-              mb: 2,
-              '& .MuiTabs-flexContainer': { flexWrap: 'nowrap' },
-              '& .MuiTab-root': {
-                minHeight: 40,
-                textTransform: 'none',
-                fontWeight: 600,
-                whiteSpace: 'nowrap'
-              }
-            }}
-          >
-            <Tab value={SEGMENT_ALL} label="All fields" />
-            <Tab
-              value={SEGMENT_OWNED}
-              label="My fields (owned)"
-              icon={<HomeWork sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-            <Tab
-              value={SEGMENT_RENTED}
-              label="Rented from others"
-              icon={<Store sx={{ fontSize: 18 }} />}
-              iconPosition="start"
-            />
-          </Tabs>
-          <Stack
-            direction="row"
-            spacing={1.5}
-            alignItems="center"
-            sx={{
-              flexWrap: 'nowrap',
-              overflowX: { xs: 'auto', sm: 'visible' },
-              '& > *': { flexShrink: 0 },
-            }}
-          >
-            <TextField
-              placeholder="Search by name, location, crop..."
-              size="small"
-              value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search sx={{ color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-              }}
-              sx={{
-                minWidth: { xs: 140, sm: 220 },
-                maxWidth: { xs: 200, sm: 260 },
-                '& .MuiOutlinedInput-root': { borderRadius: 2 },
-              }}
-            />
-            <FormControl
-              size="small"
-              sx={{
-                minWidth: { xs: 130, sm: 180 },
-                maxWidth: { xs: 180, sm: 220 },
-                borderRadius: 2,
-              }}
+        {/* Filters: segment, search, category (pure Tailwind for layout) */}
+        <div className="mb-3 rounded-2xl border border-slate-200 bg-white p-3">
+          {/* Segment tabs */}
+          <div className="mb-2 flex gap-2 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => { setSegment(SEGMENT_ALL); setCurrentPage(1); }}
+              className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+                segment === SEGMENT_ALL
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
             >
-              <InputLabel>Category</InputLabel>
-              <Select
+              All fields
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSegment(SEGMENT_OWNED); setCurrentPage(1); }}
+              className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+                segment === SEGMENT_OWNED
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <HomeWork sx={{ fontSize: 16 }} />
+              <span>My fields (owned)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSegment(SEGMENT_RENTED); setCurrentPage(1); }}
+              className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+                segment === SEGMENT_RENTED
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Store sx={{ fontSize: 16 }} />
+              <span>Rented from others</span>
+            </button>
+          </div>
+
+          {/* Filters row */}
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {/* Search input */}
+            <div className="relative min-w-[140px] max-w-[200px] sm:min-w-[220px] sm:max-w-[260px]">
+              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400">
+                <Search sx={{ fontSize: 16 }} />
+              </span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                placeholder="Search by name, location, crop..."
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-8 pr-2 text-xs text-slate-700 outline-none ring-emerald-500 focus:border-emerald-500 focus:ring-1"
+              />
+            </div>
+
+            {/* Category select */}
+            <div className="min-w-[130px] max-w-[180px] sm:min-w-[180px] sm:max-w-[220px]">
+              <select
                 value={categoryFilter}
-                label="Category"
                 onChange={(e) => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
-                sx={{ borderRadius: 2 }}
+                className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none ring-emerald-500 focus:border-emerald-500 focus:ring-1"
               >
-                <MenuItem value="">All categories</MenuItem>
+                <option value="">All categories</option>
                 {categories.map((c) => (
-                  <MenuItem key={c} value={c}>{c}</MenuItem>
+                  <option key={c} value={c}>{c}</option>
                 ))}
-              </Select>
-            </FormControl>
+              </select>
+            </div>
+
+            {/* Clear filters */}
             {(searchQuery || categoryFilter || segment !== SEGMENT_ALL) && (
-              <Button
-                size="small"
+              <button
+                type="button"
                 onClick={() => { setSearchQuery(''); setCategoryFilter(''); setSegment(SEGMENT_ALL); setCurrentPage(1); }}
+                className="shrink-0 rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
               >
                 Clear filters
-              </Button>
+              </button>
             )}
-          </Stack>
-        </Paper>
+          </div>
+        </div>
 
         {/* Fields Grid */}
         <Box sx={{
@@ -1407,9 +1381,9 @@ const RentedFields = () => {
         )}
       </Box>
 
-      {/* Field Detail Modal */}
+      {/* Field Detail Modal (MUI dialog disabled, Tailwind overlay below) */}
       <Dialog
-        open={fieldDetailOpen}
+        open={false}
         onClose={handleCloseFieldDetail}
         maxWidth="sm"
         fullWidth
@@ -1687,6 +1661,240 @@ const RentedFields = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Tailwind field detail overlay */}
+      {fieldDetailOpen && selectedField && (
+        <div
+          className="fixed inset-0 z-50 flex justify-center bg-black/40"
+          style={{
+            alignItems: 'flex-start',
+            paddingTop: 'calc(var(--app-header-height, 64px) + 12px)',
+          }}
+        >
+          <div className="max-h-[calc(90vh-var(--app-header-height,64px))] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl md:p-6">
+            {/* Header */}
+            <div className="mb-4 flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {selectedField.name || selectedField.farmName}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Rented field details
+                </p>
+                {selectedField.status && (
+                  <span
+                    className="mt-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-semibold"
+                    style={{
+                      backgroundColor:
+                        selectedField.status === 'Active'
+                          ? '#22c55e'
+                          : selectedField.status === 'Pending'
+                          ? '#facc15'
+                          : '#e5e7eb',
+                      color:
+                        selectedField.status === 'Active'
+                          ? '#ffffff'
+                          : '#374151',
+                    }}
+                  >
+                    {selectedField.status}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseFieldDetail}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                <Close sx={{ fontSize: 18 }} />
+              </button>
+            </div>
+
+            {/* Field info */}
+            <div className="space-y-3 text-sm">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                  Field Information
+                </h3>
+                <div className="space-y-2 text-slate-700">
+                  <div className="flex items-start gap-1.5">
+                    <LocationOn sx={{ fontSize: 18, color: '#3b82f6' }} />
+                    <div>
+                      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+                        Location
+                      </div>
+                      <div>{selectedField.location}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Agriculture sx={{ fontSize: 18, color: '#10b981' }} />
+                    <div>
+                      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+                        Crop Type
+                      </div>
+                      <div>{selectedField.cropType}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <CalendarToday sx={{ fontSize: 18, color: '#f59e0b' }} />
+                    <div>
+                      <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-400">
+                        Harvest Date
+                      </div>
+                      <div>
+                        {(() => {
+                          const items = Array.isArray(selectedField.selected_harvests) ? selectedField.selected_harvests : [];
+                          const format = (date) => {
+                            if (!date) return '';
+                            if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
+                            const d = new Date(date);
+                            if (isNaN(d.getTime())) return date;
+                            return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                          };
+                          if (items.length) {
+                            const mapped = items.map(it => {
+                              const dt = format(it.date);
+                              if (it.label && dt) return `${dt} (${it.label})`;
+                              if (dt) return dt;
+                              if (it.label) return it.label;
+                              return '';
+                            }).filter(Boolean);
+                            const uniq = Array.from(new Set(mapped));
+                            return uniq.join(', ') || 'Not specified';
+                          }
+                          return selectedField.selected_harvest_label || selectedField.selected_harvest_date || 'Not specified';
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 border-t border-slate-200 pt-2 text-xs text-slate-600">
+                    <div className="mb-1 font-semibold text-slate-700">
+                      Area Details
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span>
+                        Occupied:{' '}
+                        <span className="font-semibold text-slate-900">
+                          {selectedField.area}
+                        </span>
+                      </span>
+                      <span>
+                        Available:{' '}
+                        <span className="font-semibold text-slate-900">
+                          {selectedField.available_area}m²
+                        </span>
+                      </span>
+                      {selectedField.total_area && (
+                        <span>
+                          Total:{' '}
+                          <span className="font-semibold text-slate-900">
+                            {selectedField.total_area}m²
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rental details */}
+              <div className="rounded-xl bg-emerald-50 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                  Rental Details
+                </h3>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
+                      <span>Occupied Area</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedField.progress}%
+                      </span>
+                    </div>
+                    <div className="h-2.5 w-full rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${selectedField.progress}%`,
+                          backgroundColor:
+                            selectedField.progress === 100
+                              ? '#10b981'
+                              : selectedField.progress > 50
+                              ? '#3b82f6'
+                              : '#f59e0b',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+                    <span className="text-xs text-slate-600">Monthly Rent</span>
+                    <span className="text-sm font-semibold text-emerald-600">
+                      {currencySymbols[userCurrency]}
+                      {(() => {
+                        const amount = parseFloat(selectedField.monthlyRent) || 0;
+                        return amount.toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        });
+                      })()}
+                    </span>
+                  </div>
+
+                  {selectedField.rentPeriod && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Rent Period</span>
+                      <span className="text-sm font-semibold text-slate-900">
+                        {selectedField.rentPeriod}
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedField.farmer_name && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Farmer</span>
+                      <span className="text-sm font-semibold text-slate-900">
+                        {selectedField.farmer_name}
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedField.shipping_modes && selectedField.shipping_modes.length > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Shipping Mode</span>
+                      <span className="text-sm font-semibold text-slate-900">
+                        {(() => {
+                          const modes = Array.isArray(selectedField.shipping_modes) ? selectedField.shipping_modes : [];
+                          const uniq = (() => {
+                            const s = new Set();
+                            return modes.filter(m => {
+                              const k = (m || '').toLowerCase();
+                              if (s.has(k)) return false;
+                              s.add(k);
+                              return true;
+                            });
+                          })();
+                          return uniq.length ? uniq.join(', ') : 'Not specified';
+                        })()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Close button */}
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleCloseFieldDetail}
+                  className="rounded-xl border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-600 hover:border-emerald-500 hover:bg-emerald-50 hover:text-emerald-600"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Full Edit Field (CreateFieldForm in edit mode) */}
       <CreateFieldForm

@@ -279,52 +279,36 @@ const Transaction = () => {
         </Box>
 
         {/* Financial Summary Cards */}
-        <Grid
-          container
-          spacing={2}
-          sx={{
-            mb: 4,
-            maxWidth: { xs: 480, md: '100%' },
-            mx: { xs: 'auto', md: 0 },
-          }}
-        >
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<TrendingUp sx={{ fontSize: 20 }} />}
-              iconBg="#dcfce7"
-              iconColor="#059669"
-              value={formatCurrency(summary.totalIncome, userCurrency)}
-              label="Total Income"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<TrendingDown sx={{ fontSize: 20 }} />}
-              iconBg="#fee2e2"
-              iconColor="#dc2626"
-              value={formatCurrency(summary.totalExpenses, userCurrency)}
-              label="Total Expenses"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<MonetizationOn sx={{ fontSize: 20 }} />}
-              iconBg={summary.netProfit >= 0 ? '#dcfce7' : '#fee2e2'}
-              iconColor={summary.netProfit >= 0 ? '#059669' : '#dc2626'}
-              value={formatCurrency(summary.netProfit, userCurrency)}
-              label="Net Profit"
-            />
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <StatCard
-              icon={<Assessment sx={{ fontSize: 20 }} />}
-              iconBg="#fef3c7"
-              iconColor="#f59e0b"
-              value={formatCurrency(summary.pendingAmount, userCurrency)}
-              label="Pending Amount"
-            />
-          </Grid>
-        </Grid>
+        <div className="mb-4 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
+          <StatCard
+            icon={<TrendingUp sx={{ fontSize: 20 }} />}
+            iconBg="#dcfce7"
+            iconColor="#059669"
+            value={formatCurrency(summary.totalIncome, userCurrency)}
+            label="Total Income"
+          />
+          <StatCard
+            icon={<TrendingDown sx={{ fontSize: 20 }} />}
+            iconBg="#fee2e2"
+            iconColor="#dc2626"
+            value={formatCurrency(summary.totalExpenses, userCurrency)}
+            label="Total Expenses"
+          />
+          <StatCard
+            icon={<MonetizationOn sx={{ fontSize: 20 }} />}
+            iconBg={summary.netProfit >= 0 ? '#dcfce7' : '#fee2e2'}
+            iconColor={summary.netProfit >= 0 ? '#059669' : '#dc2626'}
+            value={formatCurrency(summary.netProfit, userCurrency)}
+            label="Net Profit"
+          />
+          <StatCard
+            icon={<Assessment sx={{ fontSize: 20 }} />}
+            iconBg="#fef3c7"
+            iconColor="#f59e0b"
+            value={formatCurrency(summary.pendingAmount, userCurrency)}
+            label="Pending Amount"
+          />
+        </div>
 
         {/* Transaction Table */}
         <Paper sx={{
