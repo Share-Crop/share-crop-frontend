@@ -58,6 +58,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import rentedFieldsService from '../services/rentedFields';
+import { orderService } from '../services/orders';
 import farmsService from '../services/farms';
 import CreateFieldForm from '../components/Forms/CreateFieldForm';
 
@@ -66,7 +67,7 @@ const SEGMENT_OWNED = 'owned';
 const SEGMENT_RENTED = 'rented';
 
 // Map fields API response to the shape the UI expects
-function mapFieldFromApi(raw) {
+function mapFieldFromApi(raw, currentUserId) {
   const areaM2 = typeof raw.area_m2 === 'string' ? parseFloat(raw.area_m2) : (raw.area_m2 ?? 0);
   const availableArea = typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0);
   const totalArea = typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? areaM2) || areaM2;
@@ -82,6 +83,10 @@ function mapFieldFromApi(raw) {
   const availableForBuy = raw.available_for_buy !== false && raw.available_for_buy !== 'false';
   const availableForRent = raw.available_for_rent === true || raw.available_for_rent === 'true';
   const rentPricePerMonth = raw.rent_price_per_month != null && raw.rent_price_per_month !== '' ? parseFloat(raw.rent_price_per_month) : null;
+  const isOwnField = currentUserId != null
+    ? raw.owner_id === currentUserId
+    : Boolean(raw.is_own_field);
+
   return {
     id: raw.id,
     name: raw.name,
@@ -90,7 +95,7 @@ function mapFieldFromApi(raw) {
     cropType: raw.category || raw.subcategory,
     category: raw.category,
     subcategory: raw.subcategory,
-    is_own_field: Boolean(raw.is_own_field),
+    is_own_field: Boolean(isOwnField),
     total_area: totalArea,
     area_m2: areaM2,
     available_area: availableArea,
@@ -190,6 +195,7 @@ const RentedFields = () => {
   const { user } = useAuth();
   const [rentedFields, setRentedFields] = useState([]);
   const [myRentals, setMyRentals] = useState([]);
+  const [purchasedFields, setPurchasedFields] = useState([]);
   const [userCurrency, setUserCurrency] = useState('USD');
   const [loading, setLoading] = useState(true);
   const [loadingRentals, setLoadingRentals] = useState(false);
@@ -335,7 +341,7 @@ const RentedFields = () => {
       setLoading(true);
       const response = await fieldsService.getAll();
       const rawList = Array.isArray(response.data) ? response.data : response.data?.data || [];
-      const mapped = rawList.map(mapFieldFromApi);
+      const mapped = rawList.map((f) => mapFieldFromApi(f, user.id));
       setRentedFields(mapped);
     } catch (error) {
       console.error('Error loading fields:', error);
@@ -363,20 +369,99 @@ const RentedFields = () => {
     }
   }, [user?.id]);
 
+  // Load fields where the current user has purchased area (orders with field details)
+  const loadPurchasedFields = React.useCallback(async () => {
+    try {
+      if (!user?.id) {
+        setPurchasedFields([]);
+        return;
+      }
+      const res = await orderService.getBuyerOrdersWithFields(user.id);
+      const orders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+      const byField = new Map();
+
+      orders.forEach((o) => {
+        const status = String(o.status || '').toLowerCase();
+        if (!['pending', 'active', 'completed'].includes(status)) return;
+        const fid = o.field_id || o.fieldId;
+        if (!fid) return;
+        const qtyRaw = o.quantity ?? o.area_rented ?? o.area ?? 0;
+        const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
+        if (!Number.isFinite(qty) || qty <= 0) return;
+
+        const totalAreaRaw = o.total_area ?? o.field_size ?? o.area_m2 ?? 0;
+        const totalArea = typeof totalAreaRaw === 'string' ? parseFloat(totalAreaRaw) : totalAreaRaw;
+        const availableAreaRaw = o.available_area ?? null;
+        const availableArea = typeof availableAreaRaw === 'string' ? parseFloat(availableAreaRaw) : availableAreaRaw;
+
+        if (!byField.has(fid)) {
+          byField.set(fid, {
+            id: `purchased-${fid}`,
+            _fieldId: fid,
+            is_own_field: false,
+            name: o.field_name || `Field ${fid}`,
+            farmName: o.farmer_name,
+            location: o.location,
+            cropType: o.crop_type,
+            category: o.crop_type,
+            subcategory: o.subcategory || null,
+            total_area: Number.isFinite(totalArea) ? totalArea : 0,
+            available_area: Number.isFinite(availableArea) ? availableArea : null,
+            purchased_area: 0,
+            price_per_m2: o.price_per_m2,
+            monthlyRent: 0,
+            status:
+              status === 'active'
+                ? 'Active'
+                : status === 'pending'
+                ? 'Pending'
+                : status === 'completed'
+                ? 'Completed'
+                : status || 'active',
+            selected_harvests: [],
+            shipping_modes: [],
+            farmer_name: o.farmer_name,
+            rentPeriod: null,
+          });
+        }
+        const item = byField.get(fid);
+        item.purchased_area = (item.purchased_area || 0) + qty;
+      });
+
+      const list = Array.from(byField.values()).map((item) => {
+        const totalArea = item.total_area || 0;
+        const purchasedArea = item.purchased_area || 0;
+        const progress = totalArea > 0 ? Math.round((purchasedArea / totalArea) * 100) : 0;
+        return {
+          ...item,
+          area_m2: purchasedArea,
+          area: `${purchasedArea} m²`,
+          progress,
+        };
+      });
+
+      setPurchasedFields(list);
+    } catch (error) {
+      console.error('Error loading purchased fields from orders:', error);
+      setPurchasedFields([]);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     loadFields();
   }, [loadFields]);
 
   useEffect(() => {
     loadMyRentals();
-  }, [loadMyRentals]);
+    loadPurchasedFields();
+  }, [loadMyRentals, loadPurchasedFields]);
 
   // Combine owned fields + rented fields by segment; then filter by search and category
   const displayedFields = useMemo(() => {
     let list;
     if (segment === SEGMENT_OWNED) list = rentedFields.filter((f) => f.is_own_field);
-    else if (segment === SEGMENT_RENTED) list = [...myRentals];
-    else list = [...rentedFields, ...myRentals];
+    else if (segment === SEGMENT_RENTED) list = [...myRentals, ...purchasedFields];
+    else list = [...rentedFields, ...myRentals, ...purchasedFields];
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -393,7 +478,7 @@ const RentedFields = () => {
       );
     }
     return list;
-  }, [rentedFields, myRentals, segment, searchQuery, categoryFilter]);
+  }, [rentedFields, myRentals, purchasedFields, segment, searchQuery, categoryFilter]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -405,8 +490,12 @@ const RentedFields = () => {
       const c = f.category || f.cropType;
       if (c) set.add(c);
     });
+    purchasedFields.forEach((f) => {
+      const c = f.category || f.cropType;
+      if (c) set.add(c);
+    });
     return Array.from(set).sort();
-  }, [rentedFields, myRentals]);
+  }, [rentedFields, myRentals, purchasedFields]);
 
 
   const getStatusColor = (status) => {
@@ -1109,7 +1198,7 @@ const RentedFields = () => {
                           sx={{
                             color: '#059669',
                             bgcolor: '#f0fdf4',
-                            '&:hover': { bgcolor: '#dcfce7', color: '#047857' },
+                            '&:hover': { bgcolor: '#dcfce7', color: '#4CAF50' },
                             width: 32,
                             height: 32
                           }}
@@ -1623,7 +1712,7 @@ const RentedFields = () => {
                   px: 3,
                   borderColor: '#059669',
                   color: '#059669',
-                  '&:hover': { borderColor: '#047857', bgcolor: '#f0fdf4' }
+                  '&:hover': { borderColor: '#4CAF50', bgcolor: '#f0fdf4' }
                 }}
               >
                 Rent settings
@@ -1750,7 +1839,7 @@ const RentedFields = () => {
           <Button onClick={closeEditRent} disabled={editRentSaving}>
             Cancel
           </Button>
-          <Button variant="contained" onClick={handleEditRentSave} disabled={editRentSaving} sx={{ bgcolor: '#059669', '&:hover': { bgcolor: '#047857' } }}>
+          <Button variant="contained" onClick={handleEditRentSave} disabled={editRentSaving} sx={{ bgcolor: '#059669', '&:hover': { bgcolor: '#4CAF50' } }}>
             {editRentSaving ? 'Saving…' : 'Save'}
           </Button>
         </DialogActions>

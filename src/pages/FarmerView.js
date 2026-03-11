@@ -463,7 +463,8 @@ const FarmerView = () => {
       <Box sx={{
         flexGrow: 1,
         mt: 'var(--app-header-height)',
-        height: 'calc(100vh - var(--app-header-height))',
+        // Use dynamic viewport height so map content always fits between header and bottom on mobile
+        height: 'calc(100dvh - var(--app-header-height))',
         overflow: (isMapPage || location.pathname === '/farmer/messages') ? 'hidden' : 'auto',
         position: 'relative',
         zIndex: 0,

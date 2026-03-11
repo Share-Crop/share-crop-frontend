@@ -310,9 +310,9 @@ const LicenseInfo = () => {
                 startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUpload />}
                 disabled={uploading}
                 sx={{
-                  backgroundColor: '#059669',
+                  backgroundColor: '#4CAF50',
                   '&:hover': {
-                    backgroundColor: '#047857'
+                    backgroundColor: '#4CAF50'
                   }
                 }}
               >

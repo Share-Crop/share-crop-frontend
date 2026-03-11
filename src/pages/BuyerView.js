@@ -211,7 +211,8 @@ const BuyerView = () => {
       <Box sx={{
         flexGrow: 1,
         mt: 'var(--app-header-height)',
-        height: 'calc(100vh - var(--app-header-height))',
+        // Use dynamic viewport height so the map always fits exactly between header and bottom on mobile
+        height: 'calc(100dvh - var(--app-header-height))',
         overflow: (isMapPage || isMessagesPage) ? 'hidden' : 'auto', // No scroll for map, messages, scroll for other pages
         position: 'relative',
         zIndex: 0,

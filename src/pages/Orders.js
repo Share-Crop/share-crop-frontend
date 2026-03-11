@@ -165,8 +165,11 @@ const Orders = () => {
 
   const getStatusLabel = (status) => {
     const value = (status || '').toLowerCase();
-    if (value === 'pending') return 'active';
-    return status || 'pending';
+    if (value === 'pending') return 'Awaiting Approval';
+    if (value === 'active') return 'Active';
+    if (value === 'completed') return 'Completed';
+    if (value === 'cancelled') return 'Cancelled';
+    return status || 'Awaiting Approval';
   };
 
   const handleReportClick = () => {
@@ -578,6 +581,13 @@ const Orders = () => {
                 Export
               </Button>
             </Stack>
+
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              <strong>Awaiting Approval</strong> means your order has been placed and the field owner is reviewing it. Once they accept, the status will change to <strong>Active</strong>.{' '}
+              <span style={{ color: '#b91c1c', fontWeight: 600 }}>
+                If the owner does not approve your order, your coins will be refunded back to your wallet.
+              </span>
+            </Typography>
           </Box>
 
           {filteredOrders.length === 0 ? (
@@ -962,7 +972,7 @@ const Orders = () => {
             startIcon={<Download />}
             sx={{
               backgroundColor: '#059669',
-              '&:hover': { backgroundColor: '#047857' },
+              '&:hover': { backgroundColor: '#4CAF50' },
               borderRadius: 2,
               px: 3
             }}
