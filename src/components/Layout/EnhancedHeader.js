@@ -624,7 +624,7 @@ const EnhancedHeader = forwardRef(({
   };
 
   const menuSections = getMenuConfig(userType);
-  const farmerProminentItems = new Set(['My Farms', 'Farm Orders', 'License Info', 'Transaction']);
+  const farmerProminentItems = new Set(['My Farms', 'Farm Orders', 'Rented out Fields', 'License Info', 'Transaction']);
   const isFarmerProminent = (text) => userType === 'farmer' && farmerProminentItems.has(text);
 
   const appBarRef = useRef(null);
