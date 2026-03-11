@@ -634,7 +634,13 @@ const EnhancedHeader = forwardRef(({
     if (!el) return;
     const update = () => {
       const h = el.offsetHeight || 0;
+      const vh = typeof window !== 'undefined'
+        ? (window.innerHeight || window.visualViewport?.height || window.screen?.height || 0)
+        : 0;
       document.documentElement.style.setProperty('--app-header-height', `${h}px`);
+      if (vh) {
+        document.documentElement.style.setProperty('--app-viewport-height', `${vh}px`);
+      }
     };
     update();
     const ro = new ResizeObserver(update);
