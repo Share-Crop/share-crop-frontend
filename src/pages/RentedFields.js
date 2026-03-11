@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import fieldsService from '../services/fields';
+
 import {
   Container,
   Typography,
@@ -61,6 +62,7 @@ import rentedFieldsService from '../services/rentedFields';
 import { orderService } from '../services/orders';
 import farmsService from '../services/farms';
 import CreateFieldForm from '../components/Forms/CreateFieldForm';
+import StatCard from '../components/Common/StatCard';
 
 const SEGMENT_ALL = 'all';
 const SEGMENT_OWNED = 'owned';
@@ -83,6 +85,7 @@ function mapFieldFromApi(raw, currentUserId) {
   const availableForBuy = raw.available_for_buy !== false && raw.available_for_buy !== 'false';
   const availableForRent = raw.available_for_rent === true || raw.available_for_rent === 'true';
   const rentPricePerMonth = raw.rent_price_per_month != null && raw.rent_price_per_month !== '' ? parseFloat(raw.rent_price_per_month) : null;
+  
   const isOwnField = currentUserId != null
     ? raw.owner_id === currentUserId
     : Boolean(raw.is_own_field);
@@ -857,14 +860,19 @@ const RentedFields = () => {
       minHeight: '100vh',
       backgroundColor: '#f8fafc',
       p: 3
-    }}>
-      {/* Header Section */}
-      <Box sx={{
-        maxWidth: '1400px',
-        mx: 'auto',
-        mb: 4
       }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2.5 }}>
+        {/* Header Section */}
+        <Box sx={{
+          maxWidth: '1400px',
+          mx: 'auto',
+          mb: 4
+        }}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            justifyContent="space-between"
+            sx={{ mb: 2.5, gap: { xs: 1.5, sm: 0 } }}
+          >
           <Box>
             <Typography
               variant="h5"
@@ -888,10 +896,12 @@ const RentedFields = () => {
             sx={{
               backgroundColor: '#4caf50',
               color: '#ffffff',
-
               borderRadius: 2,
               px: 2.5,
-              py: 1
+              py: 1,
+              alignSelf: { xs: 'stretch', sm: 'flex-end' },
+              width: { xs: '100%', sm: 'auto' },
+              textAlign: 'center'
             }}
           >
             Field Report
@@ -899,157 +909,50 @@ const RentedFields = () => {
         </Stack>
 
         {/* Stats Overview */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dbeafe',
-                    color: '#1d4ed8',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Agriculture sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {totalFields}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Total Fields
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            mb: 3,
+            maxWidth: { xs: 480, md: '100%' },
+            mx: { xs: 'auto', md: 0 },
+          }}
+        >
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Agriculture sx={{ fontSize: 20 }} />}
+              iconBg="#dbeafe"
+              iconColor="#1d4ed8"
+              value={totalFields}
+              label="Total Fields"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dcfce7',
-                    color: '#059669',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <TrendingUp sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {activeFields}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Active Rentals
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<TrendingUp sx={{ fontSize: 20 }} />}
+              iconBg="#dcfce7"
+              iconColor="#059669"
+              value={activeFields}
+              label="Active Rentals"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#f3e8ff',
-                    color: '#7c3aed',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Assessment sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {avgProgress}%
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Avg Progress
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Assessment sx={{ fontSize: 20 }} />}
+              iconBg="#f3e8ff"
+              iconColor="#7c3aed"
+              value={`${avgProgress}%`}
+              label="Avg Progress"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#fef3c7',
-                    color: '#d97706',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Schedule sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {currencySymbols[userCurrency]}{totalMonthlyRent.toLocaleString()}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Monthly Revenue
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Schedule sx={{ fontSize: 20 }} />}
+              iconBg="#fef3c7"
+              iconColor="#d97706"
+              value={`${currencySymbols[userCurrency]}${totalMonthlyRent.toLocaleString()}`}
+              label="Monthly Revenue"
+            />
           </Grid>
         </Grid>
 
@@ -1058,13 +961,45 @@ const RentedFields = () => {
           <Tabs
             value={segment}
             onChange={(_, v) => { setSegment(v); setCurrentPage(1); }}
-            sx={{ minHeight: 40, mb: 2, '& .MuiTab-root': { minHeight: 40, textTransform: 'none', fontWeight: 600 } }}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{
+              minHeight: 40,
+              mb: 2,
+              '& .MuiTabs-flexContainer': { flexWrap: 'nowrap' },
+              '& .MuiTab-root': {
+                minHeight: 40,
+                textTransform: 'none',
+                fontWeight: 600,
+                whiteSpace: 'nowrap'
+              }
+            }}
           >
             <Tab value={SEGMENT_ALL} label="All fields" />
-            <Tab value={SEGMENT_OWNED} label="My fields (owned)" icon={<HomeWork sx={{ fontSize: 18 }} />} iconPosition="start" />
-            <Tab value={SEGMENT_RENTED} label="Rented from others" icon={<Store sx={{ fontSize: 18 }} />} iconPosition="start" />
+            <Tab
+              value={SEGMENT_OWNED}
+              label="My fields (owned)"
+              icon={<HomeWork sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
+            <Tab
+              value={SEGMENT_RENTED}
+              label="Rented from others"
+              icon={<Store sx={{ fontSize: 18 }} />}
+              iconPosition="start"
+            />
           </Tabs>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+          <Stack
+            direction="row"
+            spacing={1.5}
+            alignItems="center"
+            sx={{
+              flexWrap: 'nowrap',
+              overflowX: { xs: 'auto', sm: 'visible' },
+              '& > *': { flexShrink: 0 },
+            }}
+          >
             <TextField
               placeholder="Search by name, location, crop..."
               size="small"
@@ -1077,9 +1012,20 @@ const RentedFields = () => {
                   </InputAdornment>
                 ),
               }}
-              sx={{ minWidth: 220, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              sx={{
+                minWidth: { xs: 140, sm: 220 },
+                maxWidth: { xs: 200, sm: 260 },
+                '& .MuiOutlinedInput-root': { borderRadius: 2 },
+              }}
             />
-            <FormControl size="small" sx={{ minWidth: 180, borderRadius: 2 }}>
+            <FormControl
+              size="small"
+              sx={{
+                minWidth: { xs: 130, sm: 180 },
+                maxWidth: { xs: 180, sm: 220 },
+                borderRadius: 2,
+              }}
+            >
               <InputLabel>Category</InputLabel>
               <Select
                 value={categoryFilter}

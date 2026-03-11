@@ -51,6 +51,7 @@ import fieldsService from '../services/fields';
 import farmsService from '../services/farms';
 import { useAuth } from '../contexts/AuthContext';
 import AddFarmForm from '../components/Forms/AddFarmForm';
+import StatCard from '../components/Common/StatCard';
 import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
@@ -517,7 +518,12 @@ const MyFarms = () => {
         mx: 'auto',
         mb: 4
       }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2.5 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          justifyContent="space-between"
+          sx={{ mb: 2.5, gap: { xs: 1.5, sm: 0 } }}
+        >
           <Box>
             <Typography
               variant="h5"
@@ -571,154 +577,50 @@ const MyFarms = () => {
         </Stack>
 
         {/* Stats Overview */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dbeafe',
-                    color: '#1d4ed8',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Agriculture sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {totalFarms}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Total Farms
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            mb: 3,
+            maxWidth: { xs: 480, md: '100%' },
+            mx: { xs: 'auto', md: 0 },
+          }}
+        >
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Agriculture sx={{ fontSize: 20 }} />}
+              iconBg="#dbeafe"
+              iconColor="#1d4ed8"
+              value={totalFarms}
+              label="Total Farms"
+            />
           </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dcfce7',
-                    color: '#16a34a',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Nature sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {activeFarms}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Active Farms
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Nature sx={{ fontSize: 20 }} />}
+              iconBg="#dcfce7"
+              iconColor="#16a34a"
+              value={activeFarms}
+              label="Active Farms"
+            />
           </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#ffedd5',
-                    color: '#ea580c',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <TrendingUp sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {formatCurrency(totalMonthlyRevenue)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Monthly Revenue
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<TrendingUp sx={{ fontSize: 20 }} />}
+              iconBg="#ffedd5"
+              iconColor="#ea580c"
+              value={formatCurrency(totalMonthlyRevenue)}
+              label="Monthly Revenue"
+            />
           </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)'
-                }
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#e0e7ff',
-                    color: '#4f46e5',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Assessment sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {avgProgress}%
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Avg. Occupied Area
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Assessment sx={{ fontSize: 20 }} />}
+              iconBg="#e0e7ff"
+              iconColor="#4f46e5"
+              value={`${avgProgress}%`}
+              label="Avg. Occupied Area"
+            />
           </Grid>
         </Grid>
 

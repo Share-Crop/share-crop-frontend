@@ -36,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { userDocumentsService } from '../services/userDocuments';
+import StatCard from '../components/Common/StatCard';
 import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -216,71 +217,32 @@ const LicenseInfo = () => {
         )}
 
         {/* Summary Cards */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} lg={4}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white'
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: '#dbeafe',
-                    color: '#2563eb',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  <Assignment sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {licenses.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Uploaded Documents
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            mb: 4,
+            maxWidth: { xs: 480, md: '100%' },
+            mx: { xs: 'auto', md: 0 },
+          }}
+        >
+          <Grid item xs={6} md={6}>
+            <StatCard
+              icon={<Assignment sx={{ fontSize: 20 }} />}
+              iconBg="#dbeafe"
+              iconColor="#2563eb"
+              value={licenses.length}
+              label="Uploaded Documents"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} lg={4}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white'
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar
-                  sx={{
-                    backgroundColor: isApproved ? '#dcfce7' : '#fef3c7',
-                    color: isApproved ? '#059669' : '#d97706',
-                    width: 40,
-                    height: 40
-                  }}
-                >
-                  {isApproved ? <CheckCircle sx={{ fontSize: 20 }} /> : <Pending sx={{ fontSize: 20 }} />}
-                </Avatar>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                    {isApproved ? 'Approved' : 'Pending'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Account Status
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
+          <Grid item xs={6} md={6}>
+            <StatCard
+              icon={isApproved ? <CheckCircle sx={{ fontSize: 20 }} /> : <Pending sx={{ fontSize: 20 }} />}
+              iconBg={isApproved ? '#dcfce7' : '#fef3c7'}
+              iconColor={isApproved ? '#059669' : '#d97706'}
+              value={isApproved ? 'Approved' : 'Pending'}
+              label="Account Status"
+            />
           </Grid>
         </Grid>
 

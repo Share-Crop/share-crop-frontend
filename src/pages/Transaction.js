@@ -36,6 +36,7 @@ import {
 } from '@mui/icons-material';
 import { transactionsService } from '../services/transactions';
 import { useAuth } from '../contexts/AuthContext';
+import StatCard from '../components/Common/StatCard';
 import { orderService } from '../services/orders';
 import { CircularProgress, Alert } from '@mui/material';
 import api from '../services/api';
@@ -278,132 +279,50 @@ const Transaction = () => {
         </Box>
 
         {/* Financial Summary Cards */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Paper sx={{
-              p: 3,
-              backgroundColor: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 2,
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                <Avatar sx={{
-                  bgcolor: '#dcfce7',
-                  color: '#059669',
-                  width: 48,
-                  height: 48,
-                  mr: 2
-                }}>
-                  <TrendingUp />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 700, color: '#059669', mb: 0.5 }}>
-                    {formatCurrency(summary.totalIncome, userCurrency)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>
-                    Total Income
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
+        <Grid
+          container
+          spacing={2}
+          sx={{
+            mb: 4,
+            maxWidth: { xs: 480, md: '100%' },
+            mx: { xs: 'auto', md: 0 },
+          }}
+        >
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<TrendingUp sx={{ fontSize: 20 }} />}
+              iconBg="#dcfce7"
+              iconColor="#059669"
+              value={formatCurrency(summary.totalIncome, userCurrency)}
+              label="Total Income"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Paper sx={{
-              p: 3,
-              backgroundColor: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 2,
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                <Avatar sx={{
-                  bgcolor: '#fee2e2',
-                  color: '#dc2626',
-                  width: 48,
-                  height: 48,
-                  mr: 2
-                }}>
-                  <TrendingDown />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 700, color: '#dc2626', mb: 0.5 }}>
-                    {formatCurrency(summary.totalExpenses, userCurrency)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>
-                    Total Expenses
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<TrendingDown sx={{ fontSize: 20 }} />}
+              iconBg="#fee2e2"
+              iconColor="#dc2626"
+              value={formatCurrency(summary.totalExpenses, userCurrency)}
+              label="Total Expenses"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Paper sx={{
-              p: 3,
-              backgroundColor: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 2,
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                <Avatar sx={{
-                  bgcolor: summary.netProfit >= 0 ? '#dcfce7' : '#fee2e2',
-                  color: summary.netProfit >= 0 ? '#059669' : '#dc2626',
-                  width: 48,
-                  height: 48,
-                  mr: 2
-                }}>
-                  <MonetizationOn />
-                </Avatar>
-                <Box>
-                  <Typography
-                    variant="h4"
-                    sx={{
-                      fontWeight: 700,
-                      color: summary.netProfit >= 0 ? '#059669' : '#dc2626',
-                      mb: 0.5
-                    }}
-                  >
-                    {formatCurrency(summary.netProfit, userCurrency)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>
-                    Net Profit
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<MonetizationOn sx={{ fontSize: 20 }} />}
+              iconBg={summary.netProfit >= 0 ? '#dcfce7' : '#fee2e2'}
+              iconColor={summary.netProfit >= 0 ? '#059669' : '#dc2626'}
+              value={formatCurrency(summary.netProfit, userCurrency)}
+              label="Net Profit"
+            />
           </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Paper sx={{
-              p: 3,
-              backgroundColor: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: 2,
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)'
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                <Avatar sx={{
-                  bgcolor: '#fef3c7',
-                  color: '#f59e0b',
-                  width: 48,
-                  height: 48,
-                  mr: 2
-                }}>
-                  <Assessment />
-                </Avatar>
-                <Box>
-                  <Typography variant="h4" sx={{ fontWeight: 700, color: '#f59e0b', mb: 0.5 }}>
-                    {formatCurrency(summary.pendingAmount, userCurrency)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500 }}>
-                    Pending Amount
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
+          <Grid item xs={6} md={3}>
+            <StatCard
+              icon={<Assessment sx={{ fontSize: 20 }} />}
+              iconBg="#fef3c7"
+              iconColor="#f59e0b"
+              value={formatCurrency(summary.pendingAmount, userCurrency)}
+              label="Pending Amount"
+            />
           </Grid>
         </Grid>
 

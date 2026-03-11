@@ -1,4 +1,5 @@
 import React from 'react';
+import Box from '@mui/material/Box';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
 
 const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIconPositionsUpdate, activeKeys, onResetFilters }) => {
@@ -96,13 +97,15 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
   }
 
   return (
-    <div
+    <Box
       ref={summaryRef}
-      style={{
+      sx={{
         position: 'absolute',
-        // Lift the bar well above mobile browser chrome & gesture area
-        // 64px gives enough room for typical bottom toolbars; safe-area adds extra when needed
-        bottom: 'max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px))',
+        // Extra bottom offset on mobile; small clean gap on tablet/desktop
+        bottom: {
+          xs: 'max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px))',
+          sm: 24,
+        },
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
@@ -116,7 +119,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
         zIndex: 1000,
         width: 'fit-content',
         maxWidth: 'calc(100vw - 24px)',
-        overflowX: 'auto'
+        overflowX: 'auto',
       }}
     >
       <div style={{
@@ -228,7 +231,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
         Reset
       </div>
 
-    </div>
+    </Box>
   );
 };
 

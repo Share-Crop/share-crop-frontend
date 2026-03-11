@@ -734,6 +734,7 @@ const EnhancedHeader = forwardRef(({
               color="inherit"
               onClick={onMenuClick ? onMenuClick : toggleDrawer}
               sx={{
+                ml: { xs: 1, sm: 0 },
                 mr: { xs: 0.5, sm: 1.5 },
                 p: { xs: 1, sm: 1.2 },
                 backgroundColor: 'rgba(0,0,0,0.03)',
