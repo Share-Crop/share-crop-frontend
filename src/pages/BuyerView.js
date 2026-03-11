@@ -194,7 +194,14 @@ const BuyerView = () => {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        flexGrow: 1,
+        height: 'var(--app-viewport-height, 100vh)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <EnhancedHeader
         ref={headerRef}
         onSearchChange={handleSearchChange}
@@ -208,16 +215,17 @@ const BuyerView = () => {
         onRefreshNotifications={fetchBackendNotifications}
       />
 
-      <Box sx={{
-        flexGrow: 1,
-        mt: 'var(--app-header-height)',
-        // Use JS-computed visual viewport height so the map always fits exactly between header and bottom on mobile
-        height: 'calc(var(--app-viewport-height, 100vh) - var(--app-header-height))',
-        overflow: (isMapPage || isMessagesPage) ? 'hidden' : 'auto', // No scroll for map, messages, scroll for other pages
-        position: 'relative',
-        zIndex: 0,
-        isolation: 'isolate'
-      }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          mt: 'var(--app-header-height)',
+          height: 'calc(var(--app-viewport-height, 100vh) - var(--app-header-height))',
+          overflow: (isMapPage || isMessagesPage) ? 'hidden' : 'auto',
+          position: 'relative',
+          zIndex: 0,
+          isolation: 'isolate',
+        }}
+      >
         <Routes>
           <Route path="/" element={
             <EnhancedFarmMap

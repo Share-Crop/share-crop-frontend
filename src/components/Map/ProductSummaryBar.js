@@ -101,11 +101,8 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
       ref={summaryRef}
       sx={{
         position: 'absolute',
-        // Extra bottom offset on mobile; small clean gap on tablet/desktop
-        bottom: {
-          xs: 'max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px))',
-          sm: 24,
-        },
+        // Small, consistent gap from bottom; safe-area for mobile
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',

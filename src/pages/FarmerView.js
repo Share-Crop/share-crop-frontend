@@ -442,7 +442,14 @@ const FarmerView = () => {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        flexGrow: 1,
+        height: 'var(--app-viewport-height, 100vh)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
 
       <EnhancedHeader
         ref={headerRef}
