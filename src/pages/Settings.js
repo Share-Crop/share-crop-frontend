@@ -1,20 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Stack,
-  Divider,
-  Button,
-  FormControl,
-  Select,
-  MenuItem,
-  Alert,
-  Snackbar,
-  Avatar,
-  CircularProgress,
-} from '@mui/material';
-import {
   CurrencyExchange,
   Download,
   DeleteForever,
@@ -117,155 +102,155 @@ const Settings = () => {
   };
 
   const SettingRow = ({ icon, title, subtitle, action, danger = false }) => (
-    <Box sx={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      py: 2.5,
-    }}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        <Avatar sx={{
-          bgcolor: danger ? 'rgba(244, 67, 54, 0.1)' : 'rgba(76, 175, 80, 0.1)',
-          color: danger ? '#f44336' : '#4caf50',
-          width: 44,
-          height: 44
-        }}>
+    <div className="flex items-center justify-between py-3">
+      <div className="flex items-center gap-3">
+        <div
+          className={`flex h-11 w-11 items-center justify-center rounded-full ${
+            danger ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-600'
+          }`}
+        >
           {icon}
-        </Avatar>
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1e293b' }}>
-            {title}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {subtitle}
-          </Typography>
-        </Box>
-      </Stack>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', ml: 2 }}>
-        {action}
-      </Box>
-    </Box>
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-slate-900">{title}</div>
+          <div className="text-xs text-slate-500">{subtitle}</div>
+        </div>
+      </div>
+      <div className="ml-2 flex justify-end">{action}</div>
+    </div>
   );
 
   return (
-    <Box sx={{
-      height: '100%',
-      backgroundColor: '#f8fafc',
-      p: { xs: 2, md: 4 },
-      overflowY: 'auto'
-    }}>
-      <Box sx={{ maxWidth: '800px', mx: 'auto', pb: 8 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 4 }}>
-          <Box>
-            <Typography variant="h4" sx={{ fontWeight: 800, color: '#1e293b', mb: 1 }}>
-              Settings
-            </Typography>
-            <Typography variant="body1" color="text.secondary">
+    <div className="min-h-full overflow-y-auto bg-slate-50 px-3 py-4 md:px-6">
+      <div className="mx-auto w-full max-w-3xl pb-8">
+        {/* Header */}
+        <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h1 className="text-xl font-extrabold text-slate-900 md:text-2xl">Settings</h1>
+            <p className="text-xs text-slate-500 md:text-sm">
               Manage your actual account preferences
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <Save />}
+            </p>
+          </div>
+          <button
+            type="button"
             onClick={handleSaveAll}
             disabled={loading}
-            sx={{
-              backgroundColor: '#4caf50',
-              '&:hover': { backgroundColor: '#3d8b40' },
-              borderRadius: 2,
-              px: 3,
-              textTransform: 'none',
-              fontWeight: 600,
-            }}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
           >
-            Save Changes
-          </Button>
-        </Stack>
+            {loading ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            ) : (
+              <Save sx={{ fontSize: 16 }} />
+            )}
+            <span>Save Changes</span>
+          </button>
+        </div>
 
-        <Snackbar
-          open={!!success || !!error}
-          autoHideDuration={4000}
-          onClose={() => { setSuccess(''); setError(''); }}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        >
-          <Alert severity={success ? 'success' : 'error'} sx={{ width: '100%', borderRadius: 2 }}>
-            {success || error}
-          </Alert>
-        </Snackbar>
+        {/* Inline success / error banner */}
+        {(success || error) && (
+          <div
+            className={`mb-4 flex items-start gap-2 rounded-xl px-3 py-2 text-xs md:text-sm ${
+              success
+                ? 'bg-emerald-50 text-emerald-700'
+                : 'bg-red-50 text-red-700'
+            }`}
+          >
+            <span className="mt-0.5 font-medium">{success || error}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setSuccess('');
+                setError('');
+              }}
+              className="ml-auto text-[10px] font-semibold uppercase tracking-wide opacity-70 hover:opacity-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
-        <Stack spacing={3}>
+        <div className="space-y-4">
           {/* Main Preferences Section */}
-          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <CurrencyExchange color="primary" /> Localization
-            </Typography>
-            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <CurrencyExchange color="primary" />
+              <span>Localization</span>
+            </div>
+            <div className="divide-y divide-slate-200">
               <SettingRow
                 icon={<CurrencyExchange />}
                 title="Displayed Currency"
                 subtitle="Prices across the platform will be shown in this currency"
                 action={
-                  <FormControl size="small" sx={{ minWidth: 120 }}>
-                    <Select
-                      value={preferences.currency}
-                      onChange={(e) => handleSelectChange('currency', e.target.value)}
-                      sx={{ borderRadius: 2 }}
-                    >
-                      {currencies.length > 0 ? (
-                        currencies.map(curr => (
-                          <MenuItem key={curr.currency} value={curr.currency}>
-                            {curr.display_name} ({curr.symbol})
-                          </MenuItem>
-                        ))
-                      ) : (
-                        <MenuItem value="USD">US Dollar ($)</MenuItem>
-                      )}
-                    </Select>
-                  </FormControl>
+                  <select
+                    value={preferences.currency}
+                    onChange={(e) => handleSelectChange('currency', e.target.value)}
+                    className="h-9 min-w-[120px] rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-700 outline-none ring-emerald-500 focus:border-emerald-500 focus:ring-1"
+                  >
+                    {currencies.length > 0 ? (
+                      currencies.map((curr) => (
+                        <option key={curr.currency} value={curr.currency}>
+                          {curr.display_name} ({curr.symbol})
+                        </option>
+                      ))
+                    ) : (
+                      <option value="USD">US Dollar ($)</option>
+                    )}
+                  </select>
                 }
               />
-            </Stack>
-          </Paper>
+            </div>
+          </div>
 
           {/* Account Security Info Section */}
-          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Security color="primary" /> Account Metadata
-            </Typography>
-            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Security color="primary" />
+              <span>Account Metadata</span>
+            </div>
+            <div className="divide-y divide-slate-200">
               <SettingRow
                 icon={<Badge />}
                 title="Account Role"
                 subtitle={`You are currently logged in as a ${user?.user_type || 'user'}`}
-                action={<Typography sx={{ fontWeight: 700, color: '#4caf50' }}>{user?.user_type?.toUpperCase()}</Typography>}
+                action={
+                  <span className="text-xs font-bold uppercase text-emerald-600">
+                    {user?.user_type?.toUpperCase()}
+                  </span>
+                }
               />
               <SettingRow
                 icon={<CalendarToday />}
                 title="Member Since"
                 subtitle="Date when your account was first created"
-                action={<Typography sx={{ fontWeight: 500 }}>{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</Typography>}
+                action={
+                  <span className="text-xs font-medium text-slate-800">
+                    {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}
+                  </span>
+                }
               />
-            </Stack>
-          </Paper>
+            </div>
+          </div>
 
           {/* Data Section */}
-          <Paper elevation={0} sx={{ p: 4, borderRadius: 4, border: '1px solid #e2e8f0' }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Download color="primary" /> Security & Data
-            </Typography>
-            <Stack divider={<Divider sx={{ opacity: 0.6 }} />}>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Download color="primary" />
+              <span>Security &amp; Data</span>
+            </div>
+            <div className="divide-y divide-slate-200">
               <SettingRow
                 icon={<Download />}
                 title="Data Export"
                 subtitle="Download your basic account credentials in JSON format"
                 action={
-                  <Button
-                    variant="outlined"
+                  <button
+                    type="button"
                     onClick={handleExportData}
-                    sx={{ textTransform: 'none', borderRadius: 2 }}
+                    className="rounded-xl border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:border-emerald-500 hover:bg-emerald-50"
                   >
                     Export
-                  </Button>
+                  </button>
                 }
               />
               <SettingRow
@@ -274,26 +259,23 @@ const Settings = () => {
                 subtitle="Inactivate current account and clear local storage"
                 danger
                 action={
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    sx={{ textTransform: 'none', borderRadius: 2 }}
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-300 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
                   >
                     Delete...
-                  </Button>
+                  </button>
                 }
               />
-            </Stack>
-          </Paper>
-        </Stack>
+            </div>
+          </div>
+        </div>
 
-        <Box sx={{ mt: 6, textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            ShareCrop Actual Settings • Minimalistic & Real
-          </Typography>
-        </Box>
-      </Box>
-    </Box>
+        <div className="mt-6 text-center text-[11px] text-slate-400">
+          ShareCrop Actual Settings • Minimalistic &amp; Real
+        </div>
+      </div>
+    </div>
   );
 };
 

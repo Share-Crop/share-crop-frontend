@@ -217,34 +217,22 @@ const LicenseInfo = () => {
         )}
 
         {/* Summary Cards */}
-        <Grid
-          container
-          spacing={2}
-          sx={{
-            mb: 4,
-            maxWidth: { xs: 480, md: '100%' },
-            mx: { xs: 'auto', md: 0 },
-          }}
-        >
-          <Grid item xs={6} md={6}>
-            <StatCard
-              icon={<Assignment sx={{ fontSize: 20 }} />}
-              iconBg="#dbeafe"
-              iconColor="#2563eb"
-              value={licenses.length}
-              label="Uploaded Documents"
-            />
-          </Grid>
-          <Grid item xs={6} md={6}>
-            <StatCard
-              icon={isApproved ? <CheckCircle sx={{ fontSize: 20 }} /> : <Pending sx={{ fontSize: 20 }} />}
-              iconBg={isApproved ? '#dcfce7' : '#fef3c7'}
-              iconColor={isApproved ? '#059669' : '#d97706'}
-              value={isApproved ? 'Approved' : 'Pending'}
-              label="Account Status"
-            />
-          </Grid>
-        </Grid>
+        <div className="mb-4 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-2">
+          <StatCard
+            icon={<Assignment sx={{ fontSize: 20 }} />}
+            iconBg="#dbeafe"
+            iconColor="#2563eb"
+            value={licenses.length}
+            label="Uploaded Documents"
+          />
+          <StatCard
+            icon={isApproved ? <CheckCircle sx={{ fontSize: 20 }} /> : <Pending sx={{ fontSize: 20 }} />}
+            iconBg={isApproved ? '#dcfce7' : '#fef3c7'}
+            iconColor={isApproved ? '#059669' : '#d97706'}
+            value={isApproved ? 'Approved' : 'Pending'}
+            label="Account Status"
+          />
+        </div>
 
         {/* Licenses List Section */}
         <Box sx={{ mb: 4 }}>

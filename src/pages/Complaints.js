@@ -528,7 +528,7 @@ const Complaints = () => {
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <ReportProblem />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>Complaint Details</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: 'white' }}>Complaint Details</Typography>
           </Box>
           <IconButton
             onClick={() => setViewDialogOpen(false)}
