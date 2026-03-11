@@ -100,8 +100,9 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
       ref={summaryRef}
       style={{
         position: 'absolute',
-        // Add safe-area aware bottom offset so the bar is never hidden behind mobile browser chrome
-        bottom: 'max(8px, calc(env(safe-area-inset-bottom, 0px) + 8px))',
+        // Lift the bar well above mobile browser chrome & gesture area
+        // 64px gives enough room for typical bottom toolbars; safe-area adds extra when needed
+        bottom: 'max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px))',
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
