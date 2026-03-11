@@ -96,24 +96,28 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
   }
 
   return (
-    <div ref={summaryRef} style={{
-      position: 'absolute',
-      bottom: '20px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '4px 8px',
-      borderRadius: '6px',
-      background: 'rgba(0, 0, 0, 0.1)',
-      backdropFilter: 'blur(4px)',
-      border: '1px solid rgba(255, 255, 255, 0.1)',
-      zIndex: 1000,
-      width: 'fit-content',
-      maxWidth: 'calc(100vw - 24px)',
-      overflowX: 'auto'
-    }}>
+    <div
+      ref={summaryRef}
+      style={{
+        position: 'absolute',
+        // Add safe-area aware bottom offset so the bar is never hidden behind mobile browser chrome
+        bottom: 'max(8px, calc(env(safe-area-inset-bottom, 0px) + 8px))',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '4px 8px',
+        borderRadius: '6px',
+        background: 'rgba(0, 0, 0, 0.1)',
+        backdropFilter: 'blur(4px)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        zIndex: 1000,
+        width: 'fit-content',
+        maxWidth: 'calc(100vw - 24px)',
+        overflowX: 'auto'
+      }}
+    >
       <div style={{
         display: 'flex',
         gap: '4px',
