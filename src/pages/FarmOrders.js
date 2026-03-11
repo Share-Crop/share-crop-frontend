@@ -50,6 +50,7 @@ import {
   Info,
 } from '@mui/icons-material';
 import { Alert, AlertTitle } from '@mui/material';
+import StatCard from '../components/Common/StatCard';
 import { orderService } from '../services/orders';
 import { useAuth } from '../contexts/AuthContext';
 import Loader from '../components/Common/Loader';
@@ -361,128 +362,36 @@ const FarmOrders = () => {
         </Alert>
 
         {/* Stats */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
-                },
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar sx={{ backgroundColor: '#dbeafe', color: '#1d4ed8', width: 40, height: 40 }}>
-                  <ShoppingCart sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {orders.length}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Total Orders
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
-                },
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar sx={{ backgroundColor: '#dcfce7', color: '#059669', width: 40, height: 40 }}>
-                  <LocalShipping sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {activeOrders}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Active Orders
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
-                },
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar sx={{ backgroundColor: '#fef3c7', color: '#d97706', width: 40, height: 40 }}>
-                  <TrendingUp sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Total Revenue
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                border: '1px solid #e2e8f0',
-                borderRadius: 2,
-                backgroundColor: 'white',
-                transition: 'all 0.2s ease-in-out',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
-                },
-              }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1.5}>
-                <Avatar sx={{ backgroundColor: '#f3e8ff', color: '#7c3aed', width: 40, height: 40 }}>
-                  <Assessment sx={{ fontSize: 20 }} />
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
-                    {completionRate.toFixed(0)}%
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                    Completion Rate
-                  </Typography>
-                </Box>
-              </Stack>
-            </Paper>
-          </Grid>
-        </Grid>
+        <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
+          <StatCard
+            icon={<ShoppingCart sx={{ fontSize: 20 }} />}
+            iconBg="#dbeafe"
+            iconColor="#1d4ed8"
+            value={orders.length}
+            label="Total Orders"
+          />
+          <StatCard
+            icon={<LocalShipping sx={{ fontSize: 20 }} />}
+            iconBg="#dcfce7"
+            iconColor="#059669"
+            value={activeOrders}
+            label="Active Orders"
+          />
+          <StatCard
+            icon={<TrendingUp sx={{ fontSize: 20 }} />}
+            iconBg="#fef3c7"
+            iconColor="#d97706"
+            value={`$${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label="Total Revenue"
+          />
+          <StatCard
+            icon={<Assessment sx={{ fontSize: 20 }} />}
+            iconBg="#f3e8ff"
+            iconColor="#7c3aed"
+            value={`${completionRate.toFixed(0)}%`}
+            label="Completion Rate"
+          />
+        </div>
 
         {/* Filters */}
         <Paper
