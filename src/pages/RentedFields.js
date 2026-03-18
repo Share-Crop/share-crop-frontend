@@ -110,15 +110,24 @@ const formatAreaFromM2 = (m2, unit) => {
 
 // Map fields API response to the shape the UI expects
 function mapFieldFromApi(raw, currentUserId) {
-  const unit = normalizeAreaUnit(raw.unit || raw.area_unit || raw.field_size_unit || raw.areaUnit || 'm2');
-  const areaM2Raw = typeof raw.area_m2 === 'string' ? parseFloat(raw.area_m2) : (raw.area_m2 ?? 0);
-  const totalAreaRaw = typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? areaM2Raw) || areaM2Raw;
-  const availableAreaRaw = typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0);
-  const availableUnit = normalizeAreaUnit(raw.available_area_unit || 'm2');
-  const totalAreaM2 = toM2(totalAreaRaw, unit);
-  const availableAreaM2 = toM2(availableAreaRaw, availableUnit);
+  // display unit = what user selected; canonical m² comes from *_m2 columns when present
+  const displayUnitRaw = raw.display_unit || raw.field_size_unit || raw.unit || raw.area_unit || raw.areaUnit || 'm²';
+  const displayUnit = normalizeAreaUnit(displayUnitRaw);
+
+  const totalAreaM2 = raw.total_area_m2 != null
+    ? Number(raw.total_area_m2) || 0
+    : toM2(
+      (typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? raw.area_m2 ?? 0)),
+      displayUnit,
+    );
+
+  const availableAreaM2 = raw.available_area_m2 != null
+    ? Number(raw.available_area_m2) || 0
+    : toM2(
+      (typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0)),
+      displayUnit,
+    );
   const pricePerM2 = typeof raw.price_per_m2 === 'string' ? parseFloat(raw.price_per_m2) : (raw.price_per_m2 ?? 0);
-  const quantity = typeof raw.quantity === 'string' ? parseFloat(raw.quantity) : (raw.quantity ?? 0);
   const occupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
   const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
   const harvestDates = Array.isArray(raw.harvest_dates)
@@ -143,17 +152,18 @@ function mapFieldFromApi(raw, currentUserId) {
     category: raw.category,
     subcategory: raw.subcategory,
     is_own_field: Boolean(isOwnField),
-    area_unit: unit,
+    display_unit: displayUnit,
+    area_unit: displayUnit,
     total_area: totalAreaM2,
     area_m2: totalAreaM2,
     available_area: availableAreaM2,
     occupied_area: occupiedM2,
-    total_area_display: formatAreaFromM2(totalAreaM2, unit),
-    available_area_display: formatAreaFromM2(availableAreaM2, unit),
-    occupied_area_display: quantity ? `${quantity} ${unitLabel(unit)}` : formatAreaFromM2(occupiedM2, unit),
-    area: quantity ? `${quantity} ${unitLabel(unit)}` : formatAreaFromM2(occupiedM2, unit),
+    total_area_display: formatAreaFromM2(totalAreaM2, displayUnit),
+    available_area_display: formatAreaFromM2(availableAreaM2, displayUnit),
+    occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
+    area: formatAreaFromM2(occupiedM2, displayUnit),
     price_per_m2: pricePerM2,
-    monthlyRent: (pricePerM2 * (quantity || totalAreaM2)) || (typeof raw.price === 'string' ? parseFloat(raw.price) : raw.price),
+    monthlyRent: (pricePerM2 * totalAreaM2) || (typeof raw.price === 'string' ? parseFloat(raw.price) : raw.price),
     status: raw.available !== false ? 'Active' : 'Inactive',
     progress,
     selected_harvests: harvestDates,
@@ -494,10 +504,23 @@ const RentedFields = () => {
         const totalArea = item.total_area || 0;
         const purchasedArea = item.purchased_area || 0;
         const progress = totalArea > 0 ? Math.round((purchasedArea / totalArea) * 100) : 0;
+        const displayUnitRaw = item.display_unit || item.field_size_unit || item.unit || 'm²';
+        const displayUnit = normalizeAreaUnit(displayUnitRaw);
+        const totalAreaM2 = toM2(totalArea, displayUnit);
+        const occupiedM2 = Math.max(0, toM2(purchasedArea, displayUnit));
+        const availableM2 = Math.max(0, totalAreaM2 - occupiedM2);
         return {
           ...item,
-          area_m2: purchasedArea,
-          area: `${purchasedArea} m²`,
+          display_unit: displayUnit,
+          area_unit: displayUnit,
+          total_area: totalAreaM2,
+          available_area: availableM2,
+          occupied_area: occupiedM2,
+          total_area_display: formatAreaFromM2(totalAreaM2, displayUnit),
+          available_area_display: formatAreaFromM2(availableM2, displayUnit),
+          occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
+          area_m2: occupiedM2,
+          area: formatAreaFromM2(occupiedM2, displayUnit),
           progress,
         };
       });
@@ -1237,7 +1260,7 @@ const RentedFields = () => {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Occupied</span>
-                        <span className="font-semibold text-slate-900">{field.area}</span>
+                        <span className="font-semibold text-slate-900">{field.occupied_area_display || field.area}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Available</span>
@@ -1736,7 +1759,7 @@ const RentedFields = () => {
                       <span>
                         Occupied:{' '}
                         <span className="font-semibold text-slate-900">
-                          {selectedField.area}
+                          {selectedField.occupied_area_display || selectedField.area}
                         </span>
                       </span>
                       <span>
