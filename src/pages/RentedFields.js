@@ -57,26 +57,70 @@ import {
   Edit as EditIcon,
   ReceiptLong as RentIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import rentedFieldsService from '../services/rentedFields';
 import { orderService } from '../services/orders';
 import farmsService from '../services/farms';
 import CreateFieldForm from '../components/Forms/CreateFieldForm';
 import StatCard from '../components/Common/StatCard';
+import { getProductIcon } from '../utils/productIcons';
 
 const SEGMENT_ALL = 'all';
 const SEGMENT_OWNED = 'owned';
 const SEGMENT_RENTED = 'rented';
 
+const normalizeAreaUnit = (raw) => {
+  const u = String(raw || '').trim().toLowerCase();
+  if (!u) return 'm2';
+  if (u === 'm²' || u === 'm2' || u === 'sqm' || u === 'square meter' || u === 'square meters') return 'm2';
+  if (u === 'acre' || u === 'acres') return 'acre';
+  if (u === 'hectare' || u === 'hectares' || u === 'ha') return 'ha';
+  if (u === 'sqft' || u === 'ft2' || u === 'ft²' || u === 'square feet') return 'ft2';
+  return u;
+};
+
+const unitLabel = (unit) => {
+  const u = normalizeAreaUnit(unit);
+  if (u === 'm2') return 'm²';
+  if (u === 'acre') return 'acres';
+  if (u === 'ha') return 'ha';
+  if (u === 'ft2') return 'ft²';
+  return unit || 'm²';
+};
+
+const toM2 = (value, unit) => {
+  const v = typeof value === 'string' ? parseFloat(value) : (value ?? 0);
+  if (!Number.isFinite(v)) return 0;
+  const u = normalizeAreaUnit(unit);
+  if (u === 'acre') return v * 4046.8564224;
+  if (u === 'ha') return v * 10000;
+  if (u === 'ft2') return v * 0.092903;
+  return v; // m2 or unknown assumed m2
+};
+
+const formatAreaFromM2 = (m2, unit) => {
+  const v = Number(m2) || 0;
+  const u = normalizeAreaUnit(unit);
+  if (u === 'acre') return `${(v / 4046.8564224).toFixed(2)} acres`;
+  if (u === 'ha') return `${(v / 10000).toFixed(2)} ha`;
+  if (u === 'ft2') return `${Math.round(v / 0.092903).toLocaleString()} ft²`;
+  return `${Math.round(v).toLocaleString()} m²`;
+};
+
 // Map fields API response to the shape the UI expects
 function mapFieldFromApi(raw, currentUserId) {
-  const areaM2 = typeof raw.area_m2 === 'string' ? parseFloat(raw.area_m2) : (raw.area_m2 ?? 0);
-  const availableArea = typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0);
-  const totalArea = typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? areaM2) || areaM2;
+  const unit = normalizeAreaUnit(raw.unit || raw.area_unit || raw.field_size_unit || raw.areaUnit || 'm2');
+  const areaM2Raw = typeof raw.area_m2 === 'string' ? parseFloat(raw.area_m2) : (raw.area_m2 ?? 0);
+  const totalAreaRaw = typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? areaM2Raw) || areaM2Raw;
+  const availableAreaRaw = typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0);
+  const availableUnit = normalizeAreaUnit(raw.available_area_unit || 'm2');
+  const totalAreaM2 = toM2(totalAreaRaw, unit);
+  const availableAreaM2 = toM2(availableAreaRaw, availableUnit);
   const pricePerM2 = typeof raw.price_per_m2 === 'string' ? parseFloat(raw.price_per_m2) : (raw.price_per_m2 ?? 0);
   const quantity = typeof raw.quantity === 'string' ? parseFloat(raw.quantity) : (raw.quantity ?? 0);
-  const occupied = Math.max(0, totalArea - availableArea);
-  const progress = totalArea > 0 ? Math.round((occupied / totalArea) * 100) : 0;
+  const occupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
+  const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
   const harvestDates = Array.isArray(raw.harvest_dates)
     ? raw.harvest_dates.map((h) => (typeof h === 'object' && h?.date != null ? { date: h.date, label: h.label || '' } : { date: h, label: '' }))
     : [];
@@ -99,12 +143,17 @@ function mapFieldFromApi(raw, currentUserId) {
     category: raw.category,
     subcategory: raw.subcategory,
     is_own_field: Boolean(isOwnField),
-    total_area: totalArea,
-    area_m2: areaM2,
-    available_area: availableArea,
-    area: quantity ? `${quantity} ${raw.unit || 'm²'}` : `${areaM2} m²`,
+    area_unit: unit,
+    total_area: totalAreaM2,
+    area_m2: totalAreaM2,
+    available_area: availableAreaM2,
+    occupied_area: occupiedM2,
+    total_area_display: formatAreaFromM2(totalAreaM2, unit),
+    available_area_display: formatAreaFromM2(availableAreaM2, unit),
+    occupied_area_display: quantity ? `${quantity} ${unitLabel(unit)}` : formatAreaFromM2(occupiedM2, unit),
+    area: quantity ? `${quantity} ${unitLabel(unit)}` : formatAreaFromM2(occupiedM2, unit),
     price_per_m2: pricePerM2,
-    monthlyRent: (pricePerM2 * (quantity || areaM2)) || (typeof raw.price === 'string' ? parseFloat(raw.price) : raw.price),
+    monthlyRent: (pricePerM2 * (quantity || totalAreaM2)) || (typeof raw.price === 'string' ? parseFloat(raw.price) : raw.price),
     status: raw.available !== false ? 'Active' : 'Inactive',
     progress,
     selected_harvests: harvestDates,
@@ -114,7 +163,7 @@ function mapFieldFromApi(raw, currentUserId) {
     image_url: raw.image,
     farmer_name: raw.farmer_name,
     created_at: raw.created_at,
-    rentPeriod: totalArea > 0 ? 'Ongoing' : null,
+    rentPeriod: totalAreaM2 > 0 ? 'Ongoing' : null,
     available_for_buy: availableForBuy,
     available_for_rent: availableForRent,
     rent_price_per_month: rentPricePerMonth,
@@ -160,11 +209,14 @@ function fieldToFormInitialData(raw) {
 
 // Map my-rentals API response (rented_fields + field details) to same shape as owned fields for the card
 function mapRentalFromApi(r) {
-  const totalArea = typeof r.total_area === 'string' ? parseFloat(r.total_area) : (r.total_area ?? 0);
-  const availableArea = typeof r.available_area === 'string' ? parseFloat(r.available_area) : (r.available_area ?? 0);
-  const areaRented = r.area_rented != null && r.area_rented !== '' ? parseFloat(r.area_rented) : 0;
-  const occupied = Math.max(0, totalArea > 0 ? totalArea - availableArea : areaRented);
-  const progress = totalArea > 0 ? Math.round((occupied / totalArea) * 100) : 0;
+  const unit = normalizeAreaUnit(r.unit || r.area_unit || r.field_size_unit || 'm2');
+  const totalAreaRaw = typeof r.total_area === 'string' ? parseFloat(r.total_area) : (r.total_area ?? 0);
+  const availableAreaRaw = typeof r.available_area === 'string' ? parseFloat(r.available_area) : (r.available_area ?? 0);
+  const totalAreaM2 = toM2(totalAreaRaw, unit);
+  const availableAreaM2 = toM2(availableAreaRaw, r.available_area_unit || 'm2');
+  const areaRentedRaw = r.area_rented != null && r.area_rented !== '' ? parseFloat(r.area_rented) : 0;
+  const occupiedM2 = Math.max(0, totalAreaM2 > 0 ? totalAreaM2 - availableAreaM2 : toM2(areaRentedRaw, unit));
+  const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
   const status = (r.status || 'active').toLowerCase();
   return {
     id: `rental-${r.id}`,
@@ -177,10 +229,15 @@ function mapRentalFromApi(r) {
     cropType: r.category || r.subcategory,
     category: r.category,
     subcategory: r.subcategory,
-    total_area: totalArea,
-    area_m2: areaRented,
-    available_area: availableArea,
-    area: `${areaRented} m²`,
+    area_unit: unit,
+    total_area: totalAreaM2,
+    area_m2: totalAreaM2,
+    available_area: availableAreaM2,
+    occupied_area: occupiedM2,
+    total_area_display: formatAreaFromM2(totalAreaM2, unit),
+    available_area_display: formatAreaFromM2(availableAreaM2, unit),
+    occupied_area_display: formatAreaFromM2(occupiedM2, unit),
+    area: formatAreaFromM2(occupiedM2, unit),
     price_per_m2: r.price_per_m2,
     monthlyRent: typeof r.price === 'number' ? r.price : (typeof r.price === 'string' ? parseFloat(r.price) : 0) || 0,
     status: status === 'active' ? 'Active' : status === 'ended' ? 'Ended' : status === 'cancelled' ? 'Cancelled' : status,
@@ -196,6 +253,8 @@ function mapRentalFromApi(r) {
 
 const RentedFields = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [expandedFieldId, setExpandedFieldId] = useState(null);
   const [rentedFields, setRentedFields] = useState([]);
   const [myRentals, setMyRentals] = useState([]);
   const [purchasedFields, setPurchasedFields] = useState([]);
@@ -519,6 +578,13 @@ const RentedFields = () => {
   const handleCloseFieldDetail = () => {
     setFieldDetailOpen(false);
     setSelectedField(null);
+  };
+
+  const handleViewOnMap = (field) => {
+    const fieldId = field?.id;
+    if (!fieldId) return;
+    const base = user?.user_type === 'farmer' ? '/farmer' : '/buyer';
+    navigate(`${base}?field_id=${encodeURIComponent(String(fieldId))}`);
   };
 
   const openEditField = async (field) => {
@@ -1024,292 +1090,187 @@ const RentedFields = () => {
           </div>
         </div>
 
-        {/* Fields Grid */}
-        <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            lg: 'repeat(3, 1fr)'
-          },
-          gap: 2,
-          alignItems: 'stretch',
-          width: '100%'
-        }}>
-          {paginatedFields.map((field) => (
-            <Card
-              key={field.id}
-              elevation={0}
-              sx={{
-                height: 420, // Fixed height for consistency
-                minWidth: 0, // Prevent overflow
-                maxWidth: '100%', // Ensure it doesn't exceed grid cell
-                width: '100%', // Full width of grid cell
-                borderRadius: 2,
-                border: '1px solid #e2e8f0',
-                bgcolor: 'white',
-                transition: 'all 0.3s ease',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden', // Prevent content overflow
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 8px 16px rgba(0,0,0,0.08)',
-                  borderColor: '#3b82f6'
-                }
-              }}
-            >
-              <CardContent sx={{
-                p: 0,
-                '&:last-child': { pb: 0 },
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                minWidth: 0, // Prevent overflow
-                width: '100%'
-              }}>
-                {/* Card Header */}
-                <Box sx={{ p: 2, pb: 1.5, minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5, gap: 1 }}>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          fontWeight: 600,
-                          color: '#1a202c',
-                          fontSize: '1rem',
-                          mb: 0.25,
-                          lineHeight: 1.3,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
+        {/* Fields (compact list; expandable) */}
+        <div className="w-full space-y-2">
+          {paginatedFields.map((field) => {
+            const iconUrl = getProductIcon(field.subcategory || field.category || field.cropType);
+            const monthly = (() => {
+              const amount = parseFloat(field.monthlyRent) || 0;
+              return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            })();
+            const harvestText = (() => {
+              const items = Array.isArray(field.selected_harvests) ? field.selected_harvests : [];
+              const format = (date) => {
+                if (!date) return '';
+                if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
+                const d = new Date(date);
+                if (isNaN(d.getTime())) return String(date);
+                return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+              };
+              if (items.length) {
+                const mapped = items.map(it => {
+                  const dt = format(it.date);
+                  if (it.label && dt) return `${dt} (${it.label})`;
+                  if (dt) return dt;
+                  if (it.label) return it.label;
+                  return '';
+                }).filter(Boolean);
+                const uniq = Array.from(new Set(mapped));
+                return uniq.join(', ') || 'Not specified';
+              }
+              return field.selected_harvest_label || field.selected_harvest_date || 'Not specified';
+            })();
+            const shippingText = (() => {
+              const modes = Array.isArray(field.shipping_modes) ? field.shipping_modes : [];
+              const uniq = (() => { const s = new Set(); return modes.filter(m => { const k = (m || '').toLowerCase(); if (s.has(k)) return false; s.add(k); return true; }); })();
+              return uniq.length ? uniq.join(', ') : 'Not specified';
+            })();
+            const progressColor =
+              field.progress === 100 ? '#10b981' : field.progress > 50 ? '#3b82f6' : '#f59e0b';
+            const isExpanded = expandedFieldId === field.id;
+
+            return (
+              <div
+                key={field.id}
+                className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+              >
+                {/* Compact row */}
+                <button
+                  type="button"
+                  onClick={() => setExpandedFieldId((prev) => (prev === field.id ? null : field.id))}
+                  className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-slate-50"
+                >
+                  {iconUrl && (
+                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-50 ring-1 ring-slate-200">
+                      <img src={iconUrl} alt="Field icon" className="h-5 w-5 object-contain" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {/* Mobile: stacked rows. Desktop: single row */}
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                      <div className="min-w-0 flex-1">
+                        {/* Title row (full width on mobile) */}
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-900 sm:truncate sm:whitespace-nowrap">
+                            {field.name || field.farmName}
+                          </div>
+                          <span
+                            className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${
+                              field.is_own_field ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                            }`}
+                          >
+                            {field.is_own_field ? 'My field' : 'Rented'}
+                          </span>
+                        </div>
+
+                        {/* Location row (full width on mobile) */}
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                          <LocationOn sx={{ fontSize: 14, color: '#64748b' }} />
+                          <div className="min-w-0 flex-1 leading-snug sm:truncate sm:whitespace-nowrap">
+                            {field.location}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions + price row (full width on mobile) */}
+                      <div className="mt-1 flex w-full items-center justify-between gap-2 sm:mt-0 sm:w-auto sm:justify-end">
+                        <div className="text-left sm:text-right">
+                          <div className="text-sm font-bold text-emerald-600">
+                            {currencySymbols[userCurrency]}{monthly}
+                          </div>
+                          <div className="text-[0.65rem] font-medium text-slate-500">/month</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {field.is_own_field && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openEditField(field); }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100"
+                              title="Edit field"
+                              aria-label="Edit field"
+                            >
+                              <EditIcon sx={{ fontSize: 18 }} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleViewOnMap(field); }}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:bg-emerald-50"
+                            title="View on map"
+                            aria-label="View on map"
+                          >
+                            <LocationOn sx={{ fontSize: 18 }} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ml-1 shrink-0 text-slate-400">
+                    {isExpanded ? '▴' : '▾'}
+                  </div>
+                </button>
+
+                {/* Expanded panel */}
+                {isExpanded && (
+                  <div className="border-t border-slate-200 px-3 py-3">
+                    <div className="mb-3 text-xs text-slate-500">
+                      <div className="font-semibold text-slate-800">Crop</div>
+                      <div className="text-slate-700">{field.cropType}</div>
+                    </div>
+
+                    <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Harvest</span>
+                        <span className="truncate font-semibold text-slate-900">{harvestText}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Shipping</span>
+                        <span className="truncate font-semibold text-slate-900">{shippingText}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Total</span>
+                        <span className="font-semibold text-slate-900">
+                          {field.total_area_display || `${field.total_area} m²`}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Occupied</span>
+                        <span className="font-semibold text-slate-900">{field.area}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Available</span>
+                        <span className="font-semibold text-slate-900">{field.available_area_display || `${field.available_area} m²`}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="mb-1 flex items-center justify-between text-[0.7rem] text-slate-500">
+                        <span>Occupied Area</span>
+                        <span className="font-semibold text-slate-900">{field.progress}%</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-slate-200">
+                        <div className="h-full rounded-full" style={{ width: `${field.progress}%`, backgroundColor: progressColor }} />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleFieldClick(field); }}
+                        className="inline-flex items-center justify-center gap-1 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-600"
                       >
-                        {field.name || field.farmName}
-                      </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <LocationOn sx={{ fontSize: 14, color: '#64748b', mr: 0.5 }} />
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                          {field.location}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    {field.is_own_field && (
-                      <Stack direction="row" spacing={0.5} flexShrink={0}>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => { e.stopPropagation(); openEditField(field); }}
-                          sx={{
-                            color: '#3b82f6',
-                            bgcolor: '#eff6ff',
-                            '&:hover': { bgcolor: '#dbeafe', color: '#2563eb' },
-                            width: 32,
-                            height: 32
-                          }}
-                          title="Edit field"
-                        >
-                          <EditIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                        {/* Rent disabled – only buy for now
-                        <IconButton
-                          size="small"
-                          onClick={(e) => { e.stopPropagation(); openEditRent(field); }}
-                          sx={{
-                            color: '#059669',
-                            bgcolor: '#f0fdf4',
-                            '&:hover': { bgcolor: '#dcfce7', color: '#4CAF50' },
-                            width: 32,
-                            height: 32
-                          }}
-                          title="Edit rent settings"
-                        >
-                          <RentIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                        */}
-                      </Stack>
-                    )}
-                  </Box>
-
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <Chip
-                      label={field.is_own_field ? 'My field' : 'Rented'}
-                      size="small"
-                      sx={{
-                        fontWeight: 600,
-                        fontSize: '0.7rem',
-                        height: 24,
-                        borderRadius: 1.5,
-                        bgcolor: field.is_own_field ? '#dbeafe' : '#fef3c7',
-                        color: field.is_own_field ? '#1d4ed8' : '#b45309'
-                      }}
-                    />
-                    <Chip
-                      label={field.status}
-                      color={getStatusColor(field.status)}
-                      size="small"
-                      sx={{
-                        fontWeight: 600,
-                        fontSize: '0.7rem',
-                        height: 24,
-                        borderRadius: 1.5,
-                        ...(field.status === 'Active' && {
-                          color: '#ffffff'
-                        })
-                      }}
-                    />
-                  </Stack>
-                </Box>
-
-                <Divider sx={{ mx: 2 }} />
-
-                {/* Field Details */}
-                <Box sx={{ p: 2, py: 1.5, flex: 1, minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
-                  <Stack spacing={1.5}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Agriculture sx={{ fontSize: 16, color: '#10b981', mr: 0.75 }} />
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                          Crop Type
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a202c', fontSize: '0.8rem' }}>
-                        {field.cropType}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <CalendarToday sx={{ fontSize: 16, color: '#3b82f6', mr: 0.75 }} />
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                          Harvest Date
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a202c', fontSize: '0.8rem' }}>
-                        {(() => {
-                          const items = Array.isArray(field.selected_harvests) ? field.selected_harvests : [];
-                          const format = (date) => {
-                            if (!date) return '';
-                            if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
-                            const d = new Date(date);
-                            if (isNaN(d.getTime())) return date;
-                            return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-                          };
-                          if (items.length) {
-                            const mapped = items.map(it => {
-                              const dt = format(it.date);
-                              if (it.label && dt) return `${dt} (${it.label})`;
-                              if (dt) return dt;
-                              if (it.label) return it.label;
-                              return '';
-                            }).filter(Boolean);
-                            const uniq = Array.from(new Set(mapped));
-                            return uniq.join(', ');
-                          }
-                          return field.selected_harvest_label || field.selected_harvest_date || 'Not specified';
-                        })()}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b" style={{ marginRight: 6 }}><path d="M20 8h-3V4H7v4H4v12h16V8zm-9 0V6h2v2h-2zm9 10H4v-8h16v8z" /></svg>
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                          Mode of Shipping
-                        </Typography>
-                      </Box>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a202c', fontSize: '0.8rem' }}>
-                        {(() => {
-                          const modes = Array.isArray(field.shipping_modes) ? field.shipping_modes : [];
-                          const uniq = (() => { const s = new Set(); return modes.filter(m => { const k = (m || '').toLowerCase(); if (s.has(k)) return false; s.add(k); return true; }); })();
-                          return uniq.length ? uniq.join(', ') : 'Not specified';
-                        })()}
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                        Occupied: {field.area}
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a202c', fontSize: '0.8rem' }}>
-                        {field.available_area}m² available
-                      </Typography>
-                    </Box>
-
-                    {/* Progress Bar */}
-                    <Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                          Occupied Area
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a202c', fontSize: '0.8rem' }}>
-                          {field.progress}%
-                        </Typography>
-                      </Box>
-                      <LinearProgress
-                        variant="determinate"
-                        value={field.progress}
-                        sx={{
-                          height: 6,
-                          borderRadius: 3,
-                          bgcolor: '#f1f5f9',
-                          '& .MuiLinearProgress-bar': {
-                            borderRadius: 3,
-                            bgcolor: field.progress === 100 ? '#10b981' : field.progress > 50 ? '#3b82f6' : '#f59e0b'
-                          }
-                        }}
-                      />
-                    </Box>
-                  </Stack>
-                </Box>
-
-                <Divider sx={{ mx: 2 }} />
-
-                {/* Card Footer */}
-                <Box sx={{ p: 2, pt: 1.5, mt: 'auto', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography
-                      variant="h5"
-                      sx={{
-                        fontWeight: 700,
-                        color: '#059669',
-                        fontSize: '1.25rem'
-                      }}
-                    >
-                      {currencySymbols[userCurrency]}{(() => {
-                        const amount = parseFloat(field.monthlyRent) || 0;
-                        return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                      })()}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.8rem' }}>
-                      /month
-                    </Typography>
-                  </Box>
-
-                  <Button
-                    variant="contained"
-                    fullWidth
-                    size="small"
-                    startIcon={<Visibility />}
-                    onClick={() => handleFieldClick(field)}
-                    sx={{
-                      borderRadius: 1.5,
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      fontSize: '0.75rem',
-                      bgcolor: '#4caf50',
-                      color: '#ffffff',
-                      py: 0.75,
-
-                    }}
-                  >
-                    View Details
-                  </Button>
-                </Box>
-              </CardContent>
-            </Card>
-          ))}
-        </Box>
+                        <Visibility sx={{ fontSize: 16 }} />
+                        <span>View details</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
 
         {/* Pagination Controls */}
         {displayedFields.length > itemsPerPage && (
@@ -1505,11 +1466,11 @@ const RentedFields = () => {
                         Occupied: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.area}</span>
                       </Typography>
                       <Typography variant="body2" sx={{ color: '#64748b' }}>
-                        Available: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.available_area}m²</span>
+                        Available: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.available_area_display || `${selectedField.available_area} m²`}</span>
                       </Typography>
                       {selectedField.total_area && (
                         <Typography variant="body2" sx={{ color: '#64748b' }}>
-                          Total: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.total_area}m²</span>
+                          Total: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.total_area_display || `${selectedField.total_area} m²`}</span>
                         </Typography>
                       )}
                     </Stack>
@@ -1781,14 +1742,14 @@ const RentedFields = () => {
                       <span>
                         Available:{' '}
                         <span className="font-semibold text-slate-900">
-                          {selectedField.available_area}m²
+                          {selectedField.available_area_display || `${selectedField.available_area} m²`}
                         </span>
                       </span>
                       {selectedField.total_area && (
                         <span>
                           Total:{' '}
                           <span className="font-semibold text-slate-900">
-                            {selectedField.total_area}m²
+                            {selectedField.total_area_display || `${selectedField.total_area} m²`}
                           </span>
                         </span>
                       )}
