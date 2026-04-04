@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, forwardRef, useRef, useImperativeHandle } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Typography, TextField, Paper, Checkbox, FormControlLabel, IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, Chip, alpha } from '@mui/material';
-import { HomeWork, Cloud, LocalShipping, Close, Block, CloudQueue, Grain, DeviceThermostat, Compress, Air } from '@mui/icons-material';
+import { HomeWork, Cloud, LocalShipping, Close, Block, CloudQueue, Grain, DeviceThermostat, Compress, Air, Store } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import coinService from '../../services/coinService';
 import fieldsService from '../../services/fields';
@@ -17,6 +17,7 @@ import { Map as MapboxMap, Marker, NavigationControl, FullscreenControl } from '
 
 import { cachedReverseGeocode } from '../../utils/geocoding';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
+import { helpers } from '../../utils/helpers';
 import { orderService } from '../../services/orders';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { configureGlobeMap, DARK_MAP_STYLE } from '../../utils/mapConfig';
@@ -98,6 +99,8 @@ const EnhancedFarmMap = forwardRef(({
   const [selectedHarvestDate, setSelectedHarvestDate] = useState(null);
   const [productLocations, setProductLocations] = useState(new Map());
   const [productWeather, setProductWeather] = useState(new Map());
+
+
   const [deliveryMode, setDeliveryMode] = useState('existing');
   const [existingDeliveryAddress, setExistingDeliveryAddress] = useState('');
   const [newDeliveryAddress, setNewDeliveryAddress] = useState({
@@ -137,6 +140,7 @@ const EnhancedFarmMap = forwardRef(({
   const [weatherLayerEnabled, setWeatherLayerEnabled] = useState(false);
   const [activeWeatherLayer, setActiveWeatherLayer] = useState('clouds_new');
   const [weatherLayerPanelOpen, setWeatherLayerPanelOpen] = useState(true);
+  const notifiedInFlightRef = useRef(new Set());
 
   // Define isProductPurchased early to avoid TDZ errors
   const isProductPurchased = useCallback((prod) => {
@@ -316,11 +320,119 @@ const EnhancedFarmMap = forwardRef(({
   const deliveryFlyLayerRef = useRef(null);
   const [deliveryFlyCards, setDeliveryFlyCards] = useState([]);
   const deliveryAnimatedIdsRef = useRef(new Set());
+
+  // Dynamic Status Helper
+  const getFieldStatus = useCallback((field, isOwnField = false) => {
+    const now = new Date();
+    // Normalize to midnight for fair comparison
+    now.setHours(0, 0, 0, 0);
+
+    // Check if fully occupied
+    const totalArea = parseFloat(field.total_area || field.total_area_m2 || field.field_size || 0);
+    const availableArea = parseFloat(field.available_area || field.available_area_m2 || 0);
+    const isFullyOccupied = totalArea > 0 && availableArea <= 0;
+
+    const harvestDates = field.harvest_dates || field.harvestDates || [];
+    const futureDates = helpers.getFutureHarvestDates(harvestDates);
+    const dateRaw = futureDates.length > 0 ? futureDates[0].date : (field.harvest_date || field.harvestDate);
+
+    // Check harvest status
+    const hasFutureDate = futureDates.length > 0;
+    
+    // If fully occupied and owner, show "Fully Occupied"
+    if (isFullyOccupied && isOwnField) {
+      return { label: 'Fully Occupied', color: '#6366f1', icon: '🔒', expired: false };
+    }
+
+    if (!dateRaw) {
+      if (isOwnField) {
+        return { label: 'No harvest date', color: '#94a3b8', icon: '📝', expired: true };
+      }
+      return { label: 'No harvest date', color: '#94a3b8', icon: '📝', expired: false };
+    }
+
+    const hDate = new Date(dateRaw);
+    hDate.setHours(0, 0, 0, 0);
+
+    // Delivery is typically 2 days after harvest if not specified
+    const dDate = new Date(hDate);
+    dDate.setDate(dDate.getDate() + 2);
+
+    if (now < hDate) {
+      return { label: 'Growing', color: '#10b981', icon: '🌱', expired: false };
+    } else if (now.getTime() === hDate.getTime()) {
+      return { label: 'Harvesting Today!', color: '#f59e0b', icon: '🚜', expired: false };
+    } else if (now < dDate) {
+      return { label: 'Processing / Packing', color: '#3b82f6', icon: '🧺', expired: false };
+    } else {
+      // Field is past delivery date
+      if (isOwnField) {
+        return { label: 'Harvest Expired', color: '#94a3b8', icon: '📅', expired: true };
+      }
+      return { label: 'Harvest Expired', color: '#94a3b8', icon: '📅', expired: true };
+    }
+  }, []);
+
+  // Trigger notifications for reached dates when fields load
+  useEffect(() => {
+    if (!currentUser || farms.length === 0) return;
+
+    const checkDates = async () => {
+      const notifiedKey = `notified_dates_${currentUser.id}`;
+      let notifiedData = {};
+      try {
+        const stored = localStorage.getItem(notifiedKey);
+        if (stored) notifiedData = JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse notifications storage:', e);
+      }
+
+      for (const field of farms) {
+        // Only notify for own/rented fields
+        const isOwn = field.owner_id === currentUser.id;
+        const isBought = isProductPurchased(field);
+        if (!isOwn && !isBought) continue;
+
+        const status = getFieldStatus(field);
+        const dayKey = new Date().toDateString();
+        const fieldID = field.id || field._id;
+        const storageKey = `${fieldID}_${status.label}_${dayKey}`;
+
+        // SAFETY: Check if already notified or if a request is already in progress for this specific key
+        if ((status.label.includes('Harvesting') || status.label.includes('Delivery')) &&
+          !notifiedData[storageKey] &&
+          !notifiedInFlightRef.current.has(storageKey)) {
+
+          // Lock immediately to prevent race conditions
+          notifiedInFlightRef.current.add(storageKey);
+          notifiedData[storageKey] = true;
+          localStorage.setItem(notifiedKey, JSON.stringify(notifiedData));
+
+          // Send notification
+          try {
+            await notificationsService.create({
+              user_id: currentUser.id,
+              message: `${status.icon} ${field.name || 'Field'}: ${status.label}! Check your map.`,
+              type: 'harvest_alert'
+            });
+            if (onNotificationRefresh) onNotificationRefresh();
+          } catch (err) {
+            console.error('Failed to send date notification:', err);
+            // On failure, we might keep it in localStorage to prevent spamming failed attempts,
+            // or remove it to try again later. For safety against spam, we keep it true.
+          }
+        }
+      }
+    };
+
+    checkDates();
+  }, [farms, currentUser, isProductPurchased, getFieldStatus, onNotificationRefresh]);
   const [showDeliveryPanel, setShowDeliveryPanel] = useState(false);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [deliveryList, setDeliveryList] = useState([]);
   const [deliveryListLoading, setDeliveryListLoading] = useState(false);
   const [deliveryRoleTab, setDeliveryRoleTab] = useState('buyer'); // 'buyer' | 'farmer'
+  const [deliveryModeTab, setDeliveryModeTab] = useState('all'); // 'all' | 'delivery' | 'pickup'
   const deliveryIconRef = useRef(null);
   const [deliveryPanelLeft, setDeliveryPanelLeft] = useState(54);
   const [fieldOrderStats, setFieldOrderStats] = useState(new Map());
@@ -757,17 +869,46 @@ const EnhancedFarmMap = forwardRef(({
             : 0;
         }
       }
-      const prev = orders.get(k) || { id: k, category: canon.name, purchased_area: 0, total_kg: 0 };
+      const hDateRaw = p.harvest_date || p.harvestDate || (p.harvest_dates && p.harvest_dates[0]?.date);
+      const hTs = hDateRaw ? new Date(hDateRaw).getTime() : null;
+      const cRaw = p.created_at || p.createdAt || p.start_date || p.startDate;
+      const cTs = cRaw ? new Date(cRaw).getTime() : Date.now() - (90*24*60*60*1000);
+      const prev = orders.get(k) || { id: k, category: canon.name, purchased_area: 0, total_kg: 0, fieldIds: [], harvest_ts: null, created_ts: null };
+      const newFieldIds = prev.fieldIds.includes(fieldId) ? prev.fieldIds : [...prev.fieldIds, fieldId];
       orders.set(k, {
         id: k,
         category: prev.category,
         purchased_area: prev.purchased_area + pa,
-        total_kg: prev.total_kg + userKg
+        total_kg: prev.total_kg + userKg,
+        fieldIds: newFieldIds,
+        harvest_ts: hTs ? (prev.harvest_ts ? Math.min(prev.harvest_ts, hTs) : hTs) : prev.harvest_ts,
+        created_ts: cTs ? (prev.created_ts ? Math.max(prev.created_ts, cTs) : cTs) : prev.created_ts
       });
     });
     return Array.from(orders.values()).filter(item => {
       const purchasedArea = typeof item.purchased_area === 'string' ? parseFloat(item.purchased_area) : (item.purchased_area || 0);
-      return Number.isFinite(purchasedArea) && purchasedArea > 0;
+
+      // NEW: Auto-hide completed categories from progress bar
+      // We check if this category has ANY field that is still active
+      const hasActiveField = purchasedProducts.some(p => {
+        const rawKey = p.subcategory || p.category || p.category_key || p.id;
+        const canon = canonicalizeCategory(rawKey);
+        if (canon.key !== item.id) return false;
+
+        const harvestDates = p.harvest_dates || p.harvestDates || [];
+        const dateRaw = harvestDates.length > 0 ? harvestDates[0].date : (p.harvest_date || p.harvestDate);
+        if (!dateRaw) return true; // Keep if no date
+
+        const hDate = new Date(dateRaw);
+        const dDate = new Date(hDate);
+        dDate.setDate(dDate.getDate() + 2);
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        return now <= dDate; // True if still active or delivering
+      });
+
+      return Number.isFinite(purchasedArea) && purchasedArea > 0 && hasActiveField;
     });
   }, [purchasedProducts, farms, canonicalizeCategory]);
   // const getCenterFromCoords = useCallback((coordinates) => {
@@ -1467,6 +1608,38 @@ const EnhancedFarmMap = forwardRef(({
   useEffect(() => {
     if (farms && farms.length > 0) {
       lastNonEmptyFarmsRef.current = farms;
+      
+      // Check for fields with harvest date today and trigger animation
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      farms.forEach(farm => {
+        const harvestDates = farm.harvest_dates || farm.harvestDates || [];
+        const futureDates = helpers.getFutureHarvestDates(harvestDates);
+        
+        if (futureDates.length > 0) {
+          const hDate = new Date(futureDates[0].date);
+          hDate.setHours(0, 0, 0, 0);
+          
+          if (hDate.getTime() === today.getTime()) {
+            // Harvest is today - trigger animation
+            setHarvestingIds(prev => {
+              const next = new Set(prev);
+              next.add(farm.id);
+              return next;
+            });
+            
+            // Remove animation after 5 seconds
+            setTimeout(() => {
+              setHarvestingIds(prev => {
+                const next = new Set(prev);
+                next.delete(farm.id);
+                return next;
+              });
+            }, 5000);
+          }
+        }
+      });
     }
   }, [farms]);
 
@@ -1539,7 +1712,30 @@ const EnhancedFarmMap = forwardRef(({
     const subs = Array.isArray(externalFilters.subcategories) ? externalFilters.subcategories : [];
     let filtered;
     if (cats.length === 0 && subs.length === 0) {
-      filtered = farms.filter(f => !shouldFilterOutByOccupiedArea(f));
+      filtered = farms.filter(f => {
+        // Basic filtering
+        if (shouldFilterOutByOccupiedArea(f)) return false;
+
+        const isOwnField = f.owner_id === currentUser?.id || f.is_own_field === true;
+        
+        // Check if field is fully occupied
+        const totalArea = parseFloat(f.total_area || f.total_area_m2 || f.field_size || 0);
+        const availableArea = parseFloat(f.available_area || f.available_area_m2 || 0);
+        const isFullyOccupied = totalArea > 0 && availableArea <= 0;
+        
+        // Check harvest dates
+        const harvestDates = f.harvest_dates || f.harvestDates || [];
+        const hasFutureDate = helpers.hasFutureHarvestDate(harvestDates);
+        
+        // Public: Hide if no future harvest dates OR fully occupied
+        // Owner: Can see their fields even if expired/fully occupied
+        if (!isOwnField) {
+          if (!hasFutureDate) return false;
+          if (isFullyOccupied) return false;
+        }
+
+        return true;
+      });
       if (searchQuery && searchQuery.trim() !== '') {
         const searchTerm = searchQuery.toLowerCase();
         filtered = filtered.filter(farm =>
@@ -1783,29 +1979,95 @@ const EnhancedFarmMap = forwardRef(({
   }, [getHarvestDateObj]);
 
   const getHarvestProgressInfo = useCallback((prod) => {
-    const days = getDaysUntilHarvest(prod);
-    if (days === null) return { progress: 0 };
-    let progress = 0.25;
-    if (days >= 4) progress = 0.25;
-    else if (days >= 1 && days <= 3) progress = 0.75;
-    else if (days === 0 || (days < 0 && days >= -4)) progress = 1.0;
-    else progress = 0.25;
-    return { progress };
-  }, [getDaysUntilHarvest]);
+    const daysUntil = getDaysUntilHarvest(prod);
+    if (daysUntil === null) return { progress: 0 };
+
+    // Smooth progress based on a standard 90 day cycle if exact creation date is unknown
+    const createdStr = prod.created_at || prod.createdAt || prod.start_date || prod.startDate;
+    let totalCycleDays = 90;
+
+    if (createdStr) {
+      const createDate = new Date(createdStr);
+      const hDate = getHarvestDateObj(prod);
+      if (!isNaN(createDate.getTime()) && hDate) {
+        const cycleMs = hDate.getTime() - createDate.getTime();
+        const calcDays = Math.round(cycleMs / (24 * 60 * 60 * 1000));
+        // Ensure calculated days is reasonable to prevent weird math
+        if (calcDays > 10) totalCycleDays = calcDays;
+      }
+    }
+
+    const daysElapsed = totalCycleDays - daysUntil;
+    const progress = Math.max(0, Math.min(1, daysElapsed / totalCycleDays));
+
+    return { progress, totalCycleDays, daysElapsed };
+  }, [getDaysUntilHarvest, getHarvestDateObj]);
+
+  const bottomBarItems = React.useMemo(() => {
+    if (!Array.isArray(farms) || farms.length === 0) return [];
+    const candidate = farms.filter((f) => {
+      const daysLeft = getDaysUntilHarvest(f);
+      return daysLeft !== null && daysLeft >= 0;
+    });
+    return candidate.map((f) => {
+      const totalArea = (() => {
+        const t = f.total_area != null ? Number(f.total_area) : null;
+        if (Number.isFinite(t)) return t;
+        const t2 = f.field_size != null ? Number(f.field_size) : null;
+        return Number.isFinite(t2) ? t2 : 0;
+      })();
+      const occArea = (() => {
+        const o = f.occupied_area != null ? Number(f.occupied_area) : null;
+        if (Number.isFinite(o)) return o;
+        const o2 = f.purchased_area != null ? Number(f.purchased_area) : null;
+        return Number.isFinite(o2) ? o2 : 0;
+      })();
+      const harvest = getHarvestProgressInfo(f).progress;
+      const progress = Math.max(0, Math.min(1, harvest));
+      const daysLeft = getDaysUntilHarvest(f);
+      const massLabel = Number.isFinite(f.total_kg) ? `${Number(f.total_kg).toFixed(0)} kg` : null;
+      const areaLabel = totalArea > 0 ? `${occArea.toFixed(0)} / ${totalArea.toFixed(0)} m²` : `${occArea.toFixed(0)} m²`;
+      
+      // Get field status
+      const isOwnField = f.owner_id === currentUser?.id || f.is_own_field === true;
+      const status = getFieldStatus(f, isOwnField);
+      
+      // Check if fully occupied
+      const availableArea = parseFloat(f.available_area || f.available_area_m2 || 0);
+      const isFullyOccupied = totalArea > 0 && availableArea <= 0;
+      
+      const labelParts = [];
+      if (massLabel) labelParts.push(massLabel);
+      if (isFullyOccupied) {
+        labelParts.push('Fully Occupied');
+      } else {
+        labelParts.push(areaLabel);
+      }
+      if (status.expired) {
+        labelParts.push('Expired');
+      }
+      const label = labelParts.join(' | ');
+      return { id: f.id, label, progress, daysLeft, status, isFullyOccupied, expired: status.expired };
+    });
+  }, [farms, getDaysUntilHarvest, getHarvestProgressInfo, getFieldStatus, currentUser]);
+
+  const renderedMarkers = React.useMemo(() => filteredFarms?.filter(f => f?.coordinates) || [], [filteredFarms]);
 
   const getRingGradientByHarvest = useCallback((prod) => {
     const d = getHarvestDateObj(prod);
-    const red = { start: '#F28F8F', end: '#EF4444' };
-    const yellow = { start: '#FAD27A', end: '#F59E0B' };
-    const green = { start: '#8CC76A', end: '#558403' };
-    if (!d) return red;
-    const days = getDaysUntilHarvest(prod);
-    if (days >= 4) return red;
-    if (days >= 1 && days <= 3) return yellow;
-    if (days >= 0) return green; // today (>=0 and <1)
-    if (days < 0 && days >= -4) return green; // within grace after
-    return red; // far future or far past
-  }, [getHarvestDateObj, getDaysUntilHarvest]);
+    if (!d) return { start: '#F28F8F', end: '#EF4444' };
+
+    const { progress } = getHarvestProgressInfo(prod);
+
+    // Map progress 0 -> 1 to Hue 0 (Red) -> 110 (Green) for a dynamic gradient
+    const startHue = Math.min(110, Math.max(0, progress * 110));
+    const endHue = Math.min(110, Math.max(0, (progress * 110) - 20));
+
+    return {
+      start: `hsl(${startHue}, 85%, 55%)`,
+      end: `hsl(${endHue}, 90%, 40%)`
+    };
+  }, [getHarvestDateObj, getHarvestProgressInfo]);
 
   const getPiePath = useCallback((radius, ratio) => {
     const cx = radius;
@@ -2309,6 +2571,7 @@ const EnhancedFarmMap = forwardRef(({
             category: product.subcategory || product.category,
             total_area: totalArea,
             purchased_area: quantity,
+            production_rate: product.production_rate || 0,
             coordinates: product.coordinates,
             selected_harvest_date: selectedHarvestDate ? selectedHarvestDate.date : null,
             selected_harvest_label: selectedHarvestDate ? selectedHarvestDate.label : null,
@@ -2361,6 +2624,7 @@ const EnhancedFarmMap = forwardRef(({
                 category,
                 total_area,
                 purchased_area: (prev.purchased_area || 0) + qty,
+                production_rate: field.production_rate || 0,
                 coordinates,
                 selected_harvests: uniq,
                 delivery_address: (() => { const s = String(o.notes || ''); const m = s.match(/Address:\s*(.*)$/); if (m) return m[1].trim(); const m2 = s.match(/Deliver to:\s*(.*)$/); if (m2) return m2[1].trim(); return ''; })(),
@@ -2385,6 +2649,7 @@ const EnhancedFarmMap = forwardRef(({
                   const ex = typeof existing.purchased_area === 'string' ? parseFloat(existing.purchased_area) : (existing.purchased_area || 0);
                   const pv = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
                   existing.purchased_area = Math.max(ex, pv);
+                  existing.production_rate = existing.production_rate || p.production_rate || 0;
                   const shPrev = Array.isArray(existing.selected_harvests) ? existing.selected_harvests : [];
                   const shIncoming = Array.isArray(p.selected_harvests) ? p.selected_harvests : [];
                   const combined = [...shPrev, ...shIncoming];
@@ -2609,6 +2874,7 @@ const EnhancedFarmMap = forwardRef(({
             category,
             total_area,
             purchased_area: (prev.purchased_area || 0) + qty,
+            production_rate: field.production_rate || 0,
             coordinates,
             selected_harvests: uniq2,
             shipping_modes: (() => { const pm = Array.isArray(prev.shipping_modes) ? prev.shipping_modes : []; const m = (o.mode_of_shipping || o.shipping_method || '').trim(); const canon = m.toLowerCase() === 'pickup' ? 'Pickup' : (m.toLowerCase() === 'delivery' ? 'Delivery' : (m ? m : null)); const added = canon ? [...pm, canon] : pm; const s = new Set(); return added.filter(x => { const k = (x || '').toLowerCase(); if (s.has(k)) return false; s.add(k); return true; }); })(),
@@ -2634,6 +2900,7 @@ const EnhancedFarmMap = forwardRef(({
               const ex = typeof existing.purchased_area === 'string' ? parseFloat(existing.purchased_area) : (existing.purchased_area || 0);
               const pv = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
               existing.purchased_area = Math.max(ex, pv);
+              existing.production_rate = existing.production_rate || p.production_rate || 0;
               const shPrev2 = Array.isArray(existing.selected_harvests) ? existing.selected_harvests : [];
               const shIncoming2 = Array.isArray(p.selected_harvests) ? p.selected_harvests : [];
               const combined2 = [...shPrev2, ...shIncoming2];
@@ -2997,6 +3264,41 @@ const EnhancedFarmMap = forwardRef(({
             </Marker>
           ))}
         </MapboxMap>
+        {/* Bottom progress strip for rented/occupied fields */}
+        <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, padding: '6px 10px', display: 'flex', gap: '8px', overflowX: 'auto', alignItems: 'center', zIndex: 1000 }}>
+          {bottomBarItems.map((it) => (
+            <div key={it.id} style={{ 
+              minWidth: 120, 
+              padding: '6px 8px', 
+              background: it.expired || it.isFullyOccupied ? 'rgba(100,100,100,0.3)' : 'rgba(255,255,255,0.08)', 
+              borderRadius: 6, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              border: it.expired ? '1px solid rgba(148,163,184,0.5)' : it.isFullyOccupied ? '1px solid rgba(99,102,241,0.5)' : 'none'
+            }}>
+              <div style={{ width: '100%', height: 6, background: '#444', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ 
+                  width: `${(it.progress * 100).toFixed(0)}%`, 
+                  height: '100%', 
+                  background: it.expired ? 'linear-gradient(90deg, #94a3b8, #64748b)' : 
+                              it.isFullyOccupied ? 'linear-gradient(90deg, #6366f1, #4f46e5)' :
+                              'linear-gradient(90deg, #4ade80, #10b981)' 
+                }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: it.expired || it.isFullyOccupied ? '#94a3b8' : '#fff', marginTop: 4 }}>
+                  {it.isFullyOccupied ? 'Fully Occupied' : `${Math.round(it.progress * 100)}%`}
+                </span>
+                {it.expired ? (
+                  <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>Harvest Expired</span>
+                ) : typeof it.daysLeft === 'number' && !it.isFullyOccupied ? (
+                  <span style={{ fontSize: 10, color: '#d1d5db', marginTop: 2 }}>{`${it.daysLeft}d left`}</span>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
 
         {selectedProduct && popupPosition && (
           <div
@@ -3291,7 +3593,6 @@ const EnhancedFarmMap = forwardRef(({
 
           {/* Farm Markers */}
           {(() => {
-
             return filteredFarms.map((product) => {
 
               // Handle coordinate format conversion and null checks
@@ -3349,13 +3650,14 @@ const EnhancedFarmMap = forwardRef(({
                       const size = isMobile ? 46 : 60;
                       const strokeW = isMobile ? 4 : 5;
                       const innerR = isMobile ? 18 : 22;
+                      const { progress: harvestProgress } = getHarvestProgressInfo(product);
                       const grad = getRingGradientByHarvest(product);
                       const occ = getOccupiedArea(product);
                       const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
                       const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
                       const r = (size / 2) - (strokeW / 2);
                       const circumference = 2 * Math.PI * r;
-                      const dash = Math.max(0, Math.min(circumference, occRatio * circumference));
+                      const harvestDash = Math.max(0, Math.min(circumference, harvestProgress * circumference));
                       const path = getPiePath(innerR, occRatio);
                       const cx = size / 2;
                       const cy = size / 2;
@@ -3391,7 +3693,7 @@ const EnhancedFarmMap = forwardRef(({
                             strokeWidth={strokeW}
                             fill="none"
                             strokeLinecap="round"
-                            strokeDasharray={`${dash} ${circumference}`}
+                            strokeDasharray={`${harvestDash} ${circumference}`}
                             strokeDashoffset={0}
                             transform={`rotate(-90 ${cx} ${cy})`}
                             filter={`url(#${glowId})`}
@@ -3773,12 +4075,6 @@ const EnhancedFarmMap = forwardRef(({
         <DialogContent dividers>
           {deliveryListLoading ? (
             <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>Loading…</Box>
-          ) : deliveryList.length === 0 ? (
-            <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
-              <LocalShipping sx={{ fontSize: 48, opacity: 0.4, mb: 1 }} />
-              <Typography>No deliveries</Typography>
-              <Typography variant="body2" sx={{ mt: 0.5 }}>You have no delivery orders at the moment.</Typography>
-            </Box>
           ) : (
             <>
               {(() => {
@@ -3792,6 +4088,25 @@ const EnhancedFarmMap = forwardRef(({
                     : hasBuyer
                       ? 'buyer'
                       : 'farmer';
+
+                if (deliveryList.length === 0) {
+                  return (
+                    <Box sx={{ py: 3, textAlign: 'center', color: 'text.secondary' }}>
+                      <LocalShipping sx={{ fontSize: 48, opacity: 0.4, mb: 1 }} />
+                      <Typography>No deliveries yet</Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5 }}>
+                        {effectiveRole === 'farmer' 
+                          ? "You haven't received any orders with delivery yet."
+                          : "You haven't placed any orders with delivery yet."}
+                      </Typography>
+                      <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.disabled' }}>
+                        {effectiveRole === 'farmer' 
+                          ? "Sales received will appear here when buyers order from your fields with delivery."
+                          : "Orders you place on fields with delivery will appear here."}
+                      </Typography>
+                    </Box>
+                  );
+                }
 
                 const filtered = deliveryList.filter((d) => d.role === effectiveRole);
                 const bucketOrder = ['current', 'upcoming', 'past'];
@@ -3815,40 +4130,70 @@ const EnhancedFarmMap = forwardRef(({
                 };
 
                 return (
-                  <>
-                    {(hasBuyer || hasFarmer) && (
-                      <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          View:
+                    <>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+                          {effectiveRole === 'farmer' ? 'Orders Received (Sales)' : 'My Orders (Purchases)'}
                         </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                          <Chip
+                            size="small"
+                            color={effectiveRole === 'farmer' ? 'primary' : 'default'}
+                            variant={effectiveRole === 'farmer' ? 'filled' : 'outlined'}
+                            label={`Sales Received (${farmerCount})`}
+                            onClick={() => setDeliveryRoleTab('farmer')}
+                            sx={{ borderRadius: 999 }}
+                          />
+                          <Chip
+                            size="small"
+                            color={effectiveRole === 'buyer' ? 'primary' : 'default'}
+                            variant={effectiveRole === 'buyer' ? 'filled' : 'outlined'}
+                            label={`My Orders (${buyerCount})`}
+                            onClick={() => setDeliveryRoleTab('buyer')}
+                            sx={{ borderRadius: 999 }}
+                          />
+                        </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                          {hasBuyer && (
-                            <Chip
-                              size="small"
-                              color={effectiveRole === 'buyer' ? 'primary' : 'default'}
-                              variant={effectiveRole === 'buyer' ? 'filled' : 'outlined'}
-                              label={`Incoming (${buyerCount})`}
-                              onClick={() => setDeliveryRoleTab('buyer')}
-                              sx={{ borderRadius: 999 }}
-                            />
-                          )}
-                          {hasFarmer && (
-                            <Chip
-                              size="small"
-                              color={effectiveRole === 'farmer' ? 'primary' : 'default'}
-                              variant={effectiveRole === 'farmer' ? 'filled' : 'outlined'}
-                              label={`Outgoing (${farmerCount})`}
-                              onClick={() => setDeliveryRoleTab('farmer')}
-                              sx={{ borderRadius: 999 }}
-                            />
-                          )}
+                          <Chip
+                            size="small"
+                            color={deliveryModeTab === 'all' ? 'secondary' : 'default'}
+                            variant={deliveryModeTab === 'all' ? 'filled' : 'outlined'}
+                            label="All"
+                            onClick={() => setDeliveryModeTab('all')}
+                            sx={{ borderRadius: 999 }}
+                          />
+                          <Chip
+                            size="small"
+                            icon={<LocalShipping sx={{ fontSize: 14 }} />}
+                            color={deliveryModeTab === 'delivery' ? 'info' : 'default'}
+                            variant={deliveryModeTab === 'delivery' ? 'filled' : 'outlined'}
+                            label="Delivery"
+                            onClick={() => setDeliveryModeTab('delivery')}
+                            sx={{ borderRadius: 999 }}
+                          />
+                          <Chip
+                            size="small"
+                            icon={<Store sx={{ fontSize: 14 }} />}
+                            color={deliveryModeTab === 'pickup' ? 'warning' : 'default'}
+                            variant={deliveryModeTab === 'pickup' ? 'filled' : 'outlined'}
+                            label="Pickup"
+                            onClick={() => setDeliveryModeTab('pickup')}
+                            sx={{ borderRadius: 999 }}
+                          />
                         </Box>
                       </Box>
-                    )}
 
-                    {bucketOrder.map((bucketKey) => {
-                      const items = filtered.filter((d) => d.bucket === bucketKey);
-                      if (!items.length) return null;
+                    {(() => {
+                      const filteredByMode = deliveryModeTab === 'all' 
+                        ? filtered 
+                        : filtered.filter(d => {
+                            const mode = (d.order?.mode_of_shipping || 'pickup').toLowerCase();
+                            return deliveryModeTab === 'delivery' ? mode === 'delivery' : mode === 'pickup';
+                          });
+                      
+                      return bucketOrder.map((bucketKey) => {
+                        const items = filteredByMode.filter((d) => d.bucket === bucketKey);
+                        if (!items.length) return null;
 
                       return (
                         <Box key={bucketKey} sx={{ mt: bucketKey === 'current' ? 0 : 2.5 }}>
@@ -3881,7 +4226,7 @@ const EnhancedFarmMap = forwardRef(({
                               const o = d.order || {};
                               const isBuyer = d.role === 'buyer';
                               const counterpartyName = isBuyer ? o.farmer_name || 'Seller' : o.buyer_name || 'Customer';
-                              const counterpartyLabel = isBuyer ? 'From' : 'To';
+                              const counterpartyLabel = isBuyer ? 'From Farmer' : 'To Buyer';
                               const location = o.location || d.deliveryAddress || '';
                               const quantity = o.quantity;
                               const totalPrice = o.total_price;
@@ -3891,6 +4236,7 @@ const EnhancedFarmMap = forwardRef(({
                               const label = o.selected_harvest_label;
 
                               let dateDisplay = '';
+                              let daysLeft = null;
                               if (dateRaw) {
                                 try {
                                   const parsed = new Date(dateRaw);
@@ -3901,6 +4247,14 @@ const EnhancedFarmMap = forwardRef(({
                                       month: 'short',
                                       day: 'numeric',
                                     });
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0);
+                                    parsed.setHours(0, 0, 0, 0);
+                                    const diffTime = parsed.getTime() - today.getTime();
+                                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                    if (diffDays >= 0) {
+                                      daysLeft = diffDays;
+                                    }
                                   } else {
                                     dateDisplay = String(dateRaw);
                                   }
@@ -3978,11 +4332,27 @@ const EnhancedFarmMap = forwardRef(({
                                       )}
                                     </Box>
 
-                                    {(dateDisplay || label) && (
-                                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                        {dateDisplay}
-                                        {label ? ` • ${label}` : ''}
-                                      </Typography>
+                                    {(dateDisplay || label || daysLeft !== null) && (
+                                      <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {dateDisplay && (
+                                          <Typography variant="body2" color="text.secondary">
+                                            {dateDisplay}
+                                          </Typography>
+                                        )}
+                                        {label && (
+                                          <Typography variant="body2" color="text.secondary">
+                                            • {label}
+                                          </Typography>
+                                        )}
+                                        {daysLeft !== null && daysLeft >= 0 && (
+                                          <Chip
+                                            size="small"
+                                            label={daysLeft === 0 ? 'Today!' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
+                                            color={daysLeft === 0 ? 'success' : daysLeft <= 7 ? 'warning' : 'default'}
+                                            sx={{ height: 20, fontSize: '0.65rem' }}
+                                          />
+                                        )}
+                                      </Box>
                                     )}
 
                                     {location && (
@@ -4001,7 +4371,8 @@ const EnhancedFarmMap = forwardRef(({
                           </Box>
                         </Box>
                       );
-                    })}
+                    });
+                    })()}
                   </>
                 );
               })()}
@@ -4132,7 +4503,8 @@ const EnhancedFarmMap = forwardRef(({
 
       {/* Product Summary Bar */}
       <ProductSummaryBar
-        purchasedProducts={purchasedSummary}
+        purchasedProducts={purchasedProducts}
+        visibleFarms={filteredFarms}
         onProductClick={handleSummaryProductClick}
         summaryRef={summaryBarRef}
         onIconPositionsUpdate={setIconTargets}
@@ -4195,47 +4567,6 @@ const EnhancedFarmMap = forwardRef(({
                 ✕
               </div>
 
-              {/* Edit button for farmers - only show for farmer's own fields */}
-              {userType === 'farmer' && selectedProduct.isOwnField && onEditField && (
-                <div style={{
-                  position: 'absolute',
-                  top: isMobile ? '6px' : '8px',
-                  right: isMobile ? '60px' : '72px',
-                  width: isMobile ? '28px' : '32px',
-                  height: isMobile ? '28px' : '32px',
-                  backgroundColor: '#28a745',
-                  borderRadius: isMobile ? '6px' : '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(40, 167, 69, 0.3)',
-                  transition: 'all 0.2s ease',
-                  border: '2px solid white',
-                  zIndex: 10
-                }}
-                  onMouseEnter={(e) => {
-                    e.target.style.backgroundColor = '#218838';
-                    e.target.style.transform = 'scale(1.1)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(40, 167, 69, 0.4)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.backgroundColor = '#28a745';
-                    e.target.style.transform = 'scale(1)';
-                    e.target.style.boxShadow = '0 2px 8px rgba(40, 167, 69, 0.3)';
-                  }}
-                  onClick={() => onEditField(selectedProduct)}
-                  title="Edit Field"
-                >
-                  <svg width={isMobile ? "14" : "16"} height={isMobile ? "14" : "16"} viewBox="0 0 24 24" fill="white">
-                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
-                  </svg>
-                </div>
-              )}
-
-
-
-
 
               {/* Location */}
               {showPurchaseUI && (
@@ -4257,18 +4588,18 @@ const EnhancedFarmMap = forwardRef(({
               )}
             </div>
 
-            {/* Content */}
-            <div
-              ref={popupContentScrollRef}
-              style={{
-                padding: isMobile ? '0 12px 12px' : '0 16px 16px',
-                position: 'relative',
-                maxHeight: '75vh',
-                overflowY: 'auto',
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none'
-              }}
-            >
+              {/* Content */}
+              <div
+                ref={popupContentScrollRef}
+                style={{
+                  padding: isMobile ? '0 12px 0' : '0 16px 0',
+                  position: 'relative',
+                  maxHeight: 'calc(75vh - 60px)',
+                  overflowY: 'auto',
+                  scrollbarWidth: 'thin',
+                  msOverflowStyle: 'none'
+                }}
+              >
               <style>
                 {`@keyframes popupPulse { 0% { transform: scale(1); } 100% { transform: scale(1.07); } }`}
               </style>
@@ -4480,159 +4811,168 @@ const EnhancedFarmMap = forwardRef(({
                 <div style={{ animation: 'cardSlideIn 0.3s ease-out' }}>
                   {showPurchaseUI && (
                     <>
-                      {/* Divider Line */}
-                      <div style={{ height: '1px', backgroundColor: '#e9ecef', margin: isMobile ? '10px 0' : '12px 0' }} />
+                      {/* Combined Harvest and Delivery Dates Row */}
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: isMobile ? '12px' : '16px' }}>
+                        {/* Harvest Date Section */}
+                        <div style={{ flex: 1, fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
+                          {(() => {
+                            const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates || [];
+                            // Filter to only future dates
+                            const futureDates = helpers.getFutureHarvestDates(harvestDates);
+                            const singleDate = selectedProduct.harvest_date || selectedProduct.harvestDate;
 
-                      {/* Harvest Dates */}
-                      <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: isMobile ? '10px' : '12px' }}>
-                        {(() => {
-                          const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates;
-                          const singleDate = selectedProduct.harvest_date || selectedProduct.harvestDate;
+                            // Function to format a date
+                            const formatDate = (date) => {
+                              if (!date) return null;
+                              try {
+                                const parsedDate = new Date(date);
+                                if (isNaN(parsedDate.getTime())) return date;
+                                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                return `${parsedDate.getDate()} ${months[parsedDate.getMonth()]} ${parsedDate.getFullYear()}`;
+                              } catch (e) { return date; }
+                            };
 
-                          // Function to format a date
-                          const formatDate = (date) => {
-                            if (!date) return null;
-
-                            // If it's already in the desired format, return as is
-                            if (typeof date === 'string' && /^\d{1,2}\s\w{3}\s\d{4}$/.test(date)) {
-                              return date;
-                            }
-
-                            // Try to parse and format the date
-                            try {
-                              const parsedDate = new Date(date);
-                              if (isNaN(parsedDate.getTime())) return date; // Return original if invalid
-
-                              const day = parsedDate.getDate();
-                              const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                              const month = months[parsedDate.getMonth()];
-                              const year = parsedDate.getFullYear();
-
-                              return `${day} ${month} ${year}`;
-                            } catch (e) {
-                              return date; // Return original if parsing fails
-                            }
-                          };
-
-                          // Handle multiple harvest dates - make them selectable
-                          if (harvestDates && Array.isArray(harvestDates) && harvestDates.length > 0) {
-                            const validDates = harvestDates.filter(hd => hd.date && hd.date.trim() !== '');
-
+                            const validDates = futureDates.filter(hd => hd.date && hd.date.trim() !== '');
+                            
+                            // If no future dates available, show message
                             if (validDates.length === 0) {
-                              return 'Estimated harvest Date: Not specified';
-                            }
-
-                            if (validDates.length === 1) {
-                              const formattedDate = formatDate(validDates[0].date);
-                              const label = validDates[0].label ? ` (${validDates[0].label})` : '';
-                              const dateObj = validDates[0];
-
-                              // Auto-select the single date if not already selected
-                              if (!selectedHarvestDate) {
-                                setSelectedHarvestDate(dateObj);
-                              }
-
                               return (
                                 <div>
-                                  <div style={{ marginBottom: '4px', fontWeight: '500' }}>Estimated harvest Date:</div>
+                                  <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🌱 Harvest</div>
                                   <div
                                     style={{
-                                      marginLeft: '8px',
-                                      fontSize: '11px',
+                                      fontSize: '10px',
                                       padding: '4px 8px',
-                                      backgroundColor: '#007bff',
+                                      backgroundColor: '#94a3b8',
                                       color: 'white',
                                       borderRadius: '4px',
-                                      display: 'inline-block',
-                                      cursor: 'pointer'
+                                      display: 'block',
+                                      textAlign: 'center',
+                                      fontWeight: 700,
                                     }}
                                   >
-                                    {formattedDate}{label}
+                                    No upcoming harvest
                                   </div>
                                 </div>
                               );
                             }
 
-                            // Multiple dates - make them selectable
-                            return (
-                              <div>
-                                <div style={{ marginBottom: '6px', fontWeight: '500' }}>Select harvest Date:</div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  {validDates.map((hd, index) => {
-                                    const formattedDate = formatDate(hd.date);
-                                    const label = hd.label ? ` (${hd.label})` : '';
-                                    const isSelected = selectedHarvestDate && selectedHarvestDate.date === hd.date;
-
-                                    return (
-                                      <div
-                                        key={index}
-                                        onClick={() => setSelectedHarvestDate(hd)}
-                                        style={{
-                                          marginLeft: '8px',
-                                          fontSize: '11px',
-                                          padding: '4px 8px',
-                                          backgroundColor: isSelected ? '#007bff' : '#f8f9fa',
-                                          color: isSelected ? 'white' : '#6c757d',
-                                          borderRadius: '4px',
-                                          cursor: 'pointer',
-                                          border: isSelected ? 'none' : '1px solid #e9ecef',
-                                          fontWeight: isSelected ? '500' : 'normal',
-                                          transition: 'all 0.2s ease',
-                                          width: '70px',
-                                          textAlign: 'center',
-                                        }}
-                                      >
-                                        {formattedDate}{label}
-                                      </div>
-                                    );
-                                  })}
+                            // If multiple dates, show selection
+                            if (validDates.length > 1) {
+                              return (
+                                <div>
+                                  <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🌱 Select Harvest Date</div>
+                                  <select
+                                    value={selectedHarvestDate?.date || ''}
+                                    onChange={(e) => {
+                                      const selected = validDates.find(d => d.date === e.target.value);
+                                      if (selected) setSelectedHarvestDate(selected);
+                                    }}
+                                    style={{
+                                      fontSize: '10px',
+                                      padding: '4px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #d1d5db',
+                                      width: '100%',
+                                      backgroundColor: '#f0fdf4',
+                                    }}
+                                  >
+                                    {validDates.map((hd, idx) => (
+                                      <option key={idx} value={hd.date}>
+                                        {formatDate(hd.date)}{hd.label ? ` - ${hd.label}` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
-                                {!selectedHarvestDate && (
-                                  <div style={{
-                                    fontSize: '10px',
-                                    color: '#dc3545',
-                                    marginTop: '4px',
-                                    marginLeft: '8px'
-                                  }}>
-                                    Please select a harvest date to proceed
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-
-                          // Fallback to single date
-                          const formattedDate = formatDate(singleDate);
-                          if (singleDate) {
-                            // Auto-select the single date if not already selected
-                            if (!selectedHarvestDate) {
-                              setSelectedHarvestDate({ date: singleDate, label: '' });
+                              );
                             }
 
+                            // Single date - auto-select it
+                            const dateObj = validDates[0];
+                            if (dateObj && !selectedHarvestDate) {
+                              setSelectedHarvestDate(dateObj);
+                            }
+
+                            const formattedDate = dateObj ? formatDate(dateObj.date) : 'N/A';
+
                             return (
                               <div>
-                                <div style={{ marginBottom: '4px', fontWeight: '500' }}>Estimated harvest Date:</div>
+                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🌱 Harvest</div>
                                 <div
                                   style={{
-                                    marginLeft: '8px',
-                                    fontSize: '11px',
+                                    fontSize: '10px',
                                     padding: '4px 8px',
-                                    backgroundColor: '#007bff',
+                                    backgroundColor: '#10b981',
                                     color: 'white',
                                     borderRadius: '4px',
-                                    display: 'inline-block'
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    fontWeight: 700,
+                                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
                                   }}
                                 >
-                                  {formattedDate || 'Not specified'}
+                                  {formattedDate}
                                 </div>
                               </div>
                             );
-                          }
+                          })()}
+                        </div>
 
-                          return 'Estimated harvest Date: Not specified';
-                        })()}
+                        {/* Delivery Date Section */}
+                        <div style={{ flex: 1, fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
+                          {(() => {
+                            const formatDate = (date) => {
+                              if (!date) return null;
+                              try {
+                                const parsedDate = new Date(date);
+                                if (isNaN(parsedDate.getTime())) return null;
+                                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                return `${parsedDate.getDate()} ${months[parsedDate.getMonth()]} ${parsedDate.getFullYear()}`;
+                              } catch (e) { return null; }
+                            };
+
+                            // Use the selected harvest date for delivery calculation
+                            const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates || [];
+                            const futureDates = helpers.getFutureHarvestDates(harvestDates);
+                            // Use selected harvest date if available, otherwise first future date
+                            const dateRaw = selectedHarvestDate?.date || (futureDates.length > 0 ? futureDates[0].date : (selectedProduct.harvest_date || selectedProduct.harvestDate));
+
+                            if (!dateRaw) return (
+                              <div>
+                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
+                                <div style={{ fontSize: '10px', padding: '4px 8px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '4px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
+                              </div>
+                            );
+
+                            const hDate = new Date(dateRaw);
+                            const dDate = new Date(hDate);
+                            dDate.setDate(dDate.getDate() + 2);
+                            const formattedDDate = formatDate(dDate);
+
+                            return (
+                              <div>
+                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
+                                <div
+                                  style={{
+                                    fontSize: '10px',
+                                    padding: '4px 8px',
+                                    backgroundColor: '#f59e0b', // Thematic Orange
+                                    color: 'white',
+                                    borderRadius: '4px',
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    fontWeight: 700,
+                                    boxShadow: '0 2px 4px rgba(245, 158, 11, 0.2)'
+                                  }}
+                                >
+                                  {formattedDDate}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
                       </div>
+
 
 
 
@@ -5052,8 +5392,8 @@ const EnhancedFarmMap = forwardRef(({
                               </div>
                             );
                           })()}
-                        </div> {/* Closes 3919 */}
-                      </div> {/* Closes 3676 */}
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>
@@ -5218,17 +5558,29 @@ const EnhancedFarmMap = forwardRef(({
                     </div>
                   </div>
 
-                  <div style={{ display: 'inline-block', backgroundColor: '#22c55e', color: 'white', borderRadius: isMobile ? '10px' : '12px', padding: isMobile ? '3px 8px' : '4px 10px', fontSize: isMobile ? '10px' : '11px', fontWeight: 600, marginBottom: isMobile ? '8px' : '10px' }}>
-                    Active
-                  </div>
+                  {(() => {
+                    const fieldStatus = getFieldStatus(selectedProduct);
+                    return (
+                      <div style={{
+                        display: 'inline-block',
+                        backgroundColor: fieldStatus.color,
+                        color: 'white',
+                        borderRadius: isMobile ? '10px' : '12px',
+                        padding: isMobile ? '3px 10px' : '4px 12px',
+                        fontSize: isMobile ? '10px' : '11px',
+                        fontWeight: 700,
+                        marginBottom: isMobile ? '8px' : '10px',
+                        boxShadow: `0 2px 8px ${alpha(fieldStatus.color, 0.4)}`,
+                        animation: fieldStatus.label.includes('Today') ? 'popupPulse 1.2s infinite alternate ease-in-out' : 'none'
+                      }}>
+                        {fieldStatus.icon} {fieldStatus.label}
+                      </div>
+                    );
+                  })()}
                   {(() => {
                     const availBuy = selectedProduct.available_for_buy !== false && selectedProduct.available_for_buy !== 'false';
                     if (!availBuy) return null;
-                    return (
-                      <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', marginBottom: isMobile ? '8px' : '10px' }}>
-                        Your field. Listed for buy.
-                      </div>
-                    );
+
                   })()}
 
                   <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: isMobile ? '8px 0' : '10px 0' }} />
@@ -5252,6 +5604,30 @@ const EnhancedFarmMap = forwardRef(({
                     </div>
                     <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>
                       {(() => { const list = getSelectedHarvestList(selectedProduct); const uniq = Array.from(new Set(list)); return uniq.length ? uniq.join(', ') : 'Not specified'; })()}
+                    </div>
+                  </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b"><path d="M20 8h-3V4H7v4H4v12h16V8zm-9 0V6h2v2h-2zm9 10H4v-8h16v8z" /></svg>
+                      </span>
+                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Est. Delivery</div>
+                    </div>
+                    <div style={{ fontWeight: 600, color: '#f59e0b', fontSize: isMobile ? '11px' : '12px' }}>
+                      {(() => {
+                        // Use selected harvest date if available
+                        const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates || [];
+                        const futureDates = helpers.getFutureHarvestDates(harvestDates);
+                        const dateRaw = selectedHarvestDate?.date || (futureDates.length > 0 ? futureDates[0].date : null);
+                        if (!dateRaw) return 'Not specified';
+                        const hDate = new Date(dateRaw);
+                        if (isNaN(hDate.getTime())) return 'Not specified';
+                        const dDate = new Date(hDate);
+                        dDate.setDate(dDate.getDate() + 2);
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        return `${dDate.getDate()} ${months[dDate.getMonth()]} ${dDate.getFullYear()}`;
+                      })()}
                     </div>
                   </div>
 
@@ -5281,44 +5657,52 @@ const EnhancedFarmMap = forwardRef(({
                       <div style={{ width: `${Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%`, height: '100%', backgroundColor: '#10b981' }} />
                     </div>
                   </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: isMobile ? '10px' : '12px' }}>
-                    <button
-                      onClick={() => {
-                        setShowPurchaseUI(true);
-                        setPopupTab('details');
-                        requestAnimationFrame(() => {
-                          if (popupContentScrollRef.current) {
-                            popupContentScrollRef.current.scrollTop = 0;
-                          }
-                        });
-                      }}
-                      style={{
-                        width: '100%',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: isMobile ? '8px 0' : '10px 0',
-                        fontSize: isMobile ? '11px' : '13px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        marginTop: '8px',
-                        boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
-                        transition: 'all 0.2s ease',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.025em'
-                      }}>
-                      Buy More Area
-                    </button>
-                  </div>
                 </div>
+              )}
+            </div>
+
+            {/* Sticky Footer with Buy More Area Button */}
+            <div style={{
+              padding: isMobile ? '8px 12px 12px' : '10px 16px 16px',
+              position: 'sticky',
+              bottom: 0,
+              backgroundColor: 'white',
+              borderTop: '1px solid #e9ecef',
+              marginTop: 'auto'
+            }}>
+              {!showPurchaseUI && (
+                <button
+                  onClick={() => {
+                    setShowPurchaseUI(true);
+                    setPopupTab('details');
+                    requestAnimationFrame(() => {
+                      if (popupContentScrollRef.current) {
+                        popupContentScrollRef.current.scrollTop = 0;
+                      }
+                    });
+                  }}
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: isMobile ? '10px 0' : '12px 0',
+                    fontSize: isMobile ? '13px' : '14px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
+                    transition: 'all 0.2s ease',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.025em'
+                  }}>
+                  Buy More Area
+                </button>
               )}
             </div>
           </div>
         </div>
-      )
-      }
+      )}
 
       {/* Keyframes for animations */}
       < style >

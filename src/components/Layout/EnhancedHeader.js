@@ -1381,15 +1381,46 @@ const EnhancedHeader = forwardRef(({
                       </Box>
                     );
                   }
+                  const getNotificationNavigation = (message, userType) => {
+                    const msg = message?.toLowerCase() || '';
+                    if (msg.includes('new order received') || msg.includes('order received for')) {
+                      return userType === 'farmer' ? '/farmer/farm-orders' : '/buyer/orders';
+                    }
+                    if (msg.includes('order placed') || msg.includes('purchased')) {
+                      return '/buyer/orders';
+                    }
+                    if (msg.includes('accepted') || msg.includes('approved')) {
+                      return userType === 'farmer' ? '/farmer/rented-fields' : '/buyer/rented-fields';
+                    }
+                    if (msg.includes('harvest') || msg.includes('ready for pickup')) {
+                      return userType === 'farmer' ? '/farmer/rented-fields' : '/buyer/rented-fields';
+                    }
+                    if (msg.includes('chat unlocked') || msg.includes('message')) {
+                      return userType === 'farmer' ? '/farmer/messages' : '/buyer/messages';
+                    }
+                    if (msg.includes('payment') || msg.includes('coins')) {
+                      return userType === 'farmer' ? '/farmer/transaction' : '/buyer/transaction';
+                    }
+                    if (msg.includes('rented') || msg.includes('rental')) {
+                      return userType === 'farmer' ? '/farmer/rented-fields' : '/buyer/rented-fields';
+                    }
+                    return userType === 'farmer' ? '/farmer/notifications' : '/buyer/notifications';
+                  };
+
                   return notifItems.map((item) => {
                     const notif = item;
                     const isUnread = !notif.read;
                     const Icon = notif.type === 'success' ? CheckCircle : notif.type === 'warning' ? Warning : notif.type === 'error' ? ErrorIcon : notif.type === 'info' ? Info : NotificationsActive;
                     const iconColor = notif.type === 'success' ? '#22c55e' : notif.type === 'warning' ? '#eab308' : notif.type === 'error' ? '#ef4444' : '#3b82f6';
+                    const navPath = getNotificationNavigation(notif.message, userType);
                     return (
                       <MenuItem
                         key={notif.id}
-                        onClick={() => { if (isUnread && typeof onMarkNotificationAsRead === 'function') onMarkNotificationAsRead(notif.id); }}
+                        onClick={() => {
+                          if (isUnread && typeof onMarkNotificationAsRead === 'function') onMarkNotificationAsRead(notif.id);
+                          navigate(navPath);
+                          setNotifAnchorEl(null);
+                        }}
                         sx={{
                           py: 1.25,
                           px: 2,

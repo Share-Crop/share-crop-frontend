@@ -87,6 +87,43 @@ export const helpers = {
     return new Date(dateString).toLocaleDateString(undefined, options);
   },
 
+  /** Today-or-future harvest rows, sorted ascending (used by map + purchase UI). */
+  getFutureHarvestDates: (harvestDates) => {
+    if (!Array.isArray(harvestDates) || harvestDates.length === 0) return [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const normalizeRow = (entry) => {
+      if (entry == null) return null;
+      if (typeof entry === 'string') {
+        const d = entry.trim();
+        return d ? { date: d, label: undefined } : null;
+      }
+      if (typeof entry === 'object' && entry.date != null) {
+        const d = String(entry.date).trim();
+        if (!d) return null;
+        return { date: d, label: entry.label };
+      }
+      return null;
+    };
+    const out = [];
+    for (const entry of harvestDates) {
+      const row = normalizeRow(entry);
+      if (!row) continue;
+      const hDate = new Date(row.date);
+      if (Number.isNaN(hDate.getTime())) continue;
+      hDate.setHours(0, 0, 0, 0);
+      if (hDate.getTime() >= today.getTime()) {
+        out.push(row);
+      }
+    }
+    out.sort((a, b) => new Date(a.date) - new Date(b.date));
+    return out;
+  },
+
+  hasFutureHarvestDate: (harvestDates) => {
+    return helpers.getFutureHarvestDates(harvestDates).length > 0;
+  },
+
   // Get time ago string
   getTimeAgo: (dateString) => {
     const date = new Date(dateString);

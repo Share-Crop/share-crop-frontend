@@ -128,6 +128,13 @@ function mapFieldFromApi(raw, currentUserId) {
       displayUnit,
     );
   const pricePerM2 = typeof raw.price_per_m2 === 'string' ? parseFloat(raw.price_per_m2) : (raw.price_per_m2 ?? 0);
+  const price = typeof raw.price === 'string' ? parseFloat(raw.price) : (raw.price ?? 0);
+  const totalProduction = typeof raw.total_production === 'string' ? parseFloat(raw.total_production) : (raw.total_production ?? 0);
+  const distributionPrice = typeof raw.distribution_price === 'string' ? parseFloat(raw.distribution_price) : (raw.distribution_price ?? 0);
+  const retailPrice = typeof raw.retail_price === 'string' ? parseFloat(raw.retail_price) : (raw.retail_price ?? 0);
+  const appFees = typeof raw.app_fees === 'string' ? parseFloat(raw.app_fees) : (raw.app_fees ?? 0);
+  const potentialIncome = typeof raw.potential_income === 'string' ? parseFloat(raw.potential_income) : (raw.potential_income ?? 0);
+  const quantity = typeof raw.quantity === 'string' ? parseFloat(raw.quantity) : (raw.quantity ?? 0);
   const occupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
   const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
   const harvestDates = Array.isArray(raw.harvest_dates)
@@ -163,7 +170,16 @@ function mapFieldFromApi(raw, currentUserId) {
     occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
     area: formatAreaFromM2(occupiedM2, displayUnit),
     price_per_m2: pricePerM2,
-    monthlyRent: (pricePerM2 * totalAreaM2) || (typeof raw.price === 'string' ? parseFloat(raw.price) : raw.price),
+    price: price,
+    total_production: totalProduction,
+    distribution_price: distributionPrice,
+    retail_price: retailPrice,
+    app_fees: appFees,
+    potential_income: potentialIncome,
+    quantity: quantity,
+    production_rate: raw.production_rate,
+    production_rate_unit: raw.production_rate_unit,
+    monthlyRent: availableForRent && rentPricePerMonth != null ? rentPricePerMonth : price,
     status: raw.available !== false ? 'Active' : 'Inactive',
     progress,
     selected_harvests: harvestDates,
@@ -224,20 +240,54 @@ function mapRentalFromApi(r) {
   const availableAreaRaw = typeof r.available_area === 'string' ? parseFloat(r.available_area) : (r.available_area ?? 0);
   const totalAreaM2 = toM2(totalAreaRaw, unit);
   const availableAreaM2 = toM2(availableAreaRaw, r.available_area_unit || 'm2');
+  
+  // For rentals, user's rented/purchased amount
   const areaRentedRaw = r.area_rented != null && r.area_rented !== '' ? parseFloat(r.area_rented) : 0;
-  const occupiedM2 = Math.max(0, totalAreaM2 > 0 ? totalAreaM2 - availableAreaM2 : toM2(areaRentedRaw, unit));
-  const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
+  const userQuantity = parseFloat(r.quantity) || areaRentedRaw || 0;
+  
+  // For rented fields: show user's rented amount as occupied
+  // For field's own occupied: use total - available
+  const fieldOccupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
+  const occupiedM2 = userQuantity > 0 ? userQuantity : fieldOccupiedM2;
+  const progress = totalAreaM2 > 0 ? Math.min(100, Math.round((occupiedM2 / totalAreaM2) * 100)) : 0;
   const status = (r.status || 'active').toLowerCase();
+  
+  // Get user's selected harvest date from order, or fall back to field's harvest dates
+  const userSelectedDate = r.selected_harvest_date;
+  const userSelectedLabel = r.selected_harvest_label || '';
+  
+  // Parse field's harvest dates (all available)
+  let fieldHarvestDates = [];
+  if (r.harvest_dates) {
+    if (Array.isArray(r.harvest_dates)) {
+      fieldHarvestDates = r.harvest_dates;
+    } else if (typeof r.harvest_dates === 'string') {
+      try {
+        fieldHarvestDates = JSON.parse(r.harvest_dates);
+      } catch (e) {
+        fieldHarvestDates = [{ date: r.harvest_dates, label: '' }];
+      }
+    }
+  }
+  
+  // If user selected a harvest date, show that. Otherwise show all available.
+  const harvestDates = userSelectedDate 
+    ? [{ date: userSelectedDate, label: userSelectedLabel }]
+    : fieldHarvestDates;
+  
+  const shippingOption = r.shipping_option || '';
+  const shippingModes = shippingOption ? shippingOption.split(/[,/]/).map((s) => s.trim()).filter(Boolean) : [];
+  
   return {
     id: `rental-${r.id}`,
     _rentalId: r.id,
     _fieldId: r.field_id,
     is_own_field: false,
-    name: r.field_name || `Field ${r.field_id}`,
-    farmName: r.owner_name,
-    location: r.field_location,
-    cropType: r.category || r.subcategory,
-    category: r.category,
+    name: r.field_name || r.name || `Field ${r.field_id}`,
+    farmName: r.owner_name || r.farmer_name,
+    location: r.field_location || r.location,
+    cropType: r.category || r.subcategory || r.crop_type,
+    category: r.category || r.crop_type,
     subcategory: r.subcategory,
     area_unit: unit,
     total_area: totalAreaM2,
@@ -248,13 +298,25 @@ function mapRentalFromApi(r) {
     available_area_display: formatAreaFromM2(availableAreaM2, unit),
     occupied_area_display: formatAreaFromM2(occupiedM2, unit),
     area: formatAreaFromM2(occupiedM2, unit),
-    price_per_m2: r.price_per_m2,
-    monthlyRent: typeof r.price === 'number' ? r.price : (typeof r.price === 'string' ? parseFloat(r.price) : 0) || 0,
+    price_per_m2: parseFloat(r.price_per_m2) || 0,
+    price: parseFloat(r.price) || 0,
+    total_production: parseFloat(r.total_production) || 0,
+    distribution_price: parseFloat(r.distribution_price) || 0,
+    retail_price: parseFloat(r.retail_price) || 0,
+    app_fees: parseFloat(r.app_fees) || 0,
+    potential_income: parseFloat(r.potential_income) || 0,
+    quantity: userQuantity,
+    production_rate: r.production_rate,
+    production_rate_unit: r.production_rate_unit,
+    monthlyRent: parseFloat(r.price) || parseFloat(r.rent_price) || 0,
     status: status === 'active' ? 'Active' : status === 'ended' ? 'Ended' : status === 'cancelled' ? 'Cancelled' : status,
     progress,
-    selected_harvests: [],
-    shipping_modes: [],
-    farmer_name: r.owner_name,
+    selected_harvests: harvestDates,
+    selected_harvest_date: userSelectedDate,
+    selected_harvest_label: userSelectedLabel,
+    field_harvest_dates: fieldHarvestDates,
+    shipping_modes: shippingModes,
+    farmer_name: r.owner_name || r.farmer_name,
     rentPeriod: r.start_date && r.end_date ? `${r.start_date} – ${r.end_date}` : null,
     rental_start_date: r.start_date,
     rental_end_date: r.end_date,
@@ -454,7 +516,9 @@ const RentedFields = () => {
 
       orders.forEach((o) => {
         const status = String(o.status || '').toLowerCase();
-        if (!['pending', 'active', 'completed'].includes(status)) return;
+        // Include various order statuses - don't filter out by status for now
+        const validStatuses = ['pending', 'active', 'completed', 'processing', 'shipped', 'delivered', 'cancelled', 'ended'];
+        if (!validStatuses.includes(status)) return;
         const fid = o.field_id || o.fieldId;
         if (!fid) return;
         const qtyRaw = o.quantity ?? o.area_rented ?? o.area ?? 0;
@@ -546,7 +610,34 @@ const RentedFields = () => {
     let list;
     if (segment === SEGMENT_OWNED) list = rentedFields.filter((f) => f.is_own_field);
     else if (segment === SEGMENT_RENTED) list = [...myRentals, ...purchasedFields];
+    else if (segment === SEGMENT_OWNED) list = [...rentedFields];
     else list = [...rentedFields, ...myRentals, ...purchasedFields];
+    
+    // Deduplicate by field_id when combining multiple sources
+    if (segment !== SEGMENT_OWNED) {
+      const seen = new Map();
+      list = list.filter((f) => {
+        const key = f._fieldId || f.field_id || f.id;
+        if (!key) return true;
+        if (!seen.has(key)) {
+          seen.set(key, f);
+          return true;
+        }
+        // Prefer owned fields, then prefer one with more data
+        const existing = seen.get(key);
+        if (f.is_own_field && !existing.is_own_field) {
+          seen.set(key, f);
+          return true;
+        }
+        if ((f.total_production || 0) > (existing.total_production || 0)) {
+          seen.set(key, f);
+          return true;
+        }
+        return false;
+      });
+      list = Array.from(seen.values());
+    }
+    
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(
@@ -858,15 +949,15 @@ const RentedFields = () => {
               </div>
               <div class="summary-card">
                 <div class="summary-value">${reportData.activeFields}</div>
-                <div class="summary-label">Active Rentals</div>
+                <div class="summary-label">Active Fields</div>
               </div>
               <div class="summary-card">
-                <div class="summary-value">${reportData.avgProgress}%</div>
-                <div class="summary-label">Avg Occupied Area</div>
+                <div class="summary-value">${totalProduction.toLocaleString()} Kg</div>
+                <div class="summary-label">Total Production</div>
               </div>
               <div class="summary-card">
-                <div class="summary-value">${currencySymbols[userCurrency]}${totalMonthlyRent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div class="summary-label">Monthly Revenue</div>
+                <div class="summary-value">${currencySymbols[userCurrency]}${totalPotentialIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div class="summary-label">Potential Income</div>
               </div>
             </div>
 
@@ -923,6 +1014,9 @@ const RentedFields = () => {
   const totalFields = displayedFields.length;
   const activeFields = displayedFields.filter(f => f.status === 'Active').length;
   const totalMonthlyRent = displayedFields.reduce((sum, field) => sum + (parseFloat(field.monthlyRent) || 0), 0);
+  const totalProduction = displayedFields.reduce((sum, field) => sum + (parseFloat(field.total_production) || 0), 0);
+  const totalPricePerM2 = displayedFields.reduce((sum, field) => sum + (parseFloat(field.price_per_m2) || 0), 0);
+  const totalPotentialIncome = displayedFields.reduce((sum, field) => sum + (parseFloat(field.potential_income) || 0), 0);
   const validFields = displayedFields.filter(field => field.progress != null && !isNaN(field.progress));
   const avgProgress = validFields.length > 0
     ? Math.round(validFields.reduce((sum, field) => sum + field.progress, 0) / validFields.length)
@@ -1017,15 +1111,15 @@ const RentedFields = () => {
             icon={<Assessment sx={{ fontSize: 20 }} />}
             iconBg="#f3e8ff"
             iconColor="#7c3aed"
-            value={`${avgProgress}%`}
-            label="Avg Progress"
+            value={`${totalProduction.toLocaleString()} Kg`}
+            label="Total Production"
           />
           <StatCard
             icon={<Schedule sx={{ fontSize: 20 }} />}
             iconBg="#fef3c7"
             iconColor="#d97706"
-            value={`${currencySymbols[userCurrency]}${totalMonthlyRent.toLocaleString()}`}
-            label="Monthly Revenue"
+            value={`${currencySymbols[userCurrency]}${totalPotentialIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label="Potential Income"
           />
         </div>
 
@@ -1193,15 +1287,30 @@ const RentedFields = () => {
                             {field.location}
                           </div>
                         </div>
+                        {/* Quick info row */}
+                        <div className="mt-0.5 flex items-center gap-2 text-[0.65rem] text-slate-400">
+                          <span className="flex items-center gap-0.5">
+                            <span className="font-medium text-slate-500">Harvest:</span>
+                            {harvestText.split(',')[0]}
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            <span className="font-medium text-slate-500">Total:</span>
+                            {field.total_production}Kg
+                          </span>
+                        </div>
                       </div>
 
                       {/* Actions + price row (full width on mobile) */}
                       <div className="mt-1 flex w-full items-center justify-between gap-2 sm:mt-0 sm:w-auto sm:justify-end">
                         <div className="text-left sm:text-right">
-                          <div className="text-sm font-bold text-emerald-600">
-                            {currencySymbols[userCurrency]}{monthly}
+                          <div className="flex items-center gap-2 sm:flex-col sm:items-end">
+                            <div className="text-sm font-bold text-emerald-600">
+                              {currencySymbols[userCurrency]}{(parseFloat(field.price_per_m2) || 0).toFixed(2)}/m²
+                            </div>
+                            <div className="text-[0.6rem] font-medium text-slate-400">
+                              {field.production_rate}Kg/m²
+                            </div>
                           </div>
-                          <div className="text-[0.65rem] font-medium text-slate-500">/month</div>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -1238,45 +1347,132 @@ const RentedFields = () => {
                 {/* Expanded panel */}
                 {isExpanded && (
                   <div className="border-t border-slate-200 px-3 py-3">
-                    <div className="mb-3 text-xs text-slate-500">
-                      <div className="font-semibold text-slate-800">Crop</div>
-                      <div className="text-slate-700">{field.cropType}</div>
-                    </div>
+                    {/* Pending Order Notice */}
+                    {!field.is_own_field && (field.status === 'Pending' || field.status === 'pending') && (
+                      <div className="mb-3 rounded-lg bg-yellow-50 p-3 border border-yellow-200">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div>
+                            <div className="text-sm font-bold text-yellow-800">Awaiting Farmer Confirmation</div>
+                            <div className="text-xs text-yellow-700">Your order is pending. The farmer will accept it to confirm.</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-                    <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Harvest</span>
-                        <span className="truncate font-semibold text-slate-900">{harvestText}</span>
+                    {/* Prominent Harvest Dates Section */}
+                    {harvestText !== 'Not specified' && (
+                      <div className="mb-3 rounded-lg bg-amber-50 p-3 border border-amber-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-[0.65rem] font-semibold text-amber-700 uppercase tracking-wide">
+                            {field.selected_harvest_date ? 'Your Selected Harvest' : 'Available Harvest Dates'}
+                          </span>
+                        </div>
+                        <div className="text-sm font-bold text-amber-900">{harvestText}</div>
                       </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Shipping</span>
-                        <span className="truncate font-semibold text-slate-900">{shippingText}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Total</span>
-                        <span className="font-semibold text-slate-900">
-                          {field.total_area_display || `${field.total_area} m²`}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Occupied</span>
-                        <span className="font-semibold text-slate-900">{field.occupied_area_display || field.area}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Available</span>
-                        <span className="font-semibold text-slate-900">{field.available_area_display || `${field.available_area} m²`}</span>
-                      </div>
-                    </div>
+                    )}
 
-                    <div className="mt-3">
-                      <div className="mb-1 flex items-center justify-between text-[0.7rem] text-slate-500">
-                        <span>Occupied Area</span>
-                        <span className="font-semibold text-slate-900">{field.progress}%</span>
+                    {/* Prominent Delivery Options Section */}
+                    {shippingText !== 'Not specified' && (
+                      <div className="mb-3 rounded-lg bg-blue-50 p-3 border border-blue-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                          </svg>
+                          <span className="text-[0.65rem] font-semibold text-blue-700 uppercase tracking-wide">Delivery Options</span>
+                        </div>
+                        <div className="text-sm font-bold text-blue-900">{shippingText}</div>
                       </div>
-                      <div className="h-1.5 w-full rounded-full bg-slate-200">
-                        <div className="h-full rounded-full" style={{ width: `${field.progress}%`, backgroundColor: progressColor }} />
+                    )}
+
+                    {/* Simple view for rented fields (not owned) */}
+                    {!field.is_own_field ? (
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between border-t border-slate-100 pt-2 mt-2">
+                          <span className="text-slate-500">Your Share</span>
+                          <span className="font-semibold text-emerald-600">
+                            {field.occupied_area_display || field.area} ({field.progress}%)
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500">Your Production</span>
+                          <span className="font-semibold text-amber-600">
+                            {Math.round((field.progress / 100) * (field.total_production || 0))} Kg
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500">Total Area</span>
+                          <span className="font-semibold text-slate-900">
+                            {field.total_area_display || `${field.total_area} m²`}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* Full details for owned fields */
+                      <>
+                        <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Total Area</span>
+                            <span className="font-semibold text-slate-900">
+                              {field.total_area_display || `${field.total_area} m²`}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Occupied</span>
+                            <span className="font-semibold text-slate-900">{field.occupied_area_display || field.area}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Available</span>
+                            <span className="font-semibold text-slate-900">{field.available_area_display || `${field.available_area} m²`}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Production Rate</span>
+                            <span className="font-semibold text-slate-900">
+                              {field.production_rate} {field.production_rate_unit || 'Kg/m²'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Total Production</span>
+                            <span className="font-semibold text-slate-900">{field.total_production} Kg</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Price/m²</span>
+                            <span className="font-semibold text-emerald-600">{currencySymbols[userCurrency]}{(parseFloat(field.price_per_m2) || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Distribution Price</span>
+                            <span className="font-semibold text-slate-900">{currencySymbols[userCurrency]}{field.distribution_price?.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Retail Price</span>
+                            <span className="font-semibold text-slate-900">{currencySymbols[userCurrency]}{field.retail_price?.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">App Fees (5%)</span>
+                            <span className="font-semibold text-amber-600">{currencySymbols[userCurrency]}{field.app_fees?.toFixed(2)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-500">Potential Income</span>
+                            <span className="font-semibold text-emerald-600">{currencySymbols[userCurrency]}{field.potential_income?.toFixed(2)}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="mb-1 flex items-center justify-between text-[0.7rem] text-slate-500">
+                            <span>Occupied</span>
+                            <span className="font-semibold text-slate-900">{field.progress}%</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-slate-200">
+                            <div className="h-full rounded-full" style={{ width: `${field.progress}%`, backgroundColor: progressColor }} />
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     <div className="mt-3 flex justify-end">
                       <button
@@ -1486,16 +1682,23 @@ const RentedFields = () => {
                     </Typography>
                     <Stack direction="row" spacing={2} flexWrap="wrap">
                       <Typography variant="body2" sx={{ color: '#64748b' }}>
-                        Occupied: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.area}</span>
+                        My Rented: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.area}</span>
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#64748b' }}>
-                        Available: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.available_area_display || `${selectedField.available_area} m²`}</span>
-                      </Typography>
-                      {selectedField.total_area && (
-                        <Typography variant="body2" sx={{ color: '#64748b' }}>
-                          Total: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.total_area_display || `${selectedField.total_area} m²`}</span>
-                        </Typography>
-                      )}
+                      {(() => {
+                        const total = typeof selectedField.total_area === 'string' ? parseFloat(selectedField.total_area) : (selectedField.total_area || 0);
+                        const occupied = typeof selectedField.occupied_area === 'string' ? parseFloat(selectedField.occupied_area) : (selectedField.occupied_area || 0);
+                        const available = Math.max(0, total - occupied);
+                        return (
+                          <>
+                            <Typography variant="body2" sx={{ color: '#64748b' }}>
+                              Available: <span style={{ fontWeight: 600, color: '#1e293b' }}>{available} m²</span>
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#64748b' }}>
+                              Total: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.total_area_display || `${selectedField.total_area} m²`}</span>
+                            </Typography>
+                          </>
+                        );
+                      })()}
                     </Stack>
                   </Box>
                 </Stack>
@@ -1757,25 +1960,32 @@ const RentedFields = () => {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span>
-                        Occupied:{' '}
+                        My Rented:{' '}
                         <span className="font-semibold text-slate-900">
-                          {selectedField.occupied_area_display || selectedField.area}
+                          {selectedField.area}
                         </span>
                       </span>
-                      <span>
-                        Available:{' '}
-                        <span className="font-semibold text-slate-900">
-                          {selectedField.available_area_display || `${selectedField.available_area} m²`}
-                        </span>
-                      </span>
-                      {selectedField.total_area && (
-                        <span>
-                          Total:{' '}
-                          <span className="font-semibold text-slate-900">
-                            {selectedField.total_area_display || `${selectedField.total_area} m²`}
-                          </span>
-                        </span>
-                      )}
+                      {(() => {
+                        const total = typeof selectedField.total_area === 'string' ? parseFloat(selectedField.total_area) : (selectedField.total_area || 0);
+                        const occupied = typeof selectedField.occupied_area === 'string' ? parseFloat(selectedField.occupied_area) : (selectedField.occupied_area || 0);
+                        const available = Math.max(0, total - occupied);
+                        return (
+                          <>
+                            <span>
+                              Available:{' '}
+                              <span className="font-semibold text-slate-900">
+                                {available} m²
+                              </span>
+                            </span>
+                            <span>
+                              Total:{' '}
+                              <span className="font-semibold text-slate-900">
+                                {selectedField.total_area_display || `${selectedField.total_area} m²`}
+                              </span>
+                            </span>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1811,16 +2021,10 @@ const RentedFields = () => {
                   </div>
 
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                    <span className="text-xs text-slate-600">Monthly Rent</span>
+                    <span className="text-xs text-slate-600">Earnings per m²</span>
                     <span className="text-sm font-semibold text-emerald-600">
                       {currencySymbols[userCurrency]}
-                      {(() => {
-                        const amount = parseFloat(selectedField.monthlyRent) || 0;
-                        return amount.toLocaleString('en-US', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        });
-                      })()}
+                      {(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}/m²
                     </span>
                   </div>
 
@@ -1862,6 +2066,74 @@ const RentedFields = () => {
                       </span>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Pricing Details */}
+              <div className="rounded-xl bg-amber-50 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-slate-900">
+                  Pricing Details
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">Sharecrop Price (per unit)</span>
+                    <span className="font-semibold text-slate-900">
+                      {currencySymbols[userCurrency]}{(parseFloat(selectedField.price) || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">Price per m²</span>
+                    <span className="font-semibold text-emerald-600">
+                      {currencySymbols[userCurrency]}{(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">Distribution Price</span>
+                    <span className="font-semibold text-slate-900">
+                      {currencySymbols[userCurrency]}{(parseFloat(selectedField.distribution_price) || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">Retail Price</span>
+                    <span className="font-semibold text-slate-900">
+                      {currencySymbols[userCurrency]}{(parseFloat(selectedField.retail_price) || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-2">
+                    <div className="mb-1 font-semibold text-slate-700">Production</div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Production Rate</span>
+                      <span className="font-semibold text-slate-900">
+                        {(parseFloat(selectedField.production_rate) || 0).toFixed(3)} {selectedField.production_rate_unit || 'Kg/m²'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Total Production</span>
+                      <span className="font-semibold text-slate-900">
+                        {(parseFloat(selectedField.total_production) || 0).toFixed(2)} Kg
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Quantity Available</span>
+                      <span className="font-semibold text-slate-900">
+                        {(parseFloat(selectedField.quantity) || 0)} {selectedField.unit || 'units'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-200 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">App Fees (5%)</span>
+                      <span className="font-semibold text-amber-600">
+                        {currencySymbols[userCurrency]}{(parseFloat(selectedField.app_fees) || 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">Potential Income</span>
+                      <span className="font-semibold text-emerald-600">
+                        {currencySymbols[userCurrency]}{(parseFloat(selectedField.potential_income) || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2038,20 +2310,20 @@ const RentedFields = () => {
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, backgroundColor: '#fef3c7', borderRadius: 2, textAlign: 'center' }}>
                   <Typography variant="h4" sx={{ fontWeight: 700, color: '#d97706', mb: 0.5 }}>
-                    {avgProgress}%
+                    {totalProduction.toLocaleString()} Kg
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Avg Occupied Area
+                    Total Production
                   </Typography>
                 </Paper>
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, backgroundColor: '#f0fdf4', borderRadius: 2, textAlign: 'center' }}>
                   <Typography variant="h4" sx={{ fontWeight: 700, color: '#059669', mb: 0.5 }}>
-                    {currencySymbols[userCurrency]}{totalMonthlyRent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {currencySymbols[userCurrency]}{totalPotentialIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Monthly Revenue
+                    Potential Income
                   </Typography>
                 </Paper>
               </Grid>

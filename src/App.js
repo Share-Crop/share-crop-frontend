@@ -24,6 +24,7 @@ import Profile from './pages/Profile';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import BrowseFields from './pages/BrowseFields';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 
 
@@ -37,6 +38,7 @@ const AppContent = () => {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/browse" element={<BrowseFields />} />
 
           {/* Protected Farmer Routes */}
           <Route

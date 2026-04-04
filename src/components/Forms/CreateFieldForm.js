@@ -93,34 +93,41 @@ const StyledDialogContent = styled(DialogContent)(({ theme, isMobile }) => ({
   overflowY: 'auto',
 }));
 
-const StyledTextField = styled(TextField)(({ theme, isMobile }) => ({
+const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => ({
   width: isMobile ? '100%' : '320px',
   '& .MuiOutlinedInput-root': {
     borderRadius: isMobile ? '8px' : '12px',
-    backgroundColor: '#ffffff',
-    border: '2px solid #e8f5e8',
+    backgroundColor: isSuggested ? '#f8fafc' : '#ffffff',
     transition: 'all 0.3s ease',
     fontSize: isMobile ? '14px' : '16px',
     height: isMobile ? '48px' : '56px',
-    '&:hover': {
+    '&:hover .MuiOutlinedInput-notchedOutline': {
       borderColor: '#c8e6c9',
-      boxShadow: '0 4px 12px rgba(76, 175, 80, 0.1)',
+      boxShadow: isSuggested ? 'none' : '0 4px 12px rgba(76, 175, 80, 0.1)',
     },
-    '&.Mui-focused': {
-      borderColor: '#4caf50',
-      boxShadow: '0 4px 20px rgba(76, 175, 80, 0.2)',
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+      borderColor: isSuggested ? '#e2e8f0' : '#4caf50',
+      borderWidth: isSuggested ? '1px' : '2px',
     },
+  },
+  '& .MuiInputBase-input': {
+    fontStyle: isSuggested ? 'italic' : 'normal',
+    color: isSuggested ? '#64748b' : 'inherit',
+    cursor: isSuggested ? 'default' : 'text',
   },
   '& .MuiInputLabel-root': {
     color: '#4a5568',
     fontWeight: 500,
     fontSize: isMobile ? '12px' : '14px',
+    zIndex: 1,
     '&.Mui-focused': {
-      color: '#4caf50',
+      color: isSuggested ? '#4a5568' : '#4caf50',
     },
   },
   '& .MuiOutlinedInput-notchedOutline': {
-    border: 'none',
+    border: '2px solid #e8f5e8',
+    borderRadius: isMobile ? '8px' : '12px',
+    transition: 'all 0.3s ease',
   },
   '& .MuiFormHelperText-root': {
     fontSize: isMobile ? '10px' : '12px',
@@ -132,29 +139,30 @@ const StyledFormControl = styled(FormControl)(({ theme, isMobile }) => ({
   '& .MuiOutlinedInput-root': {
     borderRadius: isMobile ? '8px' : '12px',
     backgroundColor: '#ffffff',
-    border: '2px solid #e8f5e8',
     transition: 'all 0.3s ease',
     fontSize: isMobile ? '14px' : '16px',
     height: isMobile ? '48px' : '56px',
-    '&:hover': {
+    '&:hover .MuiOutlinedInput-notchedOutline': {
       borderColor: '#c8e6c9',
-      boxShadow: '0 4px 12px rgba(76, 175, 80, 0.1)',
     },
-    '&.Mui-focused': {
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       borderColor: '#4caf50',
-      boxShadow: '0 4px 20px rgba(76, 175, 80, 0.2)',
+      borderWidth: '2px',
     },
   },
   '& .MuiInputLabel-root': {
     color: '#4a5568',
     fontWeight: 500,
     fontSize: isMobile ? '12px' : '14px',
+    zIndex: 1,
     '&.Mui-focused': {
       color: '#4caf50',
     },
   },
   '& .MuiOutlinedInput-notchedOutline': {
-    border: 'none',
+    border: '2px solid #e8f5e8',
+    borderRadius: isMobile ? '8px' : '12px',
+    transition: 'all 0.3s ease',
   },
   '& .MuiSelect-select': {
     paddingRight: '48px !important',
@@ -270,6 +278,31 @@ const farmIcons = [
   { value: 'yard', label: 'Yard', icon: <Yard sx={{ color: '#558b2f' }} /> }
 ];
 
+// Helper to normalize area unit to select values
+const normalizeAreaUnit = (unit) => {
+  if (!unit) return 'sqm';
+  const u = unit.toLowerCase().trim();
+  if (u === 'sqm' || u === 'm²' || u === 'm2' || u === 'm^2') return 'sqm';
+  if (u === 'acres' || u === 'acre') return 'acres';
+  if (u === 'hectares' || u === 'hectare' || u === 'ha') return 'hectares';
+  return 'sqm';
+};
+
+// Helper to format date for input fields (yyyy-MM-dd format)
+const formatDateForInput = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+};
+
 const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialData = null, farmsList = [], fieldsList = [] }) => {
   // Debug logging
 
@@ -285,22 +318,26 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     subcategory: '',
     productName: '',
     description: '',
+    totalProduction: '',
     fieldSize: '',
-    fieldSizeUnit: 'm²',
-    productionRate: '',
-    productionRateUnit: 'Kg',
-    sellingAmount: '',
-    sellingPrice: '',
+    fieldSizeUnit: normalizeAreaUnit('sqm'),
+    productionPerArea: '', // Calculated
+    distributionPrice: '',
     retailPrice: '',
+    suggestedPrice: '', // Calculated
+    sellingPrice: '', // This is YOUR SHARECROP PRICE
+    sellingAmount: '', // How much to sell in app
+    potentialIncome: '', // Calculated
     virtualProductionRate: '',
-    virtualCostPerUnit: '',
-    appFees: '',
-    userAreaVirtualRentPrice: '',
+    virtualCostPerUnit: '', // Calculated from distributionPrice
+    appFees: '', // Calculated (5%)
+    userAreaVirtualRentPrice: '', // Calculated from sellingPrice
     harvestDates: [{ date: '', label: '' }],
     shippingOption: 'Both',
     deliveryTime: '',
     deliveryCharges: [{ upto: '', amount: '' }],
     hasWebcam: false,
+    webcamUrl: '',
     latitude: '',
     longitude: '',
     shippingScope: 'Global',
@@ -318,6 +355,55 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Selected farm info for area validation
   const [selectedFarmArea, setSelectedFarmArea] = useState({ total: 0, occupied: 0, remaining: 0, unit: 'sqm' });
+
+  // Calculation logic for pricing and production
+  useEffect(() => {
+    const totalProd = parseFloat(formData.totalProduction) || 0;
+    const rawSize = parseFloat(formData.fieldSize) || 0;
+    
+    // Normalize size to m2 for standardized backend storage and logic
+    const unit = formData.fieldSizeUnit || 'sqm';
+    let normalizedSize = rawSize;
+    if (unit === 'acres') normalizedSize = rawSize * 4046.86;
+    else if (unit === 'hectares') normalizedSize = rawSize * 10000;
+    
+    const distPrice = parseFloat(formData.distributionPrice) || 0;
+    const retPrice = parseFloat(formData.retailPrice) || 0;
+    const scPrice = parseFloat(formData.sellingPrice) || 0;
+    const amountToSell = parseFloat(formData.sellingAmount) || 0;
+
+    // Production per Area should be in Kg / m2 based on normalized size
+    const prodPerArea = normalizedSize > 0 ? (totalProd / normalizedSize) : 0;
+    const suggested = (distPrice + retPrice) / 2;
+    const distPriceM2 = distPrice * prodPerArea;
+    const scPriceM2 = scPrice * prodPerArea;
+    const potential = amountToSell * scPrice;
+    const fees = potential * 0.05;
+
+    setFormData(prev => {
+      // Only update if values actually changed to avoid infinite loops
+      if (
+        prev.productionPerArea === prodPerArea.toFixed(3) &&
+        prev.suggestedPrice === suggested.toFixed(2) &&
+        prev.virtualCostPerUnit === distPriceM2.toFixed(3) &&
+        prev.userAreaVirtualRentPrice === scPriceM2.toFixed(3) &&
+        prev.potentialIncome === potential.toFixed(2) &&
+        prev.appFees === fees.toFixed(2)
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        productionPerArea: prodPerArea.toFixed(3),
+        suggestedPrice: suggested.toFixed(2),
+        virtualCostPerUnit: distPriceM2.toFixed(3),
+        userAreaVirtualRentPrice: scPriceM2.toFixed(3),
+        potentialIncome: potential.toFixed(2),
+        appFees: fees.toFixed(2)
+      };
+    });
+  }, [formData.totalProduction, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount]);
 
   // Calculate remaining area whenever farm selection or fields change
   useEffect(() => {
@@ -339,7 +425,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         if (farm) {
           const farmIdSource = String(farm.id || farm._id || '');
           const totalArea = parseFloat(farm.area_value || farm.areaValue) || 0;
-          const farmUnit = farm.area_unit || farm.areaUnit || 'sqm';
+          const farmUnit = normalizeAreaUnit(farm.area_unit || farm.areaUnit || 'sqm');
 
           let allFields = fieldsList || [];
 
@@ -382,11 +468,77 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
           });
 
           setFormData(prev => {
-            if (prev.fieldSizeUnit !== farmUnit) {
-              return { ...prev, fieldSizeUnit: farmUnit };
+            const updates = {};
+            
+            // Auto-fill fieldSizeUnit from farm (only in create mode)
+            if (!editMode && prev.fieldSizeUnit !== farmUnit) {
+              updates.fieldSizeUnit = farmUnit;
             }
-            return prev;
+            
+            // Auto-fill harvest dates from farm (only in create mode, if empty)
+            if (!editMode && (!prev.harvestDates || prev.harvestDates.length === 0 || !prev.harvestDates[0]?.date)) {
+              const farmHarvestDates = [];
+              // Handle array format
+              if (farm.harvest_dates && Array.isArray(farm.harvest_dates) && farm.harvest_dates.length > 0) {
+                farm.harvest_dates.forEach(h => {
+                  if (h.date) {
+                    farmHarvestDates.push({ date: h.date, label: h.label || '' });
+                  }
+                });
+              }
+              // Handle single date format (harvest_date)
+              if (farm.harvest_date && farmHarvestDates.length === 0) {
+                farmHarvestDates.push({ date: farm.harvest_date, label: '' });
+              }
+              if (farmHarvestDates.length > 0) {
+                updates.harvestDates = farmHarvestDates;
+              }
+            }
+            
+            // Auto-fill webcam from farm (only in create mode, if empty)
+            if (!editMode && !prev.webcamUrl && farm.webcam_url) {
+              updates.hasWebcam = true;
+              updates.webcamUrl = farm.webcam_url || '';
+            }
+            
+            // Auto-fill coordinates from farm (only in create mode, if empty)
+            if (!editMode && !prev.latitude && !prev.longitude) {
+              // Handle object format {lat, lng}
+              if (farm.coordinates && typeof farm.coordinates === 'object' && !Array.isArray(farm.coordinates)) {
+                if (farm.coordinates.lat != null && farm.coordinates.lng != null) {
+                  updates.latitude = farm.coordinates.lat;
+                  updates.longitude = farm.coordinates.lng;
+                }
+              }
+              // Handle array format [lng, lat]
+              else if (farm.coordinates && Array.isArray(farm.coordinates) && farm.coordinates.length >= 2) {
+                updates.latitude = farm.coordinates[1];
+                updates.longitude = farm.coordinates[0];
+              }
+              // Handle separate lat/lng fields
+              else if (farm.latitude != null && farm.longitude != null) {
+                updates.latitude = farm.latitude;
+                updates.longitude = farm.longitude;
+              }
+            }
+            
+            // Auto-fill shipping scope from farm (only in create mode, if empty)
+            if (!editMode && !prev.shippingScope && farm.shipping_scope) {
+              updates.shippingScope = farm.shipping_scope;
+            }
+            
+            // Auto-fill shipping option from farm (only in create mode, if empty)
+            if (!editMode && !prev.shippingOption && farm.shipping_option) {
+              updates.shippingOption = farm.shipping_option;
+            }
+            
+            return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
           });
+
+          // Auto-fill location address from farm (only in create mode, if empty)
+          if (!editMode && !locationAddress && farm.location) {
+            setLocationAddress(farm.location);
+          }
         }
       } else {
         setSelectedFarmArea({ total: 0, occupied: 0, remaining: 0, unit: 'sqm' });
@@ -394,6 +546,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     };
 
     calculateArea();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.farmId, farmsList, fieldsList, editMode, initialData]);
 
   // State for license check and upload
@@ -540,15 +693,18 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         category: initialData.category || '',
         subcategory: initialData.subcategory || '',
         fieldSize: initialData.field_size || initialData.fieldSize || initialData.area_m2 || '',
-        fieldSizeUnit: initialData.field_size_unit || initialData.fieldSizeUnit || initialData.unit || 'sqm',
+        fieldSizeUnit: normalizeAreaUnit(initialData.field_size_unit || initialData.fieldSizeUnit || initialData.unit || 'sqm'),
         productionRate: initialData.production_rate || initialData.productionRate || '',
         productionRateUnit: initialData.production_rate_unit || initialData.productionRateUnit || 'Kg',
         sellingAmount: initialData.quantity || '',
         sellingPrice: initialData.price || '',
+        totalProduction: initialData.total_production || initialData.totalProduction || '',
+        distributionPrice: initialData.distribution_price || initialData.distributionPrice || '',
         farmId: initialData.farm_id || initialData.farmId || '',
         latitude: initialData.coordinates?.[1] || initialData.latitude || '',
         longitude: initialData.coordinates?.[0] || initialData.longitude || '',
         hasWebcam: initialData.has_webcam || !!initialData.webcam_url,
+        webcamUrl: initialData.webcam_url || initialData.webcamUrl || '',
         harvestDates: Array.isArray(initialData.harvest_dates) ? initialData.harvest_dates :
           Array.isArray(initialData.harvestDates) ? initialData.harvestDates :
             [{ date: '', label: '' }],
@@ -607,7 +763,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         productName: '',
         description: '',
         fieldSize: '',
-        fieldSizeUnit: 'm²',
+        fieldSizeUnit: 'sqm',
         productionRate: '',
         productionRateUnit: 'Kg',
         sellingAmount: '',
@@ -622,6 +778,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         deliveryTime: '',
         deliveryCharges: [{ upto: '', amount: '' }],
         hasWebcam: false,
+        webcamUrl: '',
         latitude: '',
         longitude: '',
         shippingScope: '',
@@ -632,10 +789,32 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     }
   }, [initialData, editMode]);
 
-  const handleInputChange = (field, value) => {
+  // Quick apply recommended delivery rates
+  const applyRecommendedRates = () => {
     setFormData(prev => ({
       ...prev,
-      [field]: value
+      deliveryCharges: [
+        { upto: '12', amount: '15.00' },
+        { upto: '36', amount: '25.00' },
+        { upto: '1000', amount: '35.00' }
+      ]
+    }));
+  };
+
+  const handleInputChange = (field, value) => {
+    let processedValue = value;
+
+    // Preventive validation for field size - cap at available remaining area
+    if (field === 'fieldSize' && formData.farmId) {
+      const numValue = parseFloat(value);
+      if (!isNaN(numValue) && numValue > selectedFarmArea.remaining) {
+        processedValue = selectedFarmArea.remaining.toString();
+      }
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      [field]: processedValue
     }));
 
     // When category changes, reset subcategory safely
@@ -759,12 +938,25 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
   };
 
   const updateDeliveryCharge = (index, field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      deliveryCharges: (prev.deliveryCharges || []).map((charge, i) =>
-        i === index ? { ...charge, [field]: value } : charge
-      )
-    }));
+    setFormData(prev => {
+      const updatedCharges = (prev.deliveryCharges || []).map((charge, i) => {
+        if (i === index) {
+          const newCharge = { ...charge, [field]: value };
+          // Auto-fill amount based on upto value
+          if (field === 'upto') {
+            const num = parseFloat(value);
+            if (!isNaN(num)) {
+              if (num <= 12) newCharge.amount = '15.00';
+              else if (num <= 36) newCharge.amount = '25.00';
+              else if (num >= 37) newCharge.amount = '35.00'; // Recommended base
+            }
+          }
+          return newCharge;
+        }
+        return charge;
+      });
+      return { ...prev, deliveryCharges: updatedCharges };
+    });
   };
 
   // Handle location selection from LocationPicker
@@ -796,9 +988,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       newErrors.fieldSize = `Not enough area left in farm (${selectedFarmArea.remaining.toFixed(2)} ${selectedFarmArea.unit} available)`;
     }
 
-    if (!formData.productionRate) newErrors.productionRate = 'Production rate is required';
-    if (!formData.sellingAmount) newErrors.sellingAmount = 'Selling amount is required';
-    if (!formData.sellingPrice) newErrors.sellingPrice = 'Selling price is required';
+    if (!formData.totalProduction) newErrors.totalProduction = 'Total production is required';
+    if (!formData.distributionPrice) newErrors.distributionPrice = 'Distribution price is required';
+    if (!formData.sellingAmount) newErrors.sellingAmount = 'How much product to sell is required';
+    if (!formData.sellingPrice) newErrors.sellingPrice = 'Your sharecrop price is required';
     if (!formData.retailPrice) newErrors.retailPrice = 'Retail price is required';
 
     // Validate harvest dates
@@ -806,6 +999,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     const hasValidHarvestDate = harvestDatesArray.some(date => date.date && date.date.trim() !== '');
     if (!hasValidHarvestDate) newErrors.harvestDates = 'At least one harvest date is required';
 
+    if (formData.hasWebcam && (!formData.webcamUrl || !formData.webcamUrl.trim())) {
+      newErrors.webcamUrl = 'Webcam URL is required when webcam is enabled';
+    }
     if (!formData.latitude) newErrors.latitude = 'Latitude is required';
     if (!formData.longitude) newErrors.longitude = 'Longitude is required';
     if (!formData.farmId) newErrors.farmId = 'Please select a farm for this field';
@@ -827,32 +1023,42 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
     setIsSubmitting(true);
 
-    // Get actual location using reverse geocoding
-    let actualLocation = 'Unknown Location';
+    // Get actual location using reverse geocoding, or use pre-filled location from farm
+    let actualLocation = locationAddress || 'Unknown Location';
     try {
-      const { cachedReverseGeocode } = await import('../../utils/geocoding');
-      actualLocation = await cachedReverseGeocode(
-        parseFloat(formData.latitude),
-        parseFloat(formData.longitude)
-      );
+      if (formData.latitude && formData.longitude) {
+        const { cachedReverseGeocode } = await import('../../utils/geocoding');
+        actualLocation = await cachedReverseGeocode(
+          parseFloat(formData.latitude),
+          parseFloat(formData.longitude)
+        );
+      }
     } catch (error) {
       console.error('Failed to get location:', error);
-      // Fallback to coordinates if reverse geocoding fails
-      actualLocation = `${parseFloat(formData.latitude).toFixed(4)}, ${parseFloat(formData.longitude).toFixed(4)}`;
+      // Fallback to coordinates if reverse geocoding fails and no pre-filled location
+      if (actualLocation === 'Unknown Location' && formData.latitude && formData.longitude) {
+        actualLocation = `${parseFloat(formData.latitude).toFixed(4)}, ${parseFloat(formData.longitude).toFixed(4)}`;
+      }
     }
 
-    // Convert deliveryCharges array to a single numeric value for database storage
+    // Convert deliveryCharges array to JSON array for database storage
     const getDeliveryChargeValue = (deliveryCharges) => {
       if (!deliveryCharges || !Array.isArray(deliveryCharges) || deliveryCharges.length === 0) {
-        return 0;
+        return null;
       }
-      // Use the first delivery charge amount, or 0 if not valid
-      const firstCharge = deliveryCharges[0];
-      return firstCharge && firstCharge.amount ? parseFloat(firstCharge.amount) || 0 : 0;
+      // Filter out empty charges and format properly
+      const validCharges = deliveryCharges
+        .filter(c => c && c.amount && c.amount.trim() !== '')
+        .map(c => ({
+          upto: c.upto ? parseFloat(c.upto) : null,
+          amount: parseFloat(c.amount) || 0
+        }));
+      return validCharges.length > 0 ? JSON.stringify(validCharges) : null;
     };
 
     const submitData = {
       productName: formData.productName,
+      name: formData.productName, // Snake case for backend
       category: formData.category,
       subcategory: formData.subcategory,
       description: formData.description,
@@ -862,20 +1068,40 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       image: formData.selectedIcon ? getIconPath(formData.selectedIcon) : '',
       icon: formData.selectedIcon ? getIconPath(formData.selectedIcon) : '',
       fieldSize: formData.fieldSize,
+      field_size: formData.fieldSize, // Snake case
       fieldSizeUnit: formData.fieldSizeUnit,
-      productionRate: formData.productionRate,
-      productionRateUnit: formData.productionRateUnit,
+      field_size_unit: formData.fieldSizeUnit, // Snake case
+      productionRate: formData.productionPerArea,
+      production_rate: formData.productionPerArea, // Calculated production per area
+      productionRateUnit: 'Kg/m²',
+      production_rate_unit: 'Kg/m²',
+      totalProduction: formData.totalProduction,
+      total_production: formData.totalProduction,
+      distributionPrice: formData.distributionPrice,
+      distribution_price: formData.distributionPrice,
       sellingAmount: formData.sellingAmount,
+      quantity: formData.sellingAmount, // Map to quantity
       retailPrice: parseFloat(formData.retailPrice),
-      virtualProductionRate: formData.virtualProductionRate,
+      virtualProductionRate: formData.productionPerArea,
       virtualCostPerUnit: formData.virtualCostPerUnit,
+      appFees: formData.appFees,
+      potentialIncome: formData.potentialIncome,
+      userVirtualRent: formData.userAreaVirtualRentPrice,
       harvestDates: (formData.harvestDates || []).filter(date => date.date && date.date.trim() !== ''),
+      harvest_dates: (formData.harvestDates || []).filter(date => date.date && date.date.trim() !== ''), // Snake case
       shippingOption: formData.shippingOption,
+      shipping_option: formData.shippingOption, // Snake case
       deliveryTime: formData.deliveryTime,
       deliveryCharges: getDeliveryChargeValue(formData.deliveryCharges), // Convert to numeric value
+      delivery_charges: getDeliveryChargeValue(formData.deliveryCharges), // Snake case
       hasWebcam: formData.hasWebcam,
+      has_webcam: formData.hasWebcam, // Snake case
+      webcam_url: formData.hasWebcam ? formData.webcamUrl : '',
+      webcamUrl: formData.hasWebcam ? formData.webcamUrl : '',
       shippingScope: formData.shippingScope,
-      farmId: formData.farmId, // Include the selected farm ID
+      shipping_scope: formData.shippingScope, // Snake case
+      farmId: formData.farmId,
+      farm_id: formData.farmId, // Snake case
       // Add these default values for popup compatibility:
       coordinates: [parseFloat(formData.longitude), parseFloat(formData.latitude)],
       farmer_name: user?.name || '',
@@ -883,12 +1109,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       available_area: formData.fieldSize || 100,
       total_area: formData.fieldSize || 100,
       weather: 'Sunny', // Default weather
-      price_per_m2: formData.fieldSize ? (parseFloat(formData.sellingPrice) / parseFloat(formData.fieldSize)) : 0,
-      production_rate: formData.productionRate || 0.50,
+      price_per_m2: parseFloat(formData.userAreaVirtualRentPrice) || 0,
       shipping_pickup: formData.shippingOption !== 'Shipping',
       shipping_delivery: formData.shippingOption !== 'Pickup',
       harvest_date: (formData.harvestDates || []).length > 0 && formData.harvestDates[0].date ? formData.harvestDates[0].date : '15 Sep, 2025',
       isOwnField: true, // Mark as your own field for edit button
+      is_own_field: true, // Snake case
       available_for_buy: true,
       available_for_rent: Boolean(formData.available_for_rent),
       rent_price_per_month: formData.available_for_rent && formData.rent_price_per_month ? parseFloat(formData.rent_price_per_month) : null,
@@ -912,13 +1138,16 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       subcategory: '',
       productName: '',
       description: '',
+      totalProduction: '',
       fieldSize: '',
-      fieldSizeUnit: 'm²',
-      productionRate: '',
-      productionRateUnit: 'Kg',
-      sellingAmount: '',
-      sellingPrice: '',
+      fieldSizeUnit: 'sqm',
+      productionPerArea: '',
+      distributionPrice: '',
       retailPrice: '',
+      suggestedPrice: '',
+      sellingPrice: '',
+      sellingAmount: '',
+      potentialIncome: '',
       virtualProductionRate: '',
       virtualCostPerUnit: '',
       appFees: '',
@@ -929,6 +1158,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       deliveryTimeUnit: 'Days',
       deliveryCharges: [{ upto: '', amount: '' }],
       hasWebcam: false,
+      webcamUrl: '',
       latitude: '',
       longitude: '',
       shippingScope: 'Global',
@@ -1326,32 +1556,6 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                     </CombinedInputContainer>
                   </Grid>
 
-                  {/* Production Rate with Unit */}
-                  <Grid item xs={12} md={6}>
-                    <CombinedInputContainer isMobile={isMobile}>
-                      <StyledTextField
-                        label="Production Rate"
-                        placeholder="Usual production per harvest"
-                        value={formData.productionRate}
-                        onChange={(e) => handleInputChange('productionRate', e.target.value)}
-                        error={!!errors.productionRate}
-                        helperText={errors.productionRate}
-                        isMobile={isMobile}
-                      />
-                      <StyledFormControl isMobile={isMobile}>
-                        <InputLabel>Unit</InputLabel>
-                        <Select
-                          value={formData.productionRateUnit}
-                          onChange={(e) => handleInputChange('productionRateUnit', e.target.value)}
-                          label="Unit"
-                        >
-                          <MenuItem value="Kg">Kg</MenuItem>
-                          <MenuItem value="tons">tons</MenuItem>
-                          <MenuItem value="lbs">lbs</MenuItem>
-                        </Select>
-                      </StyledFormControl>
-                    </CombinedInputContainer>
-                  </Grid>
 
                   {/* Location Selection - Single field */}
                   <Grid item xs={12}>
@@ -1414,7 +1618,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                               fullWidth
                               type="date"
                               label="Date"
-                              value={harvestDate?.date ?? ''}
+                              value={formatDateForInput(harvestDate?.date)}
                               onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
                               InputLabelProps={{ shrink: true }}
                               isMobile={isMobile}
@@ -1483,7 +1687,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 fullWidth
                                 type="date"
                                 label="Date"
-                                value={harvestDate?.date ?? ''}
+                                value={formatDateForInput(harvestDate?.date)}
                                 onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
                                 InputLabelProps={{ shrink: true }}
                                 isMobile={isMobile}
@@ -1575,6 +1779,20 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       <FormControlLabel value="Yes" control={<Radio sx={{ color: '#4caf50' }} />} label="Yes" />
                       <FormControlLabel value="No" control={<Radio sx={{ color: '#4caf50' }} />} label="No" />
                     </RadioGroup>
+                    {formData.hasWebcam && (
+                      <Box sx={{ mt: 2 }}>
+                        <StyledTextField
+                          fullWidth
+                          label="Webcam URL"
+                          placeholder="Enter the stream URL for your webcam"
+                          value={formData.webcamUrl || ''}
+                          onChange={(e) => handleInputChange('webcamUrl', e.target.value)}
+                          error={!!errors.webcamUrl}
+                          helperText={errors.webcamUrl || "Provide a direct streaming URL (e.g., YouTube Live link)"}
+                          isMobile={isMobile}
+                        />
+                      </Box>
+                    )}
                   </Grid>
                 </Grid>
               </FormSection>
@@ -1583,16 +1801,17 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
               <FormSection>
                 <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Pricing Information</SectionTitle>
                 <Grid container spacing={3}>
-                  {/* Selling Amount */}
+                  {/* Total Production */}
                   <Grid item xs={12} md={6}>
                     <StyledTextField
                       fullWidth
-                      label="Selling Amount"
-                      placeholder="How much product to sell by app?"
-                      value={formData.sellingAmount}
-                      onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
-                      error={!!errors.sellingAmount}
-                      helperText={errors.sellingAmount}
+                      label="Total production per harvest"
+                      placeholder="e.g. 200"
+                      value={formData.totalProduction}
+                      onChange={(e) => handleInputChange('totalProduction', e.target.value)}
+                      error={!!errors.totalProduction}
+                      helperText={errors.totalProduction}
+                      InputLabelProps={{ shrink: true }}
                       InputProps={{
                         endAdornment: <InputAdornment position="end">Kg</InputAdornment>
                       }}
@@ -1600,18 +1819,59 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                     />
                   </Grid>
 
-                  {/* Selling Price */}
+                  {/* Field Size Display */}
                   <Grid item xs={12} md={6}>
                     <StyledTextField
                       fullWidth
-                      label="Selling Price"
-                      placeholder="Sell price to app"
-                      value={formData.sellingPrice}
-                      onChange={(e) => handleInputChange('sellingPrice', e.target.value)}
-                      error={!!errors.sellingPrice}
-                      helperText={errors.sellingPrice || "Suggested product price on the app $/Kg"}
+                      label="Linked Field Area"
+                      value={`${formData.fieldSize} ${formData.fieldSizeUnit === 'sqm' ? 'm²' : formData.fieldSizeUnit}`}
+                      isSuggested={true}
+                      InputLabelProps={{ shrink: true }}
                       InputProps={{
-                        endAdornment: <InputAdornment position="end">$/Kg</InputAdornment>
+                        readOnly: true,
+                        endAdornment: <InputAdornment position="end">📍</InputAdornment>
+                      }}
+                      sx={{ opacity: 0.8 }}
+                      helperText="Size linked from Field Details section"
+                      isMobile={isMobile}
+                    />
+                  </Grid>
+
+                  {/* Production per Area */}
+                  <Grid item xs={12} md={6}>
+                    <Box>
+                      <StyledTextField
+                        fullWidth
+                        label="Production per Area"
+                        value={formData.productionPerArea}
+                        isSuggested={true}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          readOnly: true,
+                          endAdornment: <InputAdornment position="end">Kg/m²</InputAdornment>
+                        }}
+                        helperText="Calculated from Total Production and Normalized Area"
+                        isMobile={isMobile}
+                      />
+                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                        ✨ Suggested by Sharecrop
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  {/* Distribution Price */}
+                  <Grid item xs={12} md={6}>
+                    <StyledTextField
+                      fullWidth
+                      label="Wholesale / Distribution Price"
+                      placeholder="e.g. 4.00"
+                      value={formData.distributionPrice}
+                      onChange={(e) => handleInputChange('distributionPrice', e.target.value)}
+                      error={!!errors.distributionPrice}
+                      helperText={errors.distributionPrice}
+                      InputLabelProps={{ shrink: true }}
+                      InputProps={{
+                        endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
                       }}
                       isMobile={isMobile}
                     />
@@ -1621,81 +1881,144 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                   <Grid item xs={12} md={6}>
                     <StyledTextField
                       fullWidth
-                      label="Retail Price"
-                      placeholder="Retail price in supermarket"
+                      label="Retail Supermarket Price"
+                      placeholder="e.g. 8.00"
                       value={formData.retailPrice}
                       onChange={(e) => handleInputChange('retailPrice', e.target.value)}
                       error={!!errors.retailPrice}
                       helperText={errors.retailPrice}
+                      InputLabelProps={{ shrink: true }}
                       InputProps={{
-                        endAdornment: <InputAdornment position="end">$/Kg</InputAdornment>
+                        endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
                       }}
                       isMobile={isMobile}
                     />
                   </Grid>
 
-                  {/* Virtual Production Rate */}
+                  {/* Suggested Sharecrop Price */}
                   <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="Virtual Production Rate"
-                      placeholder="Virtual production rate per area"
-                      value={formData.virtualProductionRate}
-                      onChange={(e) => handleInputChange('virtualProductionRate', e.target.value)}
-                      isMobile={isMobile}
-                      helperText="Kg/m²"
-                      InputProps={{
-                        endAdornment: <InputAdornment position="end">Kg/m²</InputAdornment>
-                      }}
-                    />
+                    <Box>
+                      <StyledTextField
+                        fullWidth
+                        label="Suggested Price on App"
+                        value={formData.suggestedPrice}
+                        isSuggested={true}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          readOnly: true,
+                          endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                        }}
+                        helperText="Calculated: (Wholesale + Retail) / 2"
+                        isMobile={isMobile}
+                      />
+                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                        ✨ Suggested by Sharecrop
+                      </Typography>
+                    </Box>
                   </Grid>
 
-                  {/* Virtual Cost Per Unit */}
+                  {/* Your Sharecrop Price */}
+                  <Grid item xs={12} md={12}>
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                      <StyledTextField
+                        fullWidth={isMobile}
+                        label="Your App Selling Price"
+                        placeholder="e.g. 7.00"
+                        value={formData.sellingPrice}
+                        onChange={(e) => handleInputChange('sellingPrice', e.target.value)}
+                        error={!!errors.sellingPrice}
+                        helperText={errors.sellingPrice}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                        }}
+                        isMobile={isMobile}
+                      />
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
+                        <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
+                          {formData.userAreaVirtualRentPrice} <span style={{ color: '#4caf50' }}>$ / m²</span>
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+
+                  {/* Virtual Cost (Distribution per m2) */}
                   <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="Virtual Cost"
-                      placeholder="Virtual cost per unit"
-                      value={formData.virtualCost || ''}
-                      InputProps={{
-                        readOnly: true,
-                        endAdornment: <InputAdornment position="end">$/m²</InputAdornment>
-                      }}
-                      helperText="Calculated virtual cost of your land"
-                      isMobile={isMobile}
-                    />
+                    <Box>
+                      <StyledTextField
+                        fullWidth
+                        label="Total Virtual Cost"
+                        placeholder="Virtual cost per unit"
+                        value={formData.virtualCostPerUnit || ''}
+                        isSuggested={true}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          readOnly: true,
+                          endAdornment: <InputAdornment position="end">$/m²</InputAdornment>
+                        }}
+                        helperText="Calculated virtual cost (Wholesale Price * Production/Area)"
+                        isMobile={isMobile}
+                      />
+                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                        ✨ Suggested by Sharecrop
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  {/* Selling Amount */}
+                  <Grid item xs={12} md={12}>
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap', mt: 1 }}>
+                      <StyledTextField
+                        fullWidth={isMobile}
+                        label="Selling Quantity in App"
+                        placeholder="e.g. 10.00"
+                        value={formData.sellingAmount}
+                        onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
+                        error={!!errors.sellingAmount}
+                        helperText={errors.sellingAmount}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">Kg</InputAdornment>
+                        }}
+                        isMobile={isMobile}
+                      />
+                      <Box sx={{ display: 'flex', minWidth: 'fit-content', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', ml: 2 }}>potential TOTAL APP income</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
+                          <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
+                            {formData.potentialIncome} <span style={{ color: '#4caf50' }}>$</span>
+                          </Typography>
+                          <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
+                          <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
+                            {formData.potentialIncome} <span style={{ color: '#64748b' }}>USD</span>
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
                   </Grid>
 
                   {/* App Fees */}
                   <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="App Fees"
-                      placeholder="App fees"
-                      value={formData.appFees || ''}
-                      InputProps={{
-                        readOnly: true,
-                        endAdornment: <InputAdornment position="end">$</InputAdornment>
-                      }}
-                      helperText="Estimated application fees"
-                      isMobile={isMobile}
-                    />
-                  </Grid>
-
-                  {/* User Area Virtual Rent Price */}
-                  <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="User Virtual Rent"
-                      placeholder="User virtual rent"
-                      value={formData.userVirtualRent || ''}
-                      InputProps={{
-                        readOnly: true,
-                        endAdornment: <InputAdornment position="end">$/m²</InputAdornment>
-                      }}
-                      helperText="User area virtual 'rent' price per unit"
-                      isMobile={isMobile}
-                    />
+                    <Box>
+                      <StyledTextField
+                        fullWidth
+                        label="Sharecrop Platform Fees"
+                        placeholder="Platform fees"
+                        value={formData.appFees || ''}
+                        isSuggested={true}
+                        InputLabelProps={{ shrink: true }}
+                        InputProps={{
+                          readOnly: true,
+                          endAdornment: <InputAdornment position="end">$</InputAdornment>
+                        }}
+                        helperText="Estimated platform service fees (5%)"
+                        isMobile={isMobile}
+                      />
+                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                        ✨ Calculated by Sharecrop
+                      </Typography>
+                    </Box>
                   </Grid>
                 </Grid>
               </FormSection>
@@ -1760,52 +2083,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       fullWidth
                       type="date"
                       label="Estimated Delivery Date"
-                      value={formData.deliveryTime}
+                      value={formatDateForInput(formData.deliveryTime)}
                       onChange={(e) => handleInputChange('deliveryTime', e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       helperText="Expected delivery date after harvest"
                       isMobile={isMobile}
                     />
-                  </Grid>
-
-                  {/* Delivery Charges */}
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#2d3748' }}>
-                      Delivery Charges configuration
-                    </Typography>
-                    {(formData.deliveryCharges || []).map((charge, index) => (
-                      <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
-                        <StyledTextField
-                          label="Upto (Kg)"
-                          placeholder="Kg"
-                          value={charge?.upto ?? ''}
-                          onChange={(e) => updateDeliveryCharge(index, 'upto', e.target.value)}
-                          isMobile={isMobile}
-                          size="small"
-                        />
-                        <StyledTextField
-                          label="Amount ($)"
-                          placeholder="$"
-                          value={charge?.amount ?? ''}
-                          onChange={(e) => updateDeliveryCharge(index, 'amount', e.target.value)}
-                          isMobile={isMobile}
-                          size="small"
-                        />
-                        {(formData.deliveryCharges || []).length > 1 && (
-                          <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error">
-                            <Remove fontSize="small" />
-                          </IconButton>
-                        )}
-                      </Box>
-                    ))}
-                    <Button
-                      startIcon={<Add />}
-                      onClick={addDeliveryCharge}
-                      size="small"
-                      sx={{ mt: 0.5, textTransform: 'none' }}
-                    >
-                      Add Charge Tier
-                    </Button>
                   </Grid>
 
                   {/* Shipping Scope */}
@@ -1843,59 +2126,104 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="City" />
                     </RadioGroup>
 
-                    {/* Conditional Scope Dropdowns */}
-                    {(formData.shippingScope === 'Country' || formData.shippingScope === 'City') && (
-                      <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={12} md={4}>
-                          <StyledFormControl fullWidth isMobile={isMobile}>
-                            <InputLabel>Select Country</InputLabel>
-                            <Select
-                              value={formData.shippingCountry || ''}
-                              onChange={(e) => handleInputChange('shippingCountry', e.target.value)}
-                              label="Select Country"
-                            >
-                              <MenuItem value="US">United States</MenuItem>
-                              <MenuItem value="PK">Pakistan</MenuItem>
-                              <MenuItem value="UK">United Kingdom</MenuItem>
-                            </Select>
-                          </StyledFormControl>
-                        </Grid>
-                        {formData.shippingScope === 'City' && (
-                          <>
-                            <Grid item xs={12} md={4}>
-                              <StyledFormControl fullWidth isMobile={isMobile}>
-                                <InputLabel>Select State</InputLabel>
-                                <Select
-                                  value={formData.shippingState || ''}
-                                  onChange={(e) => handleInputChange('shippingState', e.target.value)}
-                                  label="Select State"
-                                  disabled={!formData.shippingCountry}
-                                >
-                                  <MenuItem value="NY">New York</MenuItem>
-                                  <MenuItem value="CA">California</MenuItem>
-                                  <MenuItem value="PB">Punjab</MenuItem>
-                                </Select>
-                              </StyledFormControl>
-                            </Grid>
-                            <Grid item xs={12} md={4}>
-                              <StyledFormControl fullWidth isMobile={isMobile}>
-                                <InputLabel>Select City</InputLabel>
-                                <Select
-                                  value={formData.shippingCity || ''}
-                                  onChange={(e) => handleInputChange('shippingCity', e.target.value)}
-                                  label="Select City"
-                                  disabled={!formData.shippingState}
-                                >
-                                  <MenuItem value="NYC">New York City</MenuItem>
-                                  <MenuItem value="LA">Los Angeles</MenuItem>
-                                  <MenuItem value="LHR">Lahore</MenuItem>
-                                </Select>
-                              </StyledFormControl>
-                            </Grid>
-                          </>
-                        )}
-                      </Grid>
+                    {formData.shippingScope === 'Global' && (
+                       <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
+                         🌍 <strong>International Delivery:</strong> To be calculated based on destination and actual weight at checkout.
+                       </Typography>
                     )}
+                  </Grid>
+
+                  {/* Delivery Charges */}
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#2d3748' }}>
+                      Delivery Charges configuration
+                    </Typography>
+                    {/* Pricing Guidelines */}
+                    <Box sx={{ 
+                      mt: 2, 
+                      mb: 2, 
+                      p: 2, 
+                      borderRadius: '12px', 
+                      backgroundColor: '#fff5f5', 
+                      border: '1px solid #feb2b2',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1
+                    }}>
+                      <Typography variant="subtitle2" sx={{ color: '#c53030', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        ✨ Suggested Delivery Rates by Sharecrop:
+                      </Typography>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>0 Kg – 12 Kg:</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$15.00 USD</Typography>
+                        
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>13 Kg – 36 Kg:</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00 USD</Typography>
+                        
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>37 Kg – 1000 Kg:</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00+ (Increases with weight)</Typography>
+                      </Box>
+                    </Box>
+
+                    {(formData.deliveryCharges || []).map((charge, index) => (
+                      <Box key={index} sx={{ display: 'flex', flexDirection: 'column', mb: 2 }}>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <StyledTextField
+                            label="Upto (Kg)"
+                            placeholder="Kg"
+                            value={charge?.upto ?? ''}
+                            onChange={(e) => updateDeliveryCharge(index, 'upto', e.target.value)}
+                            isMobile={isMobile}
+                            size="small"
+                          />
+                          <StyledTextField
+                            label="Amount ($)"
+                            placeholder="$"
+                            value={charge?.amount ?? ''}
+                            onChange={(e) => updateDeliveryCharge(index, 'amount', e.target.value)}
+                            isMobile={isMobile}
+                            size="small"
+                          />
+                          {(formData.deliveryCharges || []).length > 1 && (
+                            <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error">
+                              <Remove fontSize="small" />
+                            </IconButton>
+                          )}
+                        </Box>
+                        <Typography variant="caption" sx={{ mt: 0.5, color: '#d32f2f', fontWeight: 'bold' }}>
+                          ✨ Value Suggestion by Sharecrop
+                        </Typography>
+                        {/* Status message for weight depth */}
+                        {parseFloat(charge?.upto) >= 37 && (
+                          <Typography variant="caption" sx={{ mt: 0.2, color: '#d32f2f', fontWeight: 500, fontStyle: 'italic' }}>
+                            ⚠️ For 37kg+, cost is more than $25 and increases with weight.
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                      <Button
+                        startIcon={<Add />}
+                        onClick={addDeliveryCharge}
+                        size="small"
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Add Charge Tier
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={applyRecommendedRates}
+                        sx={{
+                          textTransform: 'none',
+                          borderColor: '#ffcc00',
+                          color: '#d4a017',
+                          '&:hover': { backgroundColor: '#fff9e6', borderColor: '#d4a017' }
+                        }}
+                      >
+                         Apply Recommended Rates
+                      </Button>
+                    </Box>
                   </Grid>
                 </Grid>
               </FormSection>

@@ -4,11 +4,13 @@ import { getProductIcon, productCategories } from '../../utils/productIcons';
 
 const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIconPositionsUpdate, activeKeys, onResetFilters }) => {
 
-  const getProgressColor = (purchased, total) => {
-    const percentage = (purchased / total) * 100;
-    if (percentage > 70) return '#10b981';
-    if (percentage > 30) return '#f59e0b';
-    return '#ef4444';
+  const getProgressColor = (daysLeft) => {
+    if (daysLeft === null || daysLeft === undefined) return '#9E9E9E';
+    if (daysLeft < 0) return '#9E9E9E';
+    if (daysLeft <= 3) return '#F44336';
+    if (daysLeft <= 7) return '#FF9800';
+    if (daysLeft <= 14) return '#FFC107';
+    return '#4CAF50';
   };
 
   const currentProducts = React.useMemo(() => {
@@ -33,41 +35,74 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
       const match = productCategories.find(c => c.key === syn || c.name.toLowerCase() === s.toLowerCase());
       return match ? match.key : syn;
     };
+
+    const getDaysLeft = (product) => {
+      const harvestDates = product.harvest_dates || product.harvestDates || product.selected_harvests || [];
+      if (!harvestDates.length) return null;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const futureDates = harvestDates.filter(hd => {
+        const d = new Date(hd.date || hd);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
+      }).sort((a, b) => new Date(a.date || a) - new Date(b.date || b));
+      
+      if (futureDates.length === 0) return null;
+      
+      const nextDate = new Date(futureDates[0].date || futureDates[0]);
+      nextDate.setHours(0, 0, 0, 0);
+      const diffMs = nextDate.getTime() - today.getTime();
+      return Math.round(diffMs / (24 * 60 * 60 * 1000));
+    };
+
     const map = new Map();
     (purchasedProducts || []).forEach(p => {
       const k = toKey(p.subcategory || p.category || p.category_key || p.id);
       const prev = map.get(k);
+      const daysLeft = getDaysLeft(p);
+      const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
+      const productionRate = typeof p.production_rate === 'string' ? parseFloat(p.production_rate) : (p.production_rate || 0);
+      const totalKg = purchasedArea * productionRate;
+      
       const base = {
         id: k,
         category: (productCategories.find(c => c.key === k)?.name) || (p.category || k),
+        categoryKey: k,
         purchased_area: 0,
-        total_area: 0,
-        total_kg: 0
+        total_kg: 0,
+        days_left: null
       };
       const merged = prev || base;
-      merged.purchased_area = (merged.purchased_area || 0) + (p.purchased_area || 0);
-      merged.total_area = (merged.total_area || 0) + (p.total_area || 0);
-      merged.total_kg = (merged.total_kg || 0) + (p.total_kg ?? 0);
+      merged.purchased_area = (merged.purchased_area || 0) + purchasedArea;
+      merged.total_kg = (merged.total_kg || 0) + totalKg;
+      if (daysLeft !== null) {
+        if (merged.days_left === null || daysLeft < merged.days_left) {
+          merged.days_left = daysLeft;
+        }
+      }
       map.set(k, merged);
     });
     const byIcon = new Map();
     Array.from(map.values()).forEach(prod => {
-      const icon = getProductIcon(prod.category);
+      const icon = getProductIcon(prod.categoryKey || prod.category);
       const prev = byIcon.get(icon);
       if (!prev) {
         byIcon.set(icon, {
           ...prod,
           id: icon,
           key: icon,
-          icon,
-          total_kg: prod.total_kg ?? 0
+          icon
         });
       } else {
         byIcon.set(icon, {
           ...prev,
           purchased_area: (prev.purchased_area || 0) + (prod.purchased_area || 0),
-          total_area: (prev.total_area || 0) + (prod.total_area || 0),
-          total_kg: (prev.total_kg || 0) + (prod.total_kg ?? 0)
+          total_kg: (prev.total_kg || 0) + (prod.total_kg || 0),
+          days_left: (prev.days_left !== null && prod.days_left !== null) 
+            ? Math.min(prev.days_left, prod.days_left) 
+            : (prev.days_left !== null ? prev.days_left : prod.days_left)
         });
       }
     });
@@ -96,12 +131,24 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
     return null;
   }
 
+  const formatKg = (kg) => {
+    if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
+    if (kg >= 1) return `${Math.round(kg)}kg`;
+    return `${kg.toFixed(1)}kg`;
+  };
+
+  const getDaysLabel = (daysLeft) => {
+    if (daysLeft === null || daysLeft === undefined) return '';
+    if (daysLeft < 0) return 'Done';
+    if (daysLeft === 0) return 'Today';
+    return `${daysLeft}d`;
+  };
+
   return (
     <Box
       ref={summaryRef}
       sx={{
         position: 'absolute',
-        // Small, consistent gap from bottom; safe-area for mobile
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         left: '50%',
         transform: 'translateX(-50%)',
@@ -125,12 +172,11 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
         flexWrap: 'nowrap'
       }}>
         {currentProducts.map((product) => {
-          const icon = product.icon || getProductIcon(product.subcategory || product.category);
-          const totalKg = typeof product.total_kg === 'number' && Number.isFinite(product.total_kg) ? product.total_kg : 0;
+          const icon = product.icon || getProductIcon(product.categoryKey || product.category);
+          const totalKg = product.total_kg || 0;
           const purchasedArea = product.purchased_area ?? 0;
-          const totalArea = product.total_area || 0;
-          const progressPercentage = totalArea > 0 ? Math.min(100, (purchasedArea / totalArea) * 100) : 0;
-          const progressColor = getProgressColor(purchasedArea, totalArea || 1);
+          const daysLeft = product.days_left;
+          const progressColor = getProgressColor(daysLeft);
           const isActive = activeKeys && activeKeys.size > 0 && activeKeys.has(icon);
           
           return (
@@ -180,7 +226,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
                 marginBottom: '2px',
                 lineHeight: '1'
               }}>
-                {totalKg >= 1 ? Math.round(totalKg) : totalKg.toFixed(1)} kg
+                {formatKg(totalKg)}
               </div>
               <div style={{
                 fontSize: '7px',
@@ -190,20 +236,31 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
               }}>
                 {Math.round(purchasedArea)}m²
               </div>
-              {totalArea > 0 && (
+              {daysLeft !== null && (
                 <div style={{
                   width: '50px',
-                  height: '2px',
+                  height: '4px',
                   backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  borderRadius: '1px',
-                  overflow: 'hidden'
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                  marginBottom: '2px'
                 }}>
                   <div style={{
-                    width: `${progressPercentage}%`,
+                    width: `${Math.max(10, Math.min(95, daysLeft < 0 ? 100 : Math.max(5, 100 - (daysLeft * 6))))}%`,
                     height: '100%',
                     backgroundColor: progressColor,
-                    transition: 'width 1s cubic-bezier(0.22, 1, 0.36, 1)'
+                    transition: 'width 0.3s ease, background-color 0.3s ease'
                   }} />
+                </div>
+              )}
+              {daysLeft !== null && (
+                <div style={{
+                  fontSize: '7px',
+                  color: progressColor,
+                  textAlign: 'center',
+                  fontWeight: '600'
+                }}>
+                  {getDaysLabel(daysLeft)}
                 </div>
               )}
             </div>

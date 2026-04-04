@@ -71,7 +71,7 @@ const Home = () => {
             <Stack direction="row" spacing={2}>
               <Button
                 variant="outlined"
-                onClick={() => navigate('/login')}
+                onClick={() => navigate('/browse')}
                 sx={{
                   borderColor: '#4CAF50',
                   color: '#4CAF50',
@@ -81,6 +81,23 @@ const Home = () => {
                   '&:hover': {
                     borderColor: '#388E3C',
                     backgroundColor: 'rgba(76, 175, 80, 0.08)',
+                  },
+                }}
+              >
+                Browse Fields
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => navigate('/login')}
+                sx={{
+                  borderColor: '#666',
+                  color: '#666',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  px: 3,
+                  '&:hover': {
+                    borderColor: '#333',
+                    backgroundColor: '#f5f5f5',
                   },
                 }}
               >
