@@ -587,9 +587,13 @@ const EnhancedHeader = forwardRef(({
         id: 'farmer',
         title: isFarmer ? 'Farmer' : 'Information',
         items: [
-          { text: 'My Farms', icon: <Agriculture />, path: '/farmer/my-farms' },
-          { text: 'Rented out Fields', icon: <Receipt />, path: '/farmer/farm-orders' },
-          { text: 'License Info', icon: <Nature />, path: isFarmer ? '/farmer/license-info' : '/buyer/license-info' },
+          ...(isFarmer
+            ? [
+                { text: 'My Farms', icon: <Agriculture />, path: '/farmer/my-farms' },
+                { text: 'Rented out Fields', icon: <Receipt />, path: '/farmer/farm-orders' },
+                { text: 'License Info', icon: <Nature />, path: '/farmer/license-info' },
+              ]
+            : []),
           { text: 'Transaction', icon: <AccountBalance />, path: isFarmer ? '/farmer/transaction' : '/buyer/transaction' },
         ]
       },
@@ -614,11 +618,6 @@ const EnhancedHeader = forwardRef(({
         ]
       }
     ];
-
-    if (!isFarmer) {
-      sections[0].items = sections[0].items.filter(item => item.text !== 'My Fields');
-      sections[1].items = [];
-    }
 
     return sections.filter(s => s.items.length > 0);
   };

@@ -57,7 +57,7 @@ import {
   Edit as EditIcon,
   ReceiptLong as RentIcon,
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import rentedFieldsService from '../services/rentedFields';
 import { orderService } from '../services/orders';
@@ -326,6 +326,8 @@ function mapRentalFromApi(r) {
 const RentedFields = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isBuyerContext = location.pathname.startsWith('/buyer');
   const [expandedFieldId, setExpandedFieldId] = useState(null);
   const [rentedFields, setRentedFields] = useState([]);
   const [myRentals, setMyRentals] = useState([]);
@@ -605,16 +607,24 @@ const RentedFields = () => {
     loadPurchasedFields();
   }, [loadMyRentals, loadPurchasedFields]);
 
+  // Buyers only rent; they have no owned fields tab — avoid stuck "owned" segment
+  useEffect(() => {
+    if (isBuyerContext && segment === SEGMENT_OWNED) {
+      setSegment(SEGMENT_ALL);
+      setCurrentPage(1);
+    }
+  }, [isBuyerContext, segment]);
+
   // Combine owned fields + rented fields by segment; then filter by search and category
   const displayedFields = useMemo(() => {
+    const seg = isBuyerContext && segment === SEGMENT_OWNED ? SEGMENT_ALL : segment;
     let list;
-    if (segment === SEGMENT_OWNED) list = rentedFields.filter((f) => f.is_own_field);
-    else if (segment === SEGMENT_RENTED) list = [...myRentals, ...purchasedFields];
-    else if (segment === SEGMENT_OWNED) list = [...rentedFields];
+    if (seg === SEGMENT_OWNED) list = rentedFields.filter((f) => f.is_own_field);
+    else if (seg === SEGMENT_RENTED) list = [...myRentals, ...purchasedFields];
     else list = [...rentedFields, ...myRentals, ...purchasedFields];
     
     // Deduplicate by field_id when combining multiple sources
-    if (segment !== SEGMENT_OWNED) {
+    if (seg !== SEGMENT_OWNED) {
       const seen = new Map();
       list = list.filter((f) => {
         const key = f._fieldId || f.field_id || f.id;
@@ -654,7 +664,7 @@ const RentedFields = () => {
       );
     }
     return list;
-  }, [rentedFields, myRentals, purchasedFields, segment, searchQuery, categoryFilter]);
+  }, [rentedFields, myRentals, purchasedFields, segment, searchQuery, categoryFilter, isBuyerContext]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -1069,7 +1079,9 @@ const RentedFields = () => {
               Rented fields
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-              View and manage your owned and rented fields
+              {isBuyerContext
+                ? 'View and manage fields you rent from farmers'
+                : 'View and manage your owned and rented fields'}
             </Typography>
           </Box>
           <Button
@@ -1138,6 +1150,7 @@ const RentedFields = () => {
             >
               All fields
             </button>
+            {!isBuyerContext && (
             <button
               type="button"
               onClick={() => { setSegment(SEGMENT_OWNED); setCurrentPage(1); }}
@@ -1150,6 +1163,7 @@ const RentedFields = () => {
               <HomeWork sx={{ fontSize: 16 }} />
               <span>My fields (owned)</span>
             </button>
+            )}
             <button
               type="button"
               onClick={() => { setSegment(SEGMENT_RENTED); setCurrentPage(1); }}
