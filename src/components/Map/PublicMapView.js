@@ -234,17 +234,11 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
                   overflow: 'hidden',
                 }}
               >
-                {selectedField.image ? (
-                  <img
-                    src={selectedField.image}
-                    alt={selectedField.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <Typography sx={{ fontSize: 28 }}>
-                    {getProductIcon(selectedField.subcategory || selectedField.category)}
-                  </Typography>
-                )}
+                <img
+                  src={selectedField.image || getProductIcon(selectedField.subcategory || selectedField.category)}
+                  alt={selectedField.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
               </Box>
               <Box>
                 <Typography variant="h6" fontWeight={700}>

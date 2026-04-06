@@ -1419,8 +1419,7 @@ const EnhancedFarmMap = forwardRef(({
         return getProductIcon('Fruits');
       }
 
-      // Always use local icon paths based on category/subcategory (like mockFarms.js)
-      // Ignore database image data (base64, external URLs) and use local icons instead
+      // Subcategory → image URL from admin (Supabase) or grey placeholder
       const category = product.subcategory || product.category;
       const iconPath = getProductIcon(category);
 

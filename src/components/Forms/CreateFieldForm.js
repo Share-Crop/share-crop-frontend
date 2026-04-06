@@ -44,6 +44,8 @@ import { userDocumentsService } from '../../services/userDocuments';
 import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
 import fieldsService from '../../services/fields';
+import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
+import { FIELD_CATEGORY_DATA as categoryData } from '../../utils/fieldCategoryData';
 
 // Custom hook for mobile detection
 const useIsMobile = () => {
@@ -654,23 +656,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
 
 
-  const categoryData = {
-    'Beverages': ['Beer', 'Coffee', 'Juice', 'Milk', 'Soda', 'Teabags', 'Wine'],
-    'Bread & Bakery': ['Bagels', 'Bread', 'Cookies', 'Muffins', 'Pies', 'Tortillas'],
-    'Canned Goods': ['Fruit', 'Pasta Sauce', 'Soup', 'Vegetables'],
-    'Dairy': ['Butter', 'Cheese', 'Eggs', 'Milk'],
-    'Deli': ['Cheeses', 'Salami'],
-    'Fish & Seafood': ['Bivalves & Clams', 'Crab', 'Fish', 'Lobster', 'Octopus & Squid', 'Shrimp'],
-    'Frozen Foods': ['Fish', 'Ice cream', 'Pizza', 'Potatoes', 'Ready Meals'],
-    'Fruits': ['Green Apple', 'Red Apple', 'Peach', 'Strawberry', 'Tangerine', 'Watermelon', 'Avocados', 'Mango', 'Grapes', 'Banana'],
-    'Vegetables': ['Corn', 'Eggplant', 'Lemon', 'Tomato', 'Broccoli', 'Capsicum', 'Carrot', 'Onions', 'Potatoes', 'Salad Greens'],
-    'Meat': ['Bacon', 'Chicken', 'Pork', 'Beef'],
-    'Oil': ['Coconut Oil', 'Olive Oil', 'Peanut Oil', 'Sunflower Oil'],
-    'Seeds': ['Hibiscus', 'Rice Seeds', 'Rose'],
-    'Snacks': ['Nuts', 'Popcorn', 'Pretzels']
-  };
-
-  // Show all available categories
+  // Show all available categories (FIELD_CATEGORY_DATA imported as categoryData)
   const availableCategories = Object.keys(categoryData);
   const categories = ['Select Category', ...availableCategories];
 
@@ -869,59 +855,13 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     }
   };
 
-  // Map subcategory names to icon filenames
-  const subcategoryToIconMap = {
-    'Green Apple': 'apple_green.png',
-    'Red Apple': 'apple_red.png',
-    'Corn': 'corn.png',
-    'Eggplant': 'eggplant.png',
-    'Lemon': 'lemon.png',
-    'Peach': 'peach.png',
-    'Strawberry': 'strawberry.png',
-    'Tangerine': 'tangerine.png',
-    'Tomato': 'tomato.png',
-    'Watermelon': 'watermelon.png',
-    // Additional subcategories with fallback icons
-    'Avocados': 'apple_green.png',
-    'Mango': 'peach.png',
-    'Grapes': 'strawberry.png',
-    'Banana': 'tangerine.png',
-    'Broccoli': 'eggplant.png',
-    'Capsicum': 'tomato.png',
-    'Carrot': 'tangerine.png',
-    'Onions': 'eggplant.png',
-    'Potatoes': 'corn.png',
-    'Salad Greens': 'eggplant.png',
-  };
-
-  // Get available icons based on selected subcategory
-  const getAvailableIcons = () => {
-    // Only show icon if subcategory is selected
-    if (!formData.subcategory) {
-      return [];
-    }
-
-    // Get the icon for the selected subcategory
-    const iconName = subcategoryToIconMap[formData.subcategory];
-
-    // If icon exists for this subcategory, return it as an array
-    if (iconName) {
-      return [iconName];
-    }
-
-    // If no icon mapping found, return empty array
-    return [];
-  };
-
-  const getIconPath = (iconName) => {
-    if (!iconName) return '';
-    // Determine category folder based on selected category
-    // Fruits and Vegetables both use the 'fruits' folder for now
-    const category = formData.category?.toLowerCase() === 'fruits' || formData.category?.toLowerCase() === 'vegetables'
-      ? 'fruits'
-      : 'fruits'; // Default to fruits folder
-    return `/icons/products/${category}/${iconName}`;
-  };
+  /** Preview: Supabase URL from admin, or grey placeholder until you upload that subcategory. */
+  const subcategoryProductImageSrc = formData.subcategory
+    ? getProductIcon(formData.subcategory)
+    : '';
+  const subcategoryImageForApi = formData.subcategory
+    ? getProductImageUrlForStorage(formData.subcategory)
+    : '';
 
   const addDeliveryCharge = () => {
     setFormData(prev => ({
@@ -1065,8 +1005,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       price: parseFloat(formData.sellingPrice),
       latitude: parseFloat(formData.latitude),
       longitude: parseFloat(formData.longitude),
-      image: formData.selectedIcon ? getIconPath(formData.selectedIcon) : '',
-      icon: formData.selectedIcon ? getIconPath(formData.selectedIcon) : '',
+      image: subcategoryImageForApi,
+      icon: subcategoryImageForApi,
       fieldSize: formData.fieldSize,
       field_size: formData.fieldSize, // Snake case
       fieldSizeUnit: formData.fieldSizeUnit,
@@ -1415,14 +1355,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                     <Select
                       value={formData.subcategory || ''}
                       onChange={(e) => {
-                        const newSubcategory = e.target.value;
-                        handleInputChange('subcategory', newSubcategory);
-                        const iconForSubcategory = subcategoryToIconMap[newSubcategory];
-                        if (iconForSubcategory) {
-                          handleInputChange('selectedIcon', iconForSubcategory);
-                        } else {
-                          handleInputChange('selectedIcon', '');
-                        }
+                        handleInputChange('subcategory', e.target.value);
+                        handleInputChange('selectedIcon', '');
                       }}
                       label="Select Sub Category"
                     >
@@ -1444,54 +1378,41 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                     </Select>
                   </StyledFormControl>
 
-                  {/* Product Icon */}
+                  {/* Product image (same resolver as map: admin overrides + public/icons) */}
                   <Box sx={{
                     width: isMobile ? '100%' : '320px',
-                    height: isMobile ? '48px' : '56px',
+                    minHeight: isMobile ? '56px' : '64px',
                     display: 'flex',
                     alignItems: 'center',
                   }}>
-                    {formData.subcategory && getAvailableIcons().length > 0 ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, height: '100%' }}>
-
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, flexWrap: 'wrap' }}>
-                          {getAvailableIcons().map((iconName) => {
-                            const iconPath = getIconPath(iconName);
-                            const isSelected = formData.selectedIcon === iconName;
-                            return (
-                              <Box
-                                key={iconName}
-                                onClick={() => handleInputChange('selectedIcon', iconName)}
-                                sx={{
-                                  position: 'relative',
-                                  width: 40, height: 40,
-                                  border: isSelected ? '2px solid' : '1.5px solid',
-                                  borderColor: isSelected ? '#4CAF50' : '#e0e0e0',
-                                  borderRadius: 1.25,
-                                  p: 0.5,
-                                  cursor: 'pointer',
-                                  bgcolor: isSelected ? 'rgba(76,175,80,0.08)' : '#fafafa',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  '&:hover': { borderColor: '#4CAF50', bgcolor: 'rgba(76,175,80,0.12)' }
-                                }}
-                              >
-                                <Box component="img" src={iconPath} sx={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                {isSelected && (
-                                  <Box sx={{
-                                    position: 'absolute', top: -4, right: -4, width: 14, height: 14,
-                                    borderRadius: '50%', bgcolor: '#4CAF50', color: 'white',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 8, border: '2px solid white'
-                                  }}>✓</Box>
-                                )}
-                              </Box>
-                            );
-                          })}
+                    {formData.subcategory ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                        <Box
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            border: '2px solid #4CAF50',
+                            borderRadius: 1.25,
+                            p: 0.5,
+                            bgcolor: 'rgba(76,175,80,0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Box
+                            component="img"
+                            src={subcategoryProductImageSrc}
+                            alt={formData.subcategory}
+                            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          />
                         </Box>
+                       
                       </Box>
                     ) : (
-                      <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', color: 'text.secondary', fontStyle: 'italic', pl: 1 }}>
-                        No icon available
+                      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', color: 'text.secondary', fontStyle: 'italic', pl: 1 }}>
+                        Select a subcategory to preview the product image
                       </Box>
                     )}
                   </Box>

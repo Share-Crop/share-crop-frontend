@@ -19,6 +19,8 @@ import AdminAudit from './pages/admin/AdminAudit';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminPackages from './pages/admin/AdminPackages';
 import AdminCurrencyRates from './pages/admin/AdminCurrencyRates';
+import AdminProductIcons from './pages/admin/AdminProductIcons';
+import ProductIconOverridesLoader from './components/ProductIconOverridesLoader';
 import Messages from './pages/Messages';
 import Profile from './pages/Profile';
 import Home from './pages/Home';
@@ -109,6 +111,7 @@ const AppContent = () => {
             <Route path="payments" element={<AdminPayments />} />
             <Route path="audit" element={<AdminAudit />} />
             <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="product-icons" element={<AdminProductIcons />} />
           </Route>
 
           {/* Catch all - redirect to home */}
@@ -125,6 +128,7 @@ const App = () => {
       <GlobalStyle />
       <AuthProvider>
         <RoleProvider>
+          <ProductIconOverridesLoader />
           <AppContent />
         </RoleProvider>
       </AuthProvider>

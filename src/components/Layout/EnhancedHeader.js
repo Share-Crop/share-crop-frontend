@@ -69,6 +69,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import coinService from '../../services/coinService';
 import { orderService } from '../../services/orders';
 import { getProductIcon } from '../../utils/productIcons';
+import { FIELD_CATEGORY_DATA } from '../../utils/fieldCategoryData';
 import supabase from '../../services/supabase';
 import { messagingService } from '../../services/messaging';
 
@@ -2113,21 +2114,7 @@ const EnhancedHeader = forwardRef(({
                   Categories
                 </Typography>
                 {(() => {
-                  const CATEGORY_OPTIONS = {
-                    'Beverages': ['Beer', 'Coffee', 'Juice', 'Milk', 'Soda', 'Teabags', 'Wine'],
-                    'Bread & Bakery': ['Bagels', 'Bread', 'Cookies', 'Muffins', 'Pies', 'Tortillas'],
-                    'Canned Goods': ['Fruit', 'Pasta Sauce', 'Soup', 'Vegetables'],
-                    'Dairy': ['Butter', 'Cheese', 'Eggs', 'Milk'],
-                    'Deli': ['Cheeses', 'Salami'],
-                    'Fish & Seafood': ['Bivalves & Clams', 'Crab', 'Fish', 'Lobster', 'Octopus & Squid', 'Shrimp'],
-                    'Frozen Food': ['Fish', 'Ice cream', 'Pizza', 'Potatoes', 'Ready Meals'],
-                    'Fruits': ['Green Apple', 'Red Apple', 'Peach', 'Strawberry', 'Tangerine', 'Watermelon', 'Avocados', 'Mango', 'Grapes', 'Banana'],
-                    'Vegetables': ['Corn', 'Eggplant', 'Lemon', 'Tomato', 'Broccoli', 'Capsicum', 'Carrot', 'Onions', 'Potatoes', 'Salad Greens'],
-                    'Meat': ['Bacon', 'Chicken', 'Beef', 'Pork'],
-                    'Oil': ['Coconut Oil', 'Olive Oil', 'Peanut Oil', 'Sunflower Oil'],
-                    'Seeds': ['Hibiscus', 'Rice Seeds', 'Rose'],
-                    'Snacks': ['Nuts', 'Popcorn', 'Pretzels']
-                  };
+                  const CATEGORY_OPTIONS = FIELD_CATEGORY_DATA;
                   const categories = Object.keys(CATEGORY_OPTIONS);
                   const isAllSubsSelected = (category) => {
                     const subs = CATEGORY_OPTIONS[category] || [];

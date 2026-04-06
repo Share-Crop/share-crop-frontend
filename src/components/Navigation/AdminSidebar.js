@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer, List, ListItem, ListItemIcon, ListItemText, Box, Typography, Chip, Avatar, IconButton, Divider } from '@mui/material';
-import { Dashboard, People, MonetizationOn, Payment, Assessment, Analytics, Close, QuestionAnswer, ExitToApp, Person, AccountBalanceWallet, ShoppingBag, CurrencyExchange, Home } from '@mui/icons-material';
+import { Dashboard, People, MonetizationOn, Payment, Assessment, Analytics, Close, QuestionAnswer, ExitToApp, Person, AccountBalanceWallet, ShoppingBag, CurrencyExchange, Home, Image } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const useIsMobile = () => {
@@ -32,6 +32,7 @@ const AdminSidebar = ({ user, onLogout, open, onClose }) => {
     { text: 'Redemptions', icon: <AccountBalanceWallet />, path: '/admin/redemptions' },
     { text: 'Payments', icon: <Payment />, path: '/admin/payments' },
     { text: 'Audit', icon: <Assessment />, path: '/admin/audit' },
+    { text: 'Product icons', icon: <Image />, path: '/admin/product-icons' },
   ];
 
   const handleNavigation = (path) => { navigate(path); onClose(); };
