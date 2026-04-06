@@ -1,6 +1,7 @@
 import api from './api';
 
-const DEFAULT_COINS = 12500;
+/** Fallback when API is unavailable or omits balance — new accounts should start at 0 */
+const DEFAULT_COINS = 0;
 
 class CoinService {
   /**

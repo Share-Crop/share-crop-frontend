@@ -62,7 +62,7 @@ const Home = () => {
               WebkitTextFillColor: 'transparent',
               cursor: 'pointer',
             }}
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/browse')}
           >
             🌱 ShareCrop
           </Typography>

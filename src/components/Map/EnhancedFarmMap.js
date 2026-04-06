@@ -73,7 +73,9 @@ const EnhancedFarmMap = forwardRef(({
   filters: externalFilters,
   height = '100%',
   embedded = false,
-  minimal = false
+  minimal = false,
+  /** Hide the deliveries truck shortcut (e.g. public browse map). */
+  hideDeliveriesShortcut = false,
 }, ref) => {
   const mapRef = useRef();
   const navigate = useNavigate();
@@ -4041,6 +4043,7 @@ const EnhancedFarmMap = forwardRef(({
             <Cloud />
           </IconButton>
         </Tooltip>
+        {!hideDeliveriesShortcut && (
         <Tooltip title="Deliveries">
           <IconButton
             ref={deliveryIconRef}
@@ -4060,6 +4063,7 @@ const EnhancedFarmMap = forwardRef(({
             <LocalShipping />
           </IconButton>
         </Tooltip>
+        )}
       </Box>
 
       {/* Delivery modal – center screen, list of user's delivery orders or "No deliveries" */}

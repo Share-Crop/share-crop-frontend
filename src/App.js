@@ -3,7 +3,7 @@ import { ThemeProvider as MuiThemeProvider } from '@mui/material/styles';
 import GlobalStyle from './styles/GlobalStyle';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { RoleProvider } from './contexts/RoleContext';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import farmvilleTheme from './styles/theme';
 import FarmerView from './pages/FarmerView';
 import BuyerView from './pages/BuyerView';
@@ -27,6 +27,32 @@ import Signup from './pages/Signup';
 import BrowseFields from './pages/BrowseFields';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 
+/** Guests land on /browse; signed-in users go to their app area. */
+const RootRedirect = () => {
+  const { isAuthenticated, user, loading } = useAuth();
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: '#f8fafc',
+        }}
+      >
+        <CircularProgress sx={{ color: '#2e7d32' }} />
+      </Box>
+    );
+  }
+  if (isAuthenticated && user) {
+    const role = user.user_type?.toLowerCase();
+    if (role === 'admin') return <Navigate to="/admin" replace />;
+    if (role === 'farmer') return <Navigate to="/farmer" replace />;
+    if (role === 'buyer') return <Navigate to="/buyer" replace />;
+  }
+  return <Navigate to="/browse" replace />;
+};
 
 const AppContent = () => {
   useAuth();
@@ -35,7 +61,8 @@ const AppContent = () => {
     <Router>
       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<RootRedirect />} />
+          <Route path="/home" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/browse" element={<BrowseFields />} />

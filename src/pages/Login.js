@@ -35,7 +35,7 @@ const Login = () => {
       } else if (userType === 'buyer') {
         navigate('/buyer', { replace: true });
       } else {
-        navigate('/', { replace: true });
+        navigate('/browse', { replace: true });
       }
     }
   }, [isAuthenticated, authLoading, navigate]);

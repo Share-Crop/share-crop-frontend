@@ -32,6 +32,7 @@ import {
   DialogContent,
   DialogActions,
   alpha,
+  Stack,
 } from '@mui/material';
 import {
   Search,
@@ -62,6 +63,7 @@ import {
   AccountBalanceWallet,
   CreditCard,
   Home,
+  PersonAdd,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import coinService from '../../services/coinService';
@@ -116,7 +118,7 @@ const EnhancedHeader = forwardRef(({
   onFilterApply,
   fields = [],
   onFarmSelect,
-  farmerCoins = 12500,
+  farmerCoins = 0,
   onCreateField,
   onCreateFarm,
   userType = 'farmer',
@@ -124,11 +126,14 @@ const EnhancedHeader = forwardRef(({
   backendNotifications = [],
   onMarkNotificationAsRead,
   onRefreshNotifications,
+  /** When true and user is not logged in: show guest header (no coins / notifications / profile menu). */
+  publicBrowse = false,
 }, ref) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
   const isAdmin = userType === 'admin';
+  const isPublicBrowseGuest = Boolean(publicBrowse && !user?.id);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchAnchorEl, setSearchAnchorEl] = useState(null);
@@ -164,7 +169,7 @@ const EnhancedHeader = forwardRef(({
         setUserCoins(typeof coins === 'number' ? coins : 0);
       } catch (error) {
         console.error('Error loading user coins:', error);
-        setUserCoins(0); // Default fallback to 0 instead of 12500
+        setUserCoins(0);
       }
     } else {
       setUserCoins(0); // Default for logged out users
@@ -236,7 +241,8 @@ const EnhancedHeader = forwardRef(({
   }));
 
   const handleLogout = () => {
-    onLogout();
+    setDrawerOpen(false);
+    if (typeof onLogout === 'function') onLogout();
   };
 
   const toggleDrawer = () => {
@@ -622,7 +628,29 @@ const EnhancedHeader = forwardRef(({
     return sections.filter(s => s.items.length > 0);
   };
 
-  const menuSections = getMenuConfig(userType);
+  const getPublicBrowseMenuConfig = () => {
+    const sections = [
+      {
+        id: 'public',
+        title: '',
+        items: [
+          { text: 'Browse fields', icon: <Landscape />, path: '/browse' },
+          { text: 'About', icon: <Home />, path: '/home' },
+        ],
+      },
+      {
+        id: 'auth',
+        title: 'Account',
+        items: [
+          { text: 'Sign in', icon: <Person />, path: '/login' },
+          { text: 'Create account', icon: <PersonAdd />, path: '/signup' },
+        ],
+      },
+    ];
+    return sections.filter((s) => s.items.length > 0);
+  };
+
+  const menuSections = isPublicBrowseGuest ? getPublicBrowseMenuConfig() : getMenuConfig(userType);
   const farmerProminentItems = new Set(['My Farms', 'Farm Orders', 'Rented out Fields', 'License Info', 'Transaction']);
   const isFarmerProminent = (text) => userType === 'farmer' && farmerProminentItems.has(text);
 
@@ -1026,7 +1054,7 @@ const EnhancedHeader = forwardRef(({
               <Tooltip title="Create New Field">
                 <IconButton
                   color="inherit"
-                  onClick={onCreateField}
+                  onClick={() => onCreateField?.()}
                   size={isMobile ? "small" : "medium"}
                   sx={{
                     backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -1050,7 +1078,7 @@ const EnhancedHeader = forwardRef(({
 
 
             {/* Notifications Bell */}
-            {!isAdmin && (
+            {!isAdmin && !isPublicBrowseGuest && (
               <>
                 <IconButton
                   color="inherit"
@@ -1112,7 +1140,7 @@ const EnhancedHeader = forwardRef(({
               </>
             )}
             {/* Farmer Coins – click opens menu (like profile) */}
-            {!isAdmin && (
+            {!isAdmin && !isPublicBrowseGuest && (
               <>
                 <Chip
                   icon={<span style={{ fontSize: isMobile ? '12px' : '14px' }}>🪙</span>}
@@ -1226,104 +1254,142 @@ const EnhancedHeader = forwardRef(({
                 </Menu>
               </>
             )}
-            {/* Profile - Clickable Avatar with Menu (visible on mobile and desktop) */}
-            <>
-              <Box
-                onClick={(e) => setUserMenuAnchorEl(e.currentTarget)}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  cursor: 'pointer',
-                  borderRadius: 2,
-                  px: 0.5,
-                  py: 0.5,
-                  '&:hover': {
-                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                  },
-                }}
-              >
-                <Avatar
-                  src={user?.profile_image_url}
+            {/* Profile (signed-in) or Sign in / Sign up (public browse guest) */}
+            {isPublicBrowseGuest ? (
+              <Stack direction="row" spacing={{ xs: 0.5, sm: 1 }} alignItems="center" sx={{ flexShrink: 0 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => navigate('/login')}
                   sx={{
-                    width: isMobile ? 32 : 36,
-                    height: isMobile ? 32 : 36,
-                    bgcolor: 'primary.main',
-                    fontSize: isMobile ? '12px' : '14px',
-                    cursor: 'pointer'
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    borderColor: 'rgba(46, 125, 50, 0.45)',
+                    color: '#2e7d32',
+                    fontSize: { xs: '0.75rem', sm: '0.8125rem' },
+                    px: { xs: 1, sm: 1.5 },
+                    minWidth: 0,
                   }}
                 >
-                  {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
-                </Avatar>
-                <Typography
-                  variant="body2"
+                  Sign in
+                </Button>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => navigate('/signup')}
                   sx={{
-                    fontWeight: 500,
-                    color: 'text.primary',
-                    display: { xs: 'none', sm: 'block' }
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    color: '#fff',
+                    bgcolor: '#2e7d32',
+                    fontSize: { xs: '0.75rem', sm: '0.8125rem' },
+                    px: { xs: 1, sm: 1.5 },
+                    minWidth: 0,
+                    '&:hover': { bgcolor: '#1b5e20', color: '#fff' },
                   }}
                 >
-                  {user?.name?.split(' ')[0] || user?.name || 'User'}
-                </Typography>
-              </Box>
-
-              <Menu
-                anchorEl={userMenuAnchorEl}
-                open={Boolean(userMenuAnchorEl)}
-                onClose={() => setUserMenuAnchorEl(null)}
-                anchorOrigin={{
-                  vertical: 'bottom',
-                  horizontal: 'right',
-                }}
-                transformOrigin={{
-                  vertical: 'top',
-                  horizontal: 'right',
-                }}
-                PaperProps={{
-                  sx: {
-                    mt: 1,
-                    minWidth: 200,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                  Sign up
+                </Button>
+              </Stack>
+            ) : (
+              <>
+                <Box
+                  onClick={(e) => setUserMenuAnchorEl(e.currentTarget)}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    cursor: 'pointer',
                     borderRadius: 2,
-                  }
-                }}
-              >
-                <MenuItem disabled>
-                  <ListItemIcon>
-                    <Person fontSize="small" />
-                  </ListItemIcon>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {user?.name || 'User'}
-                  </Typography>
-                </MenuItem>
-                <Divider />
-                <MenuItem
-                  onClick={() => {
-                    setUserMenuAnchorEl(null);
-                    navigate(userType === 'farmer' ? '/farmer/profile' : userType === 'admin' ? '/admin/profile' : '/buyer/profile');
+                    px: 0.5,
+                    py: 0.5,
+                    '&:hover': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                    },
                   }}
                 >
-                  <ListItemIcon>
-                    <Person fontSize="small" />
-                  </ListItemIcon>
-                  View Profile
-                </MenuItem>
-                <MenuItem
-                  onClick={() => {
-                    setUserMenuAnchorEl(null);
-                    if (onLogout) {
-                      onLogout();
+                  <Avatar
+                    src={user?.profile_image_url}
+                    sx={{
+                      width: isMobile ? 32 : 36,
+                      height: isMobile ? 32 : 36,
+                      bgcolor: 'primary.main',
+                      fontSize: isMobile ? '12px' : '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
+                  </Avatar>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      fontWeight: 500,
+                      color: 'text.primary',
+                      display: { xs: 'none', sm: 'block' }
+                    }}
+                  >
+                    {user?.name?.split(' ')[0] || user?.name || 'User'}
+                  </Typography>
+                </Box>
+
+                <Menu
+                  anchorEl={userMenuAnchorEl}
+                  open={Boolean(userMenuAnchorEl)}
+                  onClose={() => setUserMenuAnchorEl(null)}
+                  anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'right',
+                  }}
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                  PaperProps={{
+                    sx: {
+                      mt: 1,
+                      minWidth: 200,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      borderRadius: 2,
                     }
                   }}
-                  sx={{ color: 'error.main' }}
                 >
-                  <ListItemIcon>
-                    <ExitToApp fontSize="small" sx={{ color: 'error.main' }} />
-                  </ListItemIcon>
-                  Logout
-                </MenuItem>
-              </Menu>
-            </>
+                  <MenuItem disabled>
+                    <ListItemIcon>
+                      <Person fontSize="small" />
+                    </ListItemIcon>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {user?.name || 'User'}
+                    </Typography>
+                  </MenuItem>
+                  <Divider />
+                  <MenuItem
+                    onClick={() => {
+                      setUserMenuAnchorEl(null);
+                      navigate(userType === 'farmer' ? '/farmer/profile' : userType === 'admin' ? '/admin/profile' : '/buyer/profile');
+                    }}
+                  >
+                    <ListItemIcon>
+                      <Person fontSize="small" />
+                    </ListItemIcon>
+                    View Profile
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setUserMenuAnchorEl(null);
+                      if (onLogout) {
+                        onLogout();
+                      }
+                    }}
+                    sx={{ color: 'error.main' }}
+                  >
+                    <ListItemIcon>
+                      <ExitToApp fontSize="small" sx={{ color: 'error.main' }} />
+                    </ListItemIcon>
+                    Logout
+                  </MenuItem>
+                </Menu>
+              </>
+            )}
 
             {/* Activity Dropdown: backend notifications only */}
             <Menu
@@ -1637,65 +1703,106 @@ const EnhancedHeader = forwardRef(({
               </IconButton>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: isMobile ? 1.5 : 2, mt: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1 }}>
-                <Avatar
-                  src={user?.profile_image_url}
-                  sx={{
-                    mr: isMobile ? 1.5 : 2,
-                    bgcolor: 'primary.main',
-                    width: isMobile ? 36 : 40,
-                    height: isMobile ? 36 : 40,
-                    fontSize: isMobile ? '0.9rem' : '1rem'
-                  }}
-                >
-                  {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
-                </Avatar>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography
-                    variant="body1"
-                    sx={{
-                      fontWeight: 'bold',
-                      fontSize: isMobile ? '0.9rem' : '1rem',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {user?.name?.split(' ')[0] || user?.name || 'User'}
-                  </Typography>
-                  <Chip
-                    label={user?.user_type || 'User'}
-                    size="small"
-                    color={user?.user_type === 'farmer' ? 'primary' : 'secondary'}
-                    sx={{
-                      textTransform: 'capitalize',
-                      fontSize: isMobile ? '0.7rem' : '0.75rem',
-                      height: isMobile ? 20 : 24
-                    }}
-                  />
-                </Box>
-              </Box>
-              <Button
-                variant="text"
-                size="small"
-                startIcon={<Person sx={{ fontSize: 16 }} />}
-                onClick={() => {
-                  const path = userType === 'farmer' ? '/farmer/profile' : '/buyer/profile';
-                  navigate(path);
-                  setDrawerOpen(false);
-                }}
+            {isPublicBrowseGuest ? (
+              <Box
                 sx={{
-                  ml: 1,
-                  fontSize: '0.75rem',
-                  textTransform: 'none',
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap'
+                  mb: isMobile ? 1.5 : 2,
+                  mt: 1,
+                  p: 1.5,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(46, 125, 50, 0.06)',
+                  border: '1px solid rgba(46, 125, 50, 0.12)',
                 }}
               >
-                Profile
-              </Button>
-            </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: isMobile ? '0.8rem' : '0.875rem' }}>
+                  Browsing as a guest — sign in to purchase or rent fields.
+                </Typography>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="small"
+                  onClick={() => { navigate('/login'); setDrawerOpen(false); }}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    color: '#fff',
+                    bgcolor: '#2e7d32',
+                    '&:hover': { bgcolor: '#1b5e20', color: '#fff' },
+                  }}
+                >
+                  Sign in
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  onClick={() => { navigate('/signup'); setDrawerOpen(false); }}
+                  sx={{ mt: 1, textTransform: 'none', fontWeight: 600, borderColor: 'rgba(46, 125, 50, 0.45)', color: '#2e7d32' }}
+                >
+                  Create account
+                </Button>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: isMobile ? 1.5 : 2, mt: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1 }}>
+                  <Avatar
+                    src={user?.profile_image_url}
+                    sx={{
+                      mr: isMobile ? 1.5 : 2,
+                      bgcolor: 'primary.main',
+                      width: isMobile ? 36 : 40,
+                      height: isMobile ? 36 : 40,
+                      fontSize: isMobile ? '0.9rem' : '1rem'
+                    }}
+                  >
+                    {!user?.profile_image_url && (user?.name?.charAt(0)?.toUpperCase() || 'U')}
+                  </Avatar>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography
+                      variant="body1"
+                      sx={{
+                        fontWeight: 'bold',
+                        fontSize: isMobile ? '0.9rem' : '1rem',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {user?.name?.split(' ')[0] || user?.name || 'User'}
+                    </Typography>
+                    <Chip
+                      label={user?.user_type || 'User'}
+                      size="small"
+                      color={user?.user_type === 'farmer' ? 'primary' : 'secondary'}
+                      sx={{
+                        textTransform: 'capitalize',
+                        fontSize: isMobile ? '0.7rem' : '0.75rem',
+                        height: isMobile ? 20 : 24
+                      }}
+                    />
+                  </Box>
+                </Box>
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<Person sx={{ fontSize: 16 }} />}
+                  onClick={() => {
+                    const path = userType === 'farmer' ? '/farmer/profile' : '/buyer/profile';
+                    navigate(path);
+                    setDrawerOpen(false);
+                  }}
+                  sx={{
+                    ml: 1,
+                    fontSize: '0.75rem',
+                    textTransform: 'none',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Profile
+                </Button>
+              </Box>
+            )}
           </Box>
 
           <Divider />
@@ -1789,34 +1896,36 @@ const EnhancedHeader = forwardRef(({
 
           <Divider />
 
-          <List sx={{ py: isMobile ? 0.5 : 1 }}>
-            <ListItem
-              button
-              onClick={handleLogout}
-              sx={{
-                py: isMobile ? 0.5 : 1,
-                px: isMobile ? 1.5 : 2,
-                minHeight: isMobile ? 40 : 48,
-                cursor: 'pointer',
-              }}
-            >
-              <ListItemIcon sx={{
-                minWidth: isMobile ? 32 : 40,
-                '& svg': {
-                  fontSize: isMobile ? '1.2rem' : '1.5rem'
-                }
-              }}>
-                <ExitToApp />
-              </ListItemIcon>
-              <ListItemText
-                primary="Logout"
-                primaryTypographyProps={{
-                  fontSize: isMobile ? '0.85rem' : '1rem',
-                  fontWeight: 400
+          {!isPublicBrowseGuest && (
+            <List sx={{ py: isMobile ? 0.5 : 1 }}>
+              <ListItem
+                button
+                onClick={handleLogout}
+                sx={{
+                  py: isMobile ? 0.5 : 1,
+                  px: isMobile ? 1.5 : 2,
+                  minHeight: isMobile ? 40 : 48,
+                  cursor: 'pointer',
                 }}
-              />
-            </ListItem>
-          </List>
+              >
+                <ListItemIcon sx={{
+                  minWidth: isMobile ? 32 : 40,
+                  '& svg': {
+                    fontSize: isMobile ? '1.2rem' : '1.5rem'
+                  }
+                }}>
+                  <ExitToApp />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Logout"
+                  primaryTypographyProps={{
+                    fontSize: isMobile ? '0.85rem' : '1rem',
+                    fontWeight: 400
+                  }}
+                />
+              </ListItem>
+            </List>
+          )}
         </Drawer>
       )}
 
