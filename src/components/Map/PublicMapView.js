@@ -4,6 +4,7 @@ import { Map as MapboxMap, Marker, NavigationControl, FullscreenControl } from '
 import { LocationOn, Close, Agriculture, Tune, FilterList } from '@mui/icons-material';
 import { DARK_MAP_STYLE } from '../../utils/mapConfig';
 import { getProductIcon } from '../../utils/productIcons';
+import { buildCoincidentMarkerPositionMap, getProductLngLat } from '../../utils/spreadCoincidentMapMarkers';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1Ijoic2hhcmVjcm9wIiwiYSI6ImNsdHh4eHh4eDAwMDEya249eHh4eHh4eHgifQ.demo';
@@ -34,6 +35,17 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
     });
   }, [fields, filters]);
 
+  const publicFieldMarkerLngLatById = useMemo(
+    () =>
+      buildCoincidentMarkerPositionMap(
+        filteredFields,
+        getProductLngLat,
+        (f, i) => (f.id != null && f.id !== '' ? String(f.id) : `idx-${i}`),
+        { zoom: viewState.zoom }
+      ),
+    [filteredFields, viewState.zoom]
+  );
+
   // Get unique categories for filter
   const categories = useMemo(() => {
     const cats = new Set(fields.map(f => f.category).filter(Boolean));
@@ -59,13 +71,14 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
     return `${formatDate(dates[0].date || dates[0])} (+${dates.length - 1} more)`;
   };
 
-  const handleFieldClick = (field) => {
+  const handleFieldClick = (field, displayLngLat) => {
     setSelectedField(field);
-    if (field.coordinates && field.coordinates.length === 2) {
+    const ll = displayLngLat || (field.coordinates && field.coordinates.length === 2 ? field.coordinates : null);
+    if (ll && ll.length === 2) {
       setViewState(prev => ({
         ...prev,
-        longitude: field.coordinates[0],
-        latitude: field.coordinates[1],
+        longitude: ll[0],
+        latitude: ll[1],
         zoom: 8,
       }));
     }
@@ -89,21 +102,26 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
         <FullscreenControl position="top-right" />
 
         {/* Field Markers */}
-        {filteredFields.map(field => {
+        {filteredFields.map((field, fIdx) => {
           if (!field.coordinates || field.coordinates.length !== 2) return null;
-          
+
+          const posKey = field.id != null && field.id !== '' ? String(field.id) : `idx-${fIdx}`;
+          const spread = publicFieldMarkerLngLatById.get(posKey);
+          const mlng = spread ? spread[0] : field.coordinates[0];
+          const mlat = spread ? spread[1] : field.coordinates[1];
+
           const isSelected = selectedField?.id === field.id;
           const icon = getProductIcon(field.subcategory || field.category);
-          
+
           return (
             <Marker
               key={field.id}
-              longitude={field.coordinates[0]}
-              latitude={field.coordinates[1]}
+              longitude={mlng}
+              latitude={mlat}
               anchor="center"
               onClick={(e) => {
                 e.originalEvent.stopPropagation();
-                handleFieldClick(field);
+                handleFieldClick(field, [mlng, mlat]);
               }}
             >
               <Box

@@ -21,6 +21,7 @@ import { helpers } from '../../utils/helpers';
 import { orderService } from '../../services/orders';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { configureGlobeMap, DARK_MAP_STYLE } from '../../utils/mapConfig';
+import { buildCoincidentMarkerPositionMap, getProductLngLat } from '../../utils/spreadCoincidentMapMarkers';
 import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
@@ -240,7 +241,7 @@ const EnhancedFarmMap = forwardRef(({
     }
   }, [productWeather]);
 
-  const handleProductClick = useCallback((event, product) => {
+  const handleProductClick = useCallback((event, product, flyToCenter) => {
     if (event) event.stopPropagation();
 
     // Use functional update to avoid stale state issues
@@ -269,9 +270,12 @@ const EnhancedFarmMap = forwardRef(({
     setShowPurchaseUI(!alreadyPurchased);
 
 
-    if (product.coordinates) {
-      const lat = Array.isArray(product.coordinates) ? product.coordinates[1] : product.coordinates?.lat;
-      const lng = Array.isArray(product.coordinates) ? product.coordinates[0] : product.coordinates?.lng;
+    const ll = Array.isArray(flyToCenter) && flyToCenter.length >= 2 && Number.isFinite(flyToCenter[0]) && Number.isFinite(flyToCenter[1])
+      ? flyToCenter
+      : null;
+    if (ll || product.coordinates) {
+      const lng = ll ? ll[0] : (Array.isArray(product.coordinates) ? product.coordinates[0] : product.coordinates?.lng);
+      const lat = ll ? ll[1] : (Array.isArray(product.coordinates) ? product.coordinates[1] : product.coordinates?.lat);
       if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
         const map = mapRef.current && typeof mapRef.current.getMap === 'function' ? mapRef.current.getMap() : null;
         if (map) {
@@ -2054,6 +2058,35 @@ const EnhancedFarmMap = forwardRef(({
 
   const renderedMarkers = React.useMemo(() => filteredFarms?.filter(f => f?.coordinates) || [], [filteredFarms]);
 
+  /** Same order as `filteredFarms.map` so `idx-*` keys match fields without `id`. Ring radius scales with zoom so pins stay separated when zoomed out. */
+  const mapZoomForSpread = viewState?.zoom;
+  const fieldMarkerLngLatById = React.useMemo(
+    () =>
+      buildCoincidentMarkerPositionMap(
+        Array.isArray(filteredFarms) ? filteredFarms : [],
+        getProductLngLat,
+        (p, i) => (p.id != null && p.id !== '' ? String(p.id) : `idx-${i}`),
+        { zoom: mapZoomForSpread }
+      ),
+    [filteredFarms, mapZoomForSpread]
+  );
+
+  const minimalMapPoints = React.useMemo(() => {
+    const src = Array.isArray(filteredFarms) && filteredFarms.length > 0 ? filteredFarms : farms;
+    return Array.isArray(src) ? src.filter((f) => getProductLngLat(f)) : [];
+  }, [filteredFarms, farms]);
+
+  const minimalMarkerLngLatById = React.useMemo(
+    () =>
+      buildCoincidentMarkerPositionMap(
+        minimalMapPoints,
+        getProductLngLat,
+        (p, i) => (p.id != null && p.id !== '' ? String(p.id) : `idx-${i}`),
+        { zoom: mapZoomForSpread }
+      ),
+    [minimalMapPoints, mapZoomForSpread]
+  );
+
   const getRingGradientByHarvest = useCallback((prod) => {
     const d = getHarvestDateObj(prod);
     if (!d) return { start: '#F28F8F', end: '#EF4444' };
@@ -3186,8 +3219,7 @@ const EnhancedFarmMap = forwardRef(({
   }
 
   if (minimal) {
-    const points = (Array.isArray(filteredFarms) && filteredFarms.length > 0 ? filteredFarms : farms)
-      .filter(f => Array.isArray(f?.coordinates) && Number.isFinite(f.coordinates[0]) && Number.isFinite(f.coordinates[1]));
+    const points = minimalMapPoints;
     const containerStyle = embedded
       ? { position: 'absolute', inset: 0, zIndex: 1 }
       : { height, width: '100%', position: 'relative', zIndex: 1, isolation: 'isolate' };
@@ -3220,11 +3252,17 @@ const EnhancedFarmMap = forwardRef(({
             zoom: 1.5,
           }}
         >
-          {points.map((f) => (
+          {points.map((f, idx) => {
+            const posKey = f.id != null && f.id !== '' ? String(f.id) : `idx-${idx}`;
+            const spread = minimalMarkerLngLatById.get(posKey);
+            const ll = spread || getProductLngLat(f);
+            const mlng = ll ? ll[0] : f.coordinates[0];
+            const mlat = ll ? ll[1] : f.coordinates[1];
+            return (
             <Marker
               key={f.id ?? `${f.coordinates[0]}-${f.coordinates[1]}-${f.name ?? ''}`}
-              longitude={f.coordinates[0]}
-              latitude={f.coordinates[1]}
+              longitude={mlng}
+              latitude={mlat}
               anchor="center"
             >
               <div
@@ -3236,9 +3274,8 @@ const EnhancedFarmMap = forwardRef(({
 
                   fetchLocationForProduct(f);
                   fetchWeatherForProduct(f);
-                  const coords = f?.coordinates;
 
-                  if (mapRef.current && Array.isArray(coords) && coords.length >= 2) {
+                  if (mapRef.current && mlng != null && mlat != null) {
                     const map = mapRef.current.getMap?.();
                     const currentZoom = map && typeof map.getZoom === 'function' ? map.getZoom() : viewState.zoom;
                     isMapAnimatingRef.current = true;
@@ -3249,7 +3286,7 @@ const EnhancedFarmMap = forwardRef(({
                     } else {
                       setTimeout(() => { isMapAnimatingRef.current = false; }, 650);
                     }
-                    mapRef.current.flyTo({ center: [coords[0], coords[1]], zoom: currentZoom, duration: 550, essential: true });
+                    mapRef.current.flyTo({ center: [mlng, mlat], zoom: currentZoom, duration: 550, essential: true });
                   }
                   popupFixedRef.current = { left: '50%', top: '50%', transform: 'translate(-50%, calc(-100% - 14px))' };
                   setPopupPosition({ left: '50%', top: '50%', transform: 'translate(-50%, calc(-100% - 14px))' });
@@ -3263,7 +3300,8 @@ const EnhancedFarmMap = forwardRef(({
                 />
               </div>
             </Marker>
-          ))}
+            );
+          })}
         </MapboxMap>
         {/* Bottom progress strip for rented/occupied fields */}
         <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, padding: '6px 10px', display: 'flex', gap: '8px', overflowX: 'auto', alignItems: 'center', zIndex: 1000 }}>
@@ -3594,7 +3632,7 @@ const EnhancedFarmMap = forwardRef(({
 
           {/* Farm Markers */}
           {(() => {
-            return filteredFarms.map((product) => {
+            return filteredFarms.map((product, mapIndex) => {
 
               // Handle coordinate format conversion and null checks
               let longitude, latitude;
@@ -3621,15 +3659,19 @@ const EnhancedFarmMap = forwardRef(({
                 return null;
               }
 
+              const posKey = product.id != null && product.id !== '' ? String(product.id) : `idx-${mapIndex}`;
+              const spreadLngLat = fieldMarkerLngLatById.get(posKey);
+              const markerLng = spreadLngLat ? spreadLngLat[0] : longitude;
+              const markerLat = spreadLngLat ? spreadLngLat[1] : latitude;
 
               return (
                 <Marker
                   key={product.id}
-                  longitude={longitude}
-                  latitude={latitude}
+                  longitude={markerLng}
+                  latitude={markerLat}
                   anchor="center"
                 >
-                  <div style={{ position: 'relative', cursor: 'pointer', transition: 'all 0.3s ease' }} onClick={(e) => handleProductClick(e, product)} >
+                  <div style={{ position: 'relative', cursor: 'pointer', transition: 'all 0.3s ease' }} onClick={(e) => handleProductClick(e, product, [markerLng, markerLat])} >
                     {(isProductPurchased(product) && showHarvestGifIds.has(product.id)) && (
                       <img
                         src={'/icons/effects/fric.gif'}
