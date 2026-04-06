@@ -56,6 +56,10 @@ import { useAuth } from '../contexts/AuthContext';
 import Loader from '../components/Common/Loader';
 import ErrorMessage from '../components/Common/ErrorMessage';
 import StatCard from '../components/Common/StatCard';
+import { getProductIcon } from '../utils/productIcons';
+
+const orderProductIconSrc = (order) =>
+  getProductIcon(order.subcategory || order.crop_type || order.category);
 
 const Orders = () => {
   const { user } = useAuth();
@@ -102,6 +106,7 @@ const Orders = () => {
         created_at: order.created_at,
         farm_name: order.field_name || 'Unknown Field',
         crop_type: order.crop_type || 'Mixed',
+        subcategory: order.subcategory || order.sub_category || null,
         price_per_unit: Number(order.price_per_m2) || 0,
         location: order.location || 'Unknown',
         farmer_name: order.farmer_name || 'Unknown Farmer',
@@ -111,7 +116,6 @@ const Orders = () => {
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
         notes: order.notes || '',
-        image_url: order.image_url || ''
       }));
 
       setOrders(formattedOrders);
@@ -510,25 +514,18 @@ const Orders = () => {
 
                       <TableCell sx={{ py: 1.5 }}>
                         <Stack direction="row" alignItems="center" spacing={1.5}>
-                          {(order.image_url || order.image) ? (
-                            <Box
-                              component="img"
-                              src={order.image_url || order.image}
-                              alt={order.product_name || order.name}
-                              sx={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: 1.5,
-                                objectFit: 'cover',
-                                border: '1px solid #e2e8f0'
-                              }}
-                              onError={(e) => { e.target.style.display = 'none'; }}
-                            />
-                          ) : (
-                            <Avatar sx={{ width: 40, height: 40, bgcolor: '#dcfce7', color: '#059669' }}>
-                              <ShoppingCart sx={{ fontSize: 20 }} />
-                            </Avatar>
-                          )}
+                          <Box
+                            component="img"
+                            src={orderProductIconSrc(order)}
+                            alt={order.product_name || order.name}
+                            sx={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 1.5,
+                              objectFit: 'cover',
+                              border: '1px solid #e2e8f0'
+                            }}
+                          />
                           <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
                             {order.product_name || order.name}
                           </Typography>
@@ -679,25 +676,18 @@ const Orders = () => {
                   }}
                 >
                   <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-                    {(selectedOrder.image_url || selectedOrder.image) ? (
-                      <Box
-                        component="img"
-                        src={selectedOrder.image_url || selectedOrder.image}
-                        alt={selectedOrder.product_name || selectedOrder.name}
-                        sx={{
-                          width: 56,
-                          height: 56,
-                          borderRadius: 2,
-                          objectFit: 'cover',
-                          border: '1px solid #e2e8f0'
-                        }}
-                        onError={(e) => { e.target.style.display = 'none'; }}
-                      />
-                    ) : (
-                      <Avatar sx={{ backgroundColor: '#dcfce7', color: '#059669', width: 40, height: 40 }}>
-                        <ShoppingCart />
-                      </Avatar>
-                    )}
+                    <Box
+                      component="img"
+                      src={orderProductIconSrc(selectedOrder)}
+                      alt={selectedOrder.product_name || selectedOrder.name}
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 2,
+                        objectFit: 'cover',
+                        border: '1px solid #e2e8f0'
+                      }}
+                    />
                     <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b' }}>
                       Product Information
                     </Typography>
