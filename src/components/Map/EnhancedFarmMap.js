@@ -700,7 +700,9 @@ const EnhancedFarmMap = forwardRef(({
   }, []);
 
   useEffect(() => {
-    const useOrderStats = Boolean(minimal && userType === 'admin');
+    // Aggregate occupied/rented area for each field from orders so ALL users (owner + buyers)
+    // see consistent "occupied vs available" in the popup.
+    const useOrderStats = Boolean(userType === 'farmer' || (minimal && userType === 'admin'));
     if (!useOrderStats) return;
 
     let cancelled = false;
@@ -737,10 +739,16 @@ const EnhancedFarmMap = forwardRef(({
       };
 
       let orders =
+        // Farmer/owner: prefer orders for my fields (aggregate across all buyers)
+        (userType === 'farmer' && currentUser?.id
+          ? (await tryGet(() => orderService.getFarmerOrdersWithFields(currentUser.id)))
+          : null) ??
+        // Admin/minimal fallback heuristics
         (await tryGetApi('/api/orders')) ??
         (await tryGetApi('/api/admin/orders')) ??
         (await tryGetApi('/api/orders/all')) ??
         (await tryGetApi('/api/orders?scope=all')) ??
+        // Last resort: current user's orders (buyer view)
         (await tryGet(() => orderService.getBuyerOrders())) ??
         null;
 
@@ -821,7 +829,7 @@ const EnhancedFarmMap = forwardRef(({
     return () => {
       cancelled = true;
     };
-  }, [minimal, userType, farms, normalizeNameKey, toFiniteNumber, toISODate]);
+  }, [minimal, userType, farms, normalizeNameKey, toFiniteNumber, toISODate, currentUser?.id]);
   const canonicalizeCategory = useCallback((raw) => {
     const s = raw ? raw.toString().trim() : '';
     let slug = s.toLowerCase().replace(/[\s_]+/g, '-');
@@ -1854,13 +1862,12 @@ const EnhancedFarmMap = forwardRef(({
   // }, [farms, purchasedFarms, purchasedProductIds]);
 
   const getOccupiedArea = useCallback((prod) => {
-    const useOrderStats = Boolean(minimal && userType === 'admin');
-    if (useOrderStats) {
-      const key = String(prod?.id ?? prod?.field_id ?? '');
-      const rented = fieldOrderStats.get(key)?.rented_area;
-      const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
-      if (Number.isFinite(rentedNum)) return Math.max(0, rentedNum);
-    }
+    // If we have aggregated order stats for this field, prefer it (authoritative across all buyers).
+    const key = String(prod?.id ?? prod?.field_id ?? '');
+    const rented = fieldOrderStats.get(key)?.rented_area;
+    const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
+    if (Number.isFinite(rentedNum)) return Math.max(0, rentedNum);
+
     const occRaw = typeof prod?.occupied_area === 'string' ? parseFloat(prod.occupied_area) : prod?.occupied_area;
     const totalRaw = typeof (prod?.total_area ?? prod?.field_size) === 'string'
       ? parseFloat(prod?.total_area ?? prod?.field_size)
@@ -1877,17 +1884,15 @@ const EnhancedFarmMap = forwardRef(({
     const ordersOcc = typeof byOrder === 'string' ? parseFloat(byOrder) : byOrder;
     const sumOcc = (Number.isFinite(baseOcc) ? baseOcc : 0) + (Number.isFinite(ordersOcc) ? ordersOcc : 0);
     return Math.max(0, sumOcc);
-  }, [minimal, userType, fieldOrderStats, purchasedProducts]);
+  }, [fieldOrderStats, purchasedProducts]);
 
   const getAvailableArea = (prod) => {
-    const useOrderStats = Boolean(minimal && userType === 'admin');
-    if (useOrderStats) {
-      const key = String(prod?.id ?? prod?.field_id ?? '');
-      const rented = fieldOrderStats.get(key)?.rented_area;
-      const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
-      const totalNum = typeof prod?.total_area === 'string' ? parseFloat(prod.total_area) : (prod?.total_area || 0);
-      if (Number.isFinite(totalNum) && Number.isFinite(rentedNum)) return Math.max(0, totalNum - rentedNum);
-    }
+    const key = String(prod?.id ?? prod?.field_id ?? '');
+    const rented = fieldOrderStats.get(key)?.rented_area;
+    const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
+    const totalNum = typeof prod?.total_area === 'string' ? parseFloat(prod.total_area) : (prod?.total_area || 0);
+    if (Number.isFinite(totalNum) && Number.isFinite(rentedNum)) return Math.max(0, totalNum - rentedNum);
+
     const total = typeof prod.total_area === 'string' ? parseFloat(prod.total_area) : (prod.total_area || 0);
     const avail = typeof prod.available_area === 'string' ? parseFloat(prod.available_area) : prod.available_area;
     const occ = getOccupiedArea(prod);
@@ -2408,9 +2413,9 @@ const EnhancedFarmMap = forwardRef(({
       }
 
       const totalCostInDollars = (product.price_per_m2 || 0.55) * quantity;
-      // Convert dollars to coins: Based on coin packs, ~100 coins = $9.99, so 1 coin ≈ $0.10
-      // Formula: dollars * 10 (round up to ensure fair pricing)
-      const totalCostInCoins = Math.ceil(totalCostInDollars * 10);
+      // Convert dollars to coins using the same exchange rate the UI displays.
+      // (Avoid hardcoded multipliers so "need/have" stays consistent.)
+      const totalCostInCoins = Math.ceil(totalCostInDollars * (Number.isFinite(coinsPerUnit) ? coinsPerUnit : 10));
 
       // Reset insufficient funds error
       setInsufficientFunds(false);
@@ -2784,7 +2789,7 @@ const EnhancedFarmMap = forwardRef(({
     }
     const months = rentDuration === 'monthly' ? 1 : rentDuration === 'quarterly' ? 3 : 12;
     const totalPrice = rentPricePerMonth * quantity * months;
-    const totalCostInCoins = Math.ceil(totalPrice * 10);
+    const totalCostInCoins = Math.ceil(totalPrice * (Number.isFinite(coinsPerUnit) ? coinsPerUnit : 10));
     const startDate = new Date().toISOString().slice(0, 10);
     const end = new Date();
     end.setMonth(end.getMonth() + months);

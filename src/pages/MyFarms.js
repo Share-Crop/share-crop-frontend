@@ -49,6 +49,7 @@ import {
 import storageService from '../services/storage';
 import fieldsService from '../services/fields';
 import farmsService from '../services/farms';
+import { orderService } from '../services/orders';
 import { useAuth } from '../contexts/AuthContext';
 import AddFarmForm from '../components/Forms/AddFarmForm';
 import StatCard from '../components/Common/StatCard';
@@ -249,6 +250,29 @@ const MyFarms = () => {
       // Fetch farmer-created fields if user is available
       if (user && user.id) {
         try {
+          // Aggregate occupied area across ALL buyers for each of my fields.
+          // This avoids relying on stale `available_area` and matches the map popup logic.
+          let occupiedByFieldId = new Map();
+          try {
+            const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+            const orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
+            const map = new Map();
+            orders.forEach((o) => {
+              const status = String(o?.status || '').toLowerCase();
+              if (status === 'cancelled') return;
+              const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
+              if (!fid) return;
+              const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
+              const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
+              if (!Number.isFinite(qty) || qty <= 0) return;
+              map.set(String(fid), (map.get(String(fid)) || 0) + qty);
+            });
+            occupiedByFieldId = map;
+          } catch {
+            // Logical fallback: if orders aren't accessible, we can only derive occupancy from field payload.
+            occupiedByFieldId = new Map();
+          }
+
           const fieldsResponse = await fieldsService.getAll();
           // Filter fields created by the current farmer
           const farmerFields = fieldsResponse.data?.filter(field =>
@@ -257,9 +281,14 @@ const MyFarms = () => {
 
           // Transform fields data to match the expected format for display
           transformedFields = farmerFields.map(field => {
+            const orderOccM2 = occupiedByFieldId.get(String(field.id));
             const totalAreaM2 = parseFloat(field.total_area_m2 || field.area_m2 || field.field_size || 0);
-            const availableAreaM2 = parseFloat(field.available_area_m2 || field.available_area || 0);
-            const occupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
+            const availableFromFieldM2 = parseFloat(field.available_area_m2 || field.available_area || 0);
+            const occupiedFromFieldM2 = Math.max(0, totalAreaM2 - availableFromFieldM2);
+
+            // Prefer authoritative aggregate occupancy from orders when available.
+            const occupiedM2 = Number.isFinite(orderOccM2) ? Math.max(0, orderOccM2) : occupiedFromFieldM2;
+            const availableAreaM2 = Math.max(0, totalAreaM2 - occupiedM2);
             const totalProduction = parseFloat(field.total_production || 0);
             const potentialIncome = parseFloat(field.potential_income || 0);
             // Extract date strings from harvest dates (they come as {date, label} objects)

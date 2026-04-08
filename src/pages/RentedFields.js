@@ -330,6 +330,7 @@ const RentedFields = () => {
   const isBuyerContext = location.pathname.startsWith('/buyer');
   const [expandedFieldId, setExpandedFieldId] = useState(null);
   const [rentedFields, setRentedFields] = useState([]);
+  const [ownedFieldOrderBreakdownById, setOwnedFieldOrderBreakdownById] = useState(new Map());
   const [myRentals, setMyRentals] = useState([]);
   const [purchasedFields, setPurchasedFields] = useState([]);
   const [userCurrency, setUserCurrency] = useState('USD');
@@ -598,6 +599,95 @@ const RentedFields = () => {
     }
   }, [user?.id]);
 
+  // For OWNED fields: compute aggregate occupied area + buyer breakdown from all orders on my fields.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!user?.id) return;
+      if (isBuyerContext) return; // buyers don't have owned fields
+      try {
+        const res = await orderService.getFarmerOrdersWithFields(user.id);
+        const orders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+        const map = new Map();
+
+        orders.forEach((o) => {
+          const status = String(o?.status || '').toLowerCase();
+          if (status === 'cancelled') return;
+          const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
+          if (!fid) return;
+          const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
+          const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
+          if (!Number.isFinite(qty) || qty <= 0) return;
+
+          const key = String(fid);
+          const buyerName = o?.buyer_name ?? o?.buyerName ?? o?.buyer?.name ?? 'Unknown buyer';
+          const buyerEmail = o?.buyer_email ?? o?.buyerEmail ?? o?.buyer?.email ?? '';
+          const buyerKey = `${String(buyerName || '').trim()}|${String(buyerEmail || '').trim()}`;
+
+          const prev = map.get(key) || { totalOccupiedM2: 0, buyersByKey: new Map() };
+          prev.totalOccupiedM2 += qty;
+          const bPrev = prev.buyersByKey.get(buyerKey) || { buyer_name: buyerName, buyer_email: buyerEmail, quantity_m2: 0 };
+          bPrev.quantity_m2 += qty;
+          prev.buyersByKey.set(buyerKey, bPrev);
+          map.set(key, prev);
+        });
+
+        // finalize buyers list
+        const finalMap = new Map();
+        map.forEach((v, k) => {
+          const buyers = Array.from(v.buyersByKey.values())
+            .filter((b) => (b.buyer_name || b.buyer_email) && Number.isFinite(b.quantity_m2) && b.quantity_m2 > 0)
+            .sort((a, b) => (b.quantity_m2 || 0) - (a.quantity_m2 || 0));
+          finalMap.set(k, { totalOccupiedM2: v.totalOccupiedM2, buyers });
+        });
+
+        if (!cancelled) setOwnedFieldOrderBreakdownById(finalMap);
+      } catch {
+        // Logical fallback: if the endpoint isn't available, we keep field-derived occupancy.
+        if (!cancelled) setOwnedFieldOrderBreakdownById(new Map());
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isBuyerContext]);
+
+  const rentedFieldsWithOwnerStats = useMemo(() => {
+    if (!Array.isArray(rentedFields) || rentedFields.length === 0) return [];
+    if (!(ownedFieldOrderBreakdownById instanceof Map) || ownedFieldOrderBreakdownById.size === 0) return rentedFields;
+
+    return rentedFields.map((f) => {
+      if (!f?.is_own_field) return f;
+      const key = f.id != null ? String(f.id) : null;
+      if (!key) return f;
+      const stats = ownedFieldOrderBreakdownById.get(key);
+      if (!stats || !Number.isFinite(stats.totalOccupiedM2)) return f;
+
+      const total = typeof f.total_area === 'string' ? parseFloat(f.total_area) : (f.total_area || 0);
+      if (!Number.isFinite(total) || total <= 0) return f;
+
+      const occupiedM2 = Math.max(0, Math.min(total, stats.totalOccupiedM2));
+      const availableM2 = Math.max(0, total - occupiedM2);
+      const progress = Math.min(100, Math.round((occupiedM2 / total) * 100));
+      const displayUnit = f.display_unit || f.area_unit || 'm2';
+
+      return {
+        ...f,
+        occupied_area: occupiedM2,
+        available_area: availableM2,
+        occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
+        available_area_display: formatAreaFromM2(availableM2, displayUnit),
+        // Keep the main "area" label consistent with occupied display for owned fields.
+        area: formatAreaFromM2(occupiedM2, displayUnit),
+        progress,
+        buyers_breakdown: stats.buyers,
+        occupied_source: 'orders',
+      };
+    });
+  }, [rentedFields, ownedFieldOrderBreakdownById]);
+
   useEffect(() => {
     loadFields();
   }, [loadFields]);
@@ -619,9 +709,9 @@ const RentedFields = () => {
   const displayedFields = useMemo(() => {
     const seg = isBuyerContext && segment === SEGMENT_OWNED ? SEGMENT_ALL : segment;
     let list;
-    if (seg === SEGMENT_OWNED) list = rentedFields.filter((f) => f.is_own_field);
+    if (seg === SEGMENT_OWNED) list = rentedFieldsWithOwnerStats.filter((f) => f.is_own_field);
     else if (seg === SEGMENT_RENTED) list = [...myRentals, ...purchasedFields];
-    else list = [...rentedFields, ...myRentals, ...purchasedFields];
+    else list = [...rentedFieldsWithOwnerStats, ...myRentals, ...purchasedFields];
     
     // Deduplicate by field_id when combining multiple sources
     if (seg !== SEGMENT_OWNED) {
@@ -664,7 +754,7 @@ const RentedFields = () => {
       );
     }
     return list;
-  }, [rentedFields, myRentals, purchasedFields, segment, searchQuery, categoryFilter, isBuyerContext]);
+  }, [rentedFieldsWithOwnerStats, myRentals, purchasedFields, segment, searchQuery, categoryFilter, isBuyerContext]);
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -1974,7 +2064,7 @@ const RentedFields = () => {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span>
-                        My Rented:{' '}
+                        {selectedField.is_own_field ? 'Occupied:' : 'My Rented:'}{' '}
                         <span className="font-semibold text-slate-900">
                           {selectedField.area}
                         </span>
@@ -2001,6 +2091,41 @@ const RentedFields = () => {
                         );
                       })()}
                     </div>
+
+                    {selectedField.is_own_field && Array.isArray(selectedField.buyers_breakdown) && selectedField.buyers_breakdown.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2">
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+                            Buyers breakdown
+                          </div>
+                          <div className="text-[0.7rem] font-semibold text-slate-700">
+                            {selectedField.buyers_breakdown.length} buyer{selectedField.buyers_breakdown.length === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          {selectedField.buyers_breakdown.map((b, idx) => (
+                            <div key={`${b.buyer_email || b.buyer_name || 'buyer'}-${idx}`} className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-semibold text-slate-900">
+                                  {b.buyer_name || 'Unknown buyer'}
+                                </div>
+                                {b.buyer_email && (
+                                  <div className="truncate text-[0.7rem] text-slate-500">
+                                    {b.buyer_email}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="shrink-0 text-xs font-semibold text-emerald-700">
+                                {Math.round((b.quantity_m2 || 0)).toLocaleString()} m²
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 border-t border-slate-200 pt-2 text-[0.7rem] text-slate-600">
+                          Tip: this is the total purchased per buyer across all non-cancelled orders.
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
