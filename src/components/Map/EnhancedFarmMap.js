@@ -26,6 +26,7 @@ import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
 import { WEATHER_LEGEND_DATA } from './weatherLegendData';
+import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate } from '../../utils/harvestProgress';
 
 const OWM_LAYERS = [
   { id: 'none', label: 'None', Icon: Block },
@@ -1940,40 +1941,11 @@ const EnhancedFarmMap = forwardRef(({
 
   const getHarvestDateObj = useCallback((prod) => {
     const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
-    const list = Array.isArray(entry?.selected_harvests) ? entry.selected_harvests : [];
-    const explicit = entry?.selected_harvest_date;
-    const pick = (() => {
-      if (explicit) return explicit;
-      let best = null;
-      let bestTs = -Infinity;
-      for (const it of list) {
-        const raw = it?.date;
-        if (!raw) continue;
-        const d = new Date(raw);
-        if (!isNaN(d.getTime())) {
-          const ts = d.getTime();
-          if (ts > bestTs) { bestTs = ts; best = raw; }
-        } else {
-          const s = String(raw);
-          const parts = s.split(/[-/ ]/);
-          if (parts.length >= 3) {
-            const tryStr = `${parts[0]} ${parts[1]} ${parts[2]}`;
-            const d2 = new Date(tryStr);
-            if (!isNaN(d2.getTime())) {
-              const ts2 = d2.getTime();
-              if (ts2 > bestTs) { bestTs = ts2; best = tryStr; }
-            }
-          }
-        }
-      }
-      return best || null;
-    })();
-    if (!pick) return null;
-    try {
-      const dd = new Date(pick);
-      if (!isNaN(dd.getTime())) return dd;
-    } catch { }
-    return null;
+    return sharedResolveHarvestDate({
+      ...prod,
+      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
+      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
+    });
   }, [purchasedProducts]);
 
 
@@ -1989,29 +1961,13 @@ const EnhancedFarmMap = forwardRef(({
   }, [getHarvestDateObj]);
 
   const getHarvestProgressInfo = useCallback((prod) => {
-    const daysUntil = getDaysUntilHarvest(prod);
-    if (daysUntil === null) return { progress: 0 };
-
-    // Smooth progress based on a standard 90 day cycle if exact creation date is unknown
-    const createdStr = prod.created_at || prod.createdAt || prod.start_date || prod.startDate;
-    let totalCycleDays = 90;
-
-    if (createdStr) {
-      const createDate = new Date(createdStr);
-      const hDate = getHarvestDateObj(prod);
-      if (!isNaN(createDate.getTime()) && hDate) {
-        const cycleMs = hDate.getTime() - createDate.getTime();
-        const calcDays = Math.round(cycleMs / (24 * 60 * 60 * 1000));
-        // Ensure calculated days is reasonable to prevent weird math
-        if (calcDays > 10) totalCycleDays = calcDays;
-      }
-    }
-
-    const daysElapsed = totalCycleDays - daysUntil;
-    const progress = Math.max(0, Math.min(1, daysElapsed / totalCycleDays));
-
-    return { progress, totalCycleDays, daysElapsed };
-  }, [getDaysUntilHarvest, getHarvestDateObj]);
+    const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
+    return sharedGetHarvestProgressInfo({
+      ...prod,
+      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
+      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
+    });
+  }, [purchasedProducts]);
 
   const bottomBarItems = React.useMemo(() => {
     if (!Array.isArray(farms) || farms.length === 0) return [];
@@ -3516,6 +3472,34 @@ const EnhancedFarmMap = forwardRef(({
                         })()}
                       </div>
                     </div>
+
+                    <div style={{ marginTop: isMobile ? '8px' : '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>Harvest progress</div>
+                        <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px' }}>
+                          {(() => {
+                            const info = getHarvestProgressInfo(selectedProduct);
+                            const pct = Math.round((info.progress || 0) * 100);
+                            const daysText = typeof info.daysUntil === 'number'
+                              ? ` • ${Math.max(0, info.daysUntil)} days left`
+                              : '';
+                            return `${pct}%${daysText}`;
+                          })()}
+                        </div>
+                      </div>
+                      <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
+                            height: '100%',
+                            background: (() => {
+                              const grad = getRingGradientByHarvest(selectedProduct);
+                              return `linear-gradient(90deg, ${grad.start}, ${grad.end})`;
+                            })()
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 ) : renderWeatherTabContent()}
               </div>
@@ -4824,7 +4808,10 @@ const EnhancedFarmMap = forwardRef(({
                       alignItems: 'flex-end',
                       justifyContent: 'center'
                     }}>
-                      <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: '3px' }}>
+                      <div style={{ width: '100%', fontSize: isMobile ? '9px' : '10px', color: '#6c757d', marginBottom: '3px', textAlign: 'left', fontWeight: 600 }}>
+                        Occupied
+                      </div>
+                      <div style={{ width: '100%', fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: '3px', textAlign: 'right' }}>
                         {formatAreaInt(getOccupiedArea(selectedProduct))}/{formatAreaInt(selectedProduct.total_area || 0)}m²
                       </div>
                       <div style={{
@@ -4847,7 +4834,44 @@ const EnhancedFarmMap = forwardRef(({
                         fontWeight: 600,
                         textAlign: 'right'
                       }}>
-                        {Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%
+                        Occupied {Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%
+                      </div>
+
+                      <div style={{ width: '100%', fontSize: isMobile ? '9px' : '10px', color: '#6c757d', marginTop: '4px', marginBottom: '3px', textAlign: 'left', fontWeight: 600 }}>
+                        Harvest
+                      </div>
+                      <div style={{
+                        width: '100%',
+                        height: isMobile ? '4px' : '6px',
+                        backgroundColor: '#e9ecef',
+                        borderRadius: isMobile ? '2px' : '3px',
+                        overflow: 'hidden',
+                        marginTop: '4px',
+                        marginBottom: '3px'
+                      }}>
+                        <div style={{
+                          width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
+                          height: '100%',
+                          background: (() => {
+                            const grad = getRingGradientByHarvest(selectedProduct);
+                            return `linear-gradient(90deg, ${grad.start}, ${grad.end})`;
+                          })()
+                        }} />
+                      </div>
+                      <div style={{
+                        fontSize: isMobile ? '9px' : '11px',
+                        color: (() => getRingGradientByHarvest(selectedProduct).end)(),
+                        fontWeight: 600,
+                        textAlign: 'right'
+                      }}>
+                        {(() => {
+                          const info = getHarvestProgressInfo(selectedProduct);
+                          const pct = Math.round((info.progress || 0) * 100);
+                          const daysText = typeof info.daysUntil === 'number'
+                            ? ` • ${Math.max(0, info.daysUntil)}d left`
+                            : '';
+                          return `Harvest ${pct}%${daysText}`;
+                        })()}
                       </div>
                     </div>
                   </>
@@ -5705,6 +5729,34 @@ const EnhancedFarmMap = forwardRef(({
                     </div>
                     <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
                       <div style={{ width: `${Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%`, height: '100%', backgroundColor: '#10b981' }} />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: isMobile ? '8px' : '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Harvest progress</div>
+                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>
+                        {(() => {
+                          const info = getHarvestProgressInfo(selectedProduct);
+                          const pct = Math.round((info.progress || 0) * 100);
+                          const daysText = typeof info.daysUntil === 'number'
+                            ? ` • ${Math.max(0, info.daysUntil)} days left`
+                            : '';
+                          return `${pct}%${daysText}`;
+                        })()}
+                      </div>
+                    </div>
+                    <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
+                          height: '100%',
+                          background: (() => {
+                            const grad = getRingGradientByHarvest(selectedProduct);
+                            return `linear-gradient(90deg, ${grad.start}, ${grad.end})`;
+                          })()
+                        }}
+                      />
                     </div>
                   </div>
                 </div>

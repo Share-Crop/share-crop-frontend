@@ -65,6 +65,7 @@ import farmsService from '../services/farms';
 import CreateFieldForm from '../components/Forms/CreateFieldForm';
 import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
+import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 
 const SEGMENT_ALL = 'all';
 const SEGMENT_OWNED = 'owned';
@@ -1402,6 +1403,9 @@ const RentedFields = () => {
                             {field.total_production}Kg
                           </span>
                         </div>
+                        <div className="mt-2">
+                          <HarvestProgressBar item={field} compact showDate={false} daysShort />
+                        </div>
                       </div>
 
                       {/* Actions + price row (full width on mobile) */}
@@ -1481,6 +1485,10 @@ const RentedFields = () => {
                       </div>
                     )}
 
+                    <div className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                      <HarvestProgressBar item={field} showDate={false} />
+                    </div>
+
                     {/* Prominent Delivery Options Section */}
                     {shippingText !== 'Not specified' && (
                       <div className="mb-3 rounded-lg bg-blue-50 p-3 border border-blue-200">
@@ -1500,7 +1508,7 @@ const RentedFields = () => {
                         <div className="flex items-center justify-between border-t border-slate-100 pt-2 mt-2">
                           <span className="text-slate-500">Your Share</span>
                           <span className="font-semibold text-emerald-600">
-                            {field.occupied_area_display || field.area} ({field.progress}%)
+                            {field.occupied_area_display || field.area} (occupied: {field.progress}%)
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1568,8 +1576,8 @@ const RentedFields = () => {
 
                         <div className="mt-3">
                           <div className="mb-1 flex items-center justify-between text-[0.7rem] text-slate-500">
-                            <span>Occupied</span>
-                            <span className="font-semibold text-slate-900">{field.progress}%</span>
+                            <span>Occupied area</span>
+                            <span className="font-semibold text-slate-900">{field.progress}% of field</span>
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-slate-200">
                             <div className="h-full rounded-full" style={{ width: `${field.progress}%`, backgroundColor: progressColor }} />
@@ -1805,6 +1813,10 @@ const RentedFields = () => {
                       })()}
                     </Stack>
                   </Box>
+
+                  <Box sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
+                    <HarvestProgressBar item={selectedField} />
+                  </Box>
                 </Stack>
               </Paper>
 
@@ -1817,10 +1829,10 @@ const RentedFields = () => {
                   <Box>
                     <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
                       <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 500 }}>
-                        Occupied Area
+                        Occupied Area Share
                       </Typography>
                       <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
-                        {selectedField.progress}%
+                        {selectedField.progress}% of field
                       </Typography>
                     </Stack>
                     <LinearProgress
@@ -1836,6 +1848,10 @@ const RentedFields = () => {
                         }
                       }}
                     />
+                  </Box>
+
+                  <Box>
+                    <HarvestProgressBar item={selectedField} />
                   </Box>
 
                   <Divider />
@@ -2138,9 +2154,9 @@ const RentedFields = () => {
                 <div className="space-y-3 text-sm">
                   <div>
                     <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
-                      <span>Occupied Area</span>
+                      <span>Occupied Area Share</span>
                       <span className="font-semibold text-slate-900">
-                        {selectedField.progress}%
+                        {selectedField.progress}% of field
                       </span>
                     </div>
                     <div className="h-2.5 w-full rounded-full bg-slate-200">
@@ -2158,6 +2174,8 @@ const RentedFields = () => {
                       />
                     </div>
                   </div>
+
+                  <HarvestProgressBar item={selectedField} />
 
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2">
                     <span className="text-xs text-slate-600">Earnings per m²</span>

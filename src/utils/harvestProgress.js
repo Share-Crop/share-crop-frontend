@@ -1,0 +1,175 @@
+export const HARVEST_DEFAULT_CYCLE_DAYS = 90;
+
+export function parseHarvestDate(raw) {
+  if (!raw) return null;
+
+  try {
+    const direct = new Date(raw);
+    if (!Number.isNaN(direct.getTime())) return direct;
+  } catch {
+    // Ignore invalid direct parse and try a looser fallback below.
+  }
+
+  try {
+    const text = String(raw).trim();
+    const parts = text.split(/[-/ ]/);
+    if (parts.length >= 3) {
+      const normalized = `${parts[0]} ${parts[1]} ${parts[2]}`;
+      const parsed = new Date(normalized);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+  } catch {
+    // Ignore fallback parse errors.
+  }
+
+  return null;
+}
+
+export function formatHarvestDate(raw) {
+  const parsed = parseHarvestDate(raw);
+  if (!parsed) return raw ? String(raw) : 'Not specified';
+  return parsed.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function normalizeDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isCurrentOrFuture(date) {
+  if (!date) return false;
+  const today = normalizeDay(new Date());
+  return normalizeDay(date).getTime() >= today.getTime();
+}
+
+function normalizeHarvestItems(items) {
+  if (Array.isArray(items)) return items;
+  if (typeof items === 'string') {
+    const text = items.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === 'object') return [parsed];
+    } catch {
+      return [text];
+    }
+  }
+  if (items && typeof items === 'object') return [items];
+  return [];
+}
+
+function getBestDateFromList(items) {
+  const normalizedItems = normalizeHarvestItems(items);
+  if (normalizedItems.length === 0) return null;
+
+  const today = normalizeDay(new Date());
+  let bestFuture = null;
+  let bestFutureTs = Infinity;
+
+  for (const item of normalizedItems) {
+    const raw = item && typeof item === 'object'
+      ? (item.date ?? item.value ?? item.harvest_date)
+      : item;
+    const parsed = parseHarvestDate(raw);
+    if (!parsed) continue;
+
+    const normalized = normalizeDay(parsed);
+    const ts = normalized.getTime();
+
+    if (ts >= today.getTime() && ts < bestFutureTs) {
+      bestFutureTs = ts;
+      bestFuture = normalized;
+    }
+  }
+
+  return bestFuture;
+}
+
+export function resolveHarvestDate(item) {
+  if (!item || typeof item !== 'object') return null;
+
+  const explicitRaw = parseHarvestDate(
+    item.selected_harvest_date ??
+    item.selectedHarvestDate?.date ??
+    item.harvest_date ??
+    item.harvestDate ??
+    item.field_harvest_date ??
+    item.fieldHarvestDate ??
+    item.delivery_date ??
+    item.deliveryDate ??
+    item.harvest_start_date ??
+    item.harvestStartDate
+  );
+  const explicit = isCurrentOrFuture(explicitRaw) ? normalizeDay(explicitRaw) : null;
+
+  const listDate = getBestDateFromList(item.selected_harvests || item.selectedHarvests)
+    || getBestDateFromList(item.harvest_dates || item.harvestDates)
+    || getBestDateFromList(item.field_harvest_dates || item.fieldHarvestDates);
+
+  return listDate || explicit || null;
+}
+
+export function getHarvestProgressInfo(item) {
+  const harvestDate = resolveHarvestDate(item);
+  if (!harvestDate) {
+    return {
+      harvestDate: null,
+      progress: 0,
+      progressPercent: 0,
+      daysLeft: null,
+      daysUntil: null,
+      totalCycleDays: HARVEST_DEFAULT_CYCLE_DAYS,
+      daysElapsed: 0,
+      hasHarvestDate: false,
+    };
+  }
+
+  const today = normalizeDay(new Date());
+  const harvestDay = normalizeDay(harvestDate);
+  const daysLeft = Math.round((harvestDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  const createdRaw = item.created_at || item.createdAt || item.start_date || item.startDate;
+  const createdDateRaw = parseHarvestDate(createdRaw);
+  const createdDate = createdDateRaw ? normalizeDay(createdDateRaw) : null;
+
+  let totalCycleDays = HARVEST_DEFAULT_CYCLE_DAYS;
+  if (createdDate && createdDate.getTime() < harvestDay.getTime()) {
+    const cycleDays = Math.round((harvestDay.getTime() - createdDate.getTime()) / (24 * 60 * 60 * 1000));
+    if (cycleDays > 10) totalCycleDays = cycleDays;
+  }
+
+  const daysElapsed = totalCycleDays - daysLeft;
+  const progress = Math.max(0, Math.min(1, daysElapsed / totalCycleDays));
+
+  return {
+    harvestDate,
+    progress,
+    progressPercent: Math.round(progress * 100),
+    daysLeft,
+    daysUntil: daysLeft,
+    totalCycleDays,
+    daysElapsed,
+    hasHarvestDate: true,
+  };
+}
+
+export function getHarvestProgressColors(item) {
+  const { progress, hasHarvestDate } = getHarvestProgressInfo(item);
+  if (!hasHarvestDate) {
+    return { track: '#e2e8f0', fill: 'linear-gradient(90deg, #cbd5e1, #94a3b8)', text: '#64748b' };
+  }
+
+  const startHue = Math.min(110, Math.max(0, progress * 110));
+  const endHue = Math.min(110, Math.max(0, (progress * 110) - 20));
+  return {
+    track: '#e2e8f0',
+    fill: `linear-gradient(90deg, hsl(${startHue}, 85%, 55%), hsl(${endHue}, 90%, 40%))`,
+    text: `hsl(${endHue}, 90%, 32%)`,
+  };
+}
+
+export function getHarvestDaysLeftLabel(daysLeft, short = false) {
+  if (typeof daysLeft !== 'number') return 'No harvest date';
+  if (daysLeft <= 0) return short ? 'Ready now' : 'Ready now';
+  if (daysLeft === 1) return short ? '1d left' : '1 day left';
+  return short ? `${daysLeft}d left` : `${daysLeft} days left`;
+}

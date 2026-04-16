@@ -55,6 +55,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Loader from '../components/Common/Loader';
 import ErrorMessage from '../components/Common/ErrorMessage';
 import { getProductIcon } from '../utils/productIcons';
+import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -97,6 +98,9 @@ const FarmOrders = () => {
         price_per_unit: Number(order.price_per_m2) || 0,
         location: order.location || 'Unknown',
         delivery_date: order.selected_harvest_date || null,
+        selected_harvest_date: order.selected_harvest_date || null,
+        harvest_date: order.harvest_date || order.harvestDate || order.selected_harvest_date || null,
+        harvest_dates: order.harvest_dates || order.harvestDates || [],
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
       }));
@@ -528,9 +532,12 @@ const FarmOrders = () => {
                               border: '1px solid #e2e8f0',
                             }}
                           />
-                          <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                            {order.field_name}
-                          </Typography>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem', mb: 0.75 }}>
+                              {order.field_name}
+                            </Typography>
+                            <HarvestProgressBar item={order} compact showDate={false} daysShort />
+                          </Box>
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
@@ -735,6 +742,9 @@ const FarmOrders = () => {
                       <Typography variant="body1" sx={{ fontWeight: 500, color: '#059669' }}>
                         ${Number(selectedOrder.price_per_unit).toFixed(2)}
                       </Typography>
+                    </Box>
+                    <Box>
+                      <HarvestProgressBar item={selectedOrder} />
                     </Box>
                   </Stack>
                 </Paper>
