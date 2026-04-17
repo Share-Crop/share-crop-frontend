@@ -3,6 +3,20 @@ export const HARVEST_DEFAULT_CYCLE_DAYS = 90;
 export function parseHarvestDate(raw) {
   if (!raw) return null;
 
+  // Treat any ISO-like string starting with YYYY-MM-DD as a local calendar date
+  // to avoid timezone drift (e.g. "2026-05-12T00:00:00.000Z" should render as May 12).
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(trimmed);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const d = Number(m[3]);
+      const localDate = new Date(y, mo, d);
+      if (!Number.isNaN(localDate.getTime())) return localDate;
+    }
+  }
+
   try {
     const direct = new Date(raw);
     if (!Number.isNaN(direct.getTime())) return direct;
@@ -33,6 +47,14 @@ export function formatHarvestDate(raw) {
 
 function normalizeDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function dayKeyUtc(date) {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function diffCalendarDays(fromDate, toDate) {
+  return Math.round((dayKeyUtc(toDate) - dayKeyUtc(fromDate)) / (24 * 60 * 60 * 1000));
 }
 
 function isCurrentOrFuture(date) {
@@ -126,19 +148,32 @@ export function getHarvestProgressInfo(item) {
 
   const today = normalizeDay(new Date());
   const harvestDay = normalizeDay(harvestDate);
-  const daysLeft = Math.round((harvestDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-  const createdRaw = item.created_at || item.createdAt || item.start_date || item.startDate;
-  const createdDateRaw = parseHarvestDate(createdRaw);
-  const createdDate = createdDateRaw ? normalizeDay(createdDateRaw) : null;
+  const daysLeft = diffCalendarDays(today, harvestDay);
+
+  const startRaw =
+    item.field_created_at ||
+    item.fieldCreatedAt ||
+    item.field_created_date ||
+    item.fieldCreatedDate ||
+    item.created_at ||
+    item.createdAt ||
+    item.start_date ||
+    item.startDate;
+  const startDateRaw = parseHarvestDate(startRaw);
+  const startDate = startDateRaw ? normalizeDay(startDateRaw) : null;
 
   let totalCycleDays = HARVEST_DEFAULT_CYCLE_DAYS;
-  if (createdDate && createdDate.getTime() < harvestDay.getTime()) {
-    const cycleDays = Math.round((harvestDay.getTime() - createdDate.getTime()) / (24 * 60 * 60 * 1000));
-    if (cycleDays > 10) totalCycleDays = cycleDays;
+  let daysElapsed = totalCycleDays - daysLeft;
+
+  if (startDate && startDate.getTime() < harvestDay.getTime()) {
+    const computedTotal = diffCalendarDays(startDate, harvestDay);
+    if (computedTotal > 0) {
+      totalCycleDays = computedTotal;
+      daysElapsed = diffCalendarDays(startDate, today);
+    }
   }
 
-  const daysElapsed = totalCycleDays - daysLeft;
-  const progress = Math.max(0, Math.min(1, daysElapsed / totalCycleDays));
+  const progress = Math.max(0, Math.min(1, daysElapsed / Math.max(1, totalCycleDays)));
 
   return {
     harvestDate,

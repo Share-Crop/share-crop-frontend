@@ -58,6 +58,7 @@ import ErrorMessage from '../components/Common/ErrorMessage';
 import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
+import fieldsService from '../services/fields';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -93,34 +94,77 @@ const Orders = () => {
       setError(null);
 
       // Use buyer ID-based endpoint so orders are returned for the current user
-      const response = await orderService.getBuyerOrdersWithFields(user.id);
+      const [response, fieldsResponse] = await Promise.all([
+        orderService.getBuyerOrdersWithFields(user.id),
+        fieldsService.getAllForMap(),
+      ]);
       const apiOrders = Array.isArray(response.data) ? response.data : [];
+      const allFields = Array.isArray(fieldsResponse.data) ? fieldsResponse.data : [];
+      const fieldById = new Map(allFields.map((f) => [String(f.id), f]));
 
       // Format API orders to match expected structure (ensure numbers for total_cost to avoid string concat in sum)
-      const formattedOrders = apiOrders.map(order => ({
+      const formattedOrders = apiOrders.map(order => {
+        const linkedField = fieldById.get(String(order.field_id)) || {};
+        return ({
         id: order.id,
         product_name: order.field_name || 'Unknown Field',
         buyer_name: user.name || 'You',
         area_rented: `${order.quantity || 0} m²`,
         total_cost: Number(order.total_price) || 0,
         status: order.status || 'pending',
-        created_at: order.created_at,
+        created_at: linkedField.created_at || linkedField.createdAt || order.created_at,
+        order_created_at: order.created_at,
+        field_created_at:
+          order.field_created_at ||
+          order.fieldCreatedAt ||
+          order.field_created_date ||
+          order.fieldCreatedDate ||
+          linkedField.created_at ||
+          linkedField.createdAt ||
+          null,
         farm_name: order.field_name || 'Unknown Field',
-        crop_type: order.crop_type || 'Mixed',
-        subcategory: order.subcategory || order.sub_category || null,
+        crop_type: order.crop_type || linkedField.category || linkedField.subcategory || 'Mixed',
+        subcategory: order.subcategory || order.sub_category || linkedField.subcategory || null,
         price_per_unit: Number(order.price_per_m2) || 0,
-        location: order.location || 'Unknown',
+        location: order.location || linkedField.location || 'Unknown',
         farmer_name: order.farmer_name || 'Unknown Farmer',
         farmer_email: order.farmer_email || '',
         delivery_date: order.selected_harvest_date || null,
-        selected_harvest_date: order.selected_harvest_date || null,
-        harvest_date: order.harvest_date || order.harvestDate || order.selected_harvest_date || null,
-        harvest_dates: order.harvest_dates || order.harvestDates || [],
+        order_selected_harvest_date: order.selected_harvest_date || null,
+        selected_harvest_date:
+          linkedField.selected_harvest_date ||
+          linkedField.selectedHarvestDate?.date ||
+          linkedField.harvest_date ||
+          linkedField.harvestDate ||
+          order.selected_harvest_date ||
+          null,
+        selected_harvests:
+          linkedField.selected_harvests ||
+          linkedField.selectedHarvests ||
+          linkedField.harvest_dates ||
+          linkedField.harvestDates ||
+          order.selected_harvests ||
+          order.selectedHarvests ||
+          [],
+        harvest_date:
+          linkedField.harvest_date ||
+          linkedField.harvestDate ||
+          order.harvest_date ||
+          order.harvestDate ||
+          order.selected_harvest_date ||
+          null,
+        harvest_dates:
+          linkedField.harvest_dates ||
+          linkedField.harvestDates ||
+          order.harvest_dates ||
+          order.harvestDates ||
+          [],
         payment_status: order.status === 'completed' ? 'paid' : 'pending',
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
         notes: order.notes || '',
-      }));
+      });
+      });
 
       setOrders(formattedOrders);
     } catch (err) {
@@ -200,7 +244,7 @@ const Orders = () => {
         area: order.area_rented,
         cost: order.total_cost,
         status: order.status,
-        date: new Date(order.created_at).toLocaleDateString()
+        date: new Date(order.order_created_at || order.created_at).toLocaleDateString()
       }))
     };
 
@@ -566,7 +610,7 @@ const Orders = () => {
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
                         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          {new Date(order.created_at || order.date).toLocaleDateString()}
+                          {new Date(order.order_created_at || order.created_at || order.date).toLocaleDateString()}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
@@ -787,7 +831,7 @@ const Orders = () => {
                         Order Date
                       </Typography>
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        {new Date(selectedOrder.created_at || selectedOrder.date).toLocaleDateString()}
+                        {new Date(selectedOrder.order_created_at || selectedOrder.created_at || selectedOrder.date).toLocaleDateString()}
                       </Typography>
                     </Box>
                   </Stack>

@@ -1,17 +1,9 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
+import { getHarvestProgressInfo, getHarvestDaysLeftLabel } from '../../utils/harvestProgress';
 
 const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIconPositionsUpdate, activeKeys, onResetFilters }) => {
-
-  const getProgressColor = (daysLeft) => {
-    if (daysLeft === null || daysLeft === undefined) return '#9E9E9E';
-    if (daysLeft < 0) return '#9E9E9E';
-    if (daysLeft <= 3) return '#F44336';
-    if (daysLeft <= 7) return '#FF9800';
-    if (daysLeft <= 14) return '#FFC107';
-    return '#4CAF50';
-  };
 
   const currentProducts = React.useMemo(() => {
     const toKey = (raw) => {
@@ -36,32 +28,11 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
       return match ? match.key : syn;
     };
 
-    const getDaysLeft = (product) => {
-      const harvestDates = product.harvest_dates || product.harvestDates || product.selected_harvests || [];
-      if (!harvestDates.length) return null;
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const futureDates = harvestDates.filter(hd => {
-        const d = new Date(hd.date || hd);
-        d.setHours(0, 0, 0, 0);
-        return d >= today;
-      }).sort((a, b) => new Date(a.date || a) - new Date(b.date || b));
-      
-      if (futureDates.length === 0) return null;
-      
-      const nextDate = new Date(futureDates[0].date || futureDates[0]);
-      nextDate.setHours(0, 0, 0, 0);
-      const diffMs = nextDate.getTime() - today.getTime();
-      return Math.round(diffMs / (24 * 60 * 60 * 1000));
-    };
-
     const map = new Map();
     (purchasedProducts || []).forEach(p => {
       const k = toKey(p.subcategory || p.category || p.category_key || p.id);
       const prev = map.get(k);
-      const daysLeft = getDaysLeft(p);
+      const harvestInfo = getHarvestProgressInfo(p);
       const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
       const productionRate = typeof p.production_rate === 'string' ? parseFloat(p.production_rate) : (p.production_rate || 0);
       const totalKg = purchasedArea * productionRate;
@@ -72,14 +43,16 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
         categoryKey: k,
         purchased_area: 0,
         total_kg: 0,
-        days_left: null
+        days_left: null,
+        progress_percent: 0
       };
       const merged = prev || base;
       merged.purchased_area = (merged.purchased_area || 0) + purchasedArea;
       merged.total_kg = (merged.total_kg || 0) + totalKg;
-      if (daysLeft !== null) {
-        if (merged.days_left === null || daysLeft < merged.days_left) {
-          merged.days_left = daysLeft;
+      if (typeof harvestInfo.daysLeft === 'number') {
+        if (merged.days_left === null || harvestInfo.daysLeft < merged.days_left) {
+          merged.days_left = harvestInfo.daysLeft;
+          merged.progress_percent = harvestInfo.progressPercent;
         }
       }
       map.set(k, merged);
@@ -102,7 +75,10 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
           total_kg: (prev.total_kg || 0) + (prod.total_kg || 0),
           days_left: (prev.days_left !== null && prod.days_left !== null) 
             ? Math.min(prev.days_left, prod.days_left) 
-            : (prev.days_left !== null ? prev.days_left : prod.days_left)
+            : (prev.days_left !== null ? prev.days_left : prod.days_left),
+          progress_percent: (prev.days_left !== null && prod.days_left !== null)
+            ? (prev.days_left <= prod.days_left ? prev.progress_percent : prod.progress_percent)
+            : (prev.days_left !== null ? prev.progress_percent : prod.progress_percent)
         });
       }
     });
@@ -137,13 +113,6 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
     return `${kg.toFixed(1)}kg`;
   };
 
-  const getDaysLabel = (daysLeft) => {
-    if (daysLeft === null || daysLeft === undefined) return '';
-    if (daysLeft < 0) return 'Done';
-    if (daysLeft === 0) return 'Today';
-    return `${daysLeft}d`;
-  };
-
   return (
     <Box
       ref={summaryRef}
@@ -176,7 +145,9 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
           const totalKg = product.total_kg || 0;
           const purchasedArea = product.purchased_area ?? 0;
           const daysLeft = product.days_left;
-          const progressColor = getProgressColor(daysLeft);
+          const progressPercent = typeof product.progress_percent === 'number' ? product.progress_percent : 0;
+          const hue = Math.min(110, Math.max(0, (progressPercent / 100) * 110));
+          const progressColor = daysLeft !== null ? `hsl(${Math.max(0, hue - 20)}, 90%, 38%)` : '#9E9E9E';
           const isActive = activeKeys && activeKeys.size > 0 && activeKeys.has(icon);
           
           return (
@@ -246,7 +217,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
                   marginBottom: '2px'
                 }}>
                   <div style={{
-                    width: `${Math.max(10, Math.min(95, daysLeft < 0 ? 100 : Math.max(5, 100 - (daysLeft * 6))))}%`,
+                    width: `${Math.max(6, Math.min(100, progressPercent))}%`,
                     height: '100%',
                     backgroundColor: progressColor,
                     transition: 'width 0.3s ease, background-color 0.3s ease'
@@ -260,7 +231,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
                   textAlign: 'center',
                   fontWeight: '600'
                 }}>
-                  {getDaysLabel(daysLeft)}
+                  {getHarvestDaysLeftLabel(daysLeft, true)}
                 </div>
               )}
             </div>

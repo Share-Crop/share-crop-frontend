@@ -66,6 +66,7 @@ import CreateFieldForm from '../components/Forms/CreateFieldForm';
 import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
+import { formatHarvestDate } from '../utils/harvestProgress';
 
 const SEGMENT_ALL = 'all';
 const SEGMENT_OWNED = 'owned';
@@ -235,7 +236,7 @@ function fieldToFormInitialData(raw) {
 }
 
 // Map my-rentals API response (rented_fields + field details) to same shape as owned fields for the card
-function mapRentalFromApi(r) {
+function mapRentalFromApi(r, linkedField = null) {
   const unit = normalizeAreaUnit(r.unit || r.area_unit || r.field_size_unit || 'm2');
   const totalAreaRaw = typeof r.total_area === 'string' ? parseFloat(r.total_area) : (r.total_area ?? 0);
   const availableAreaRaw = typeof r.available_area === 'string' ? parseFloat(r.available_area) : (r.available_area ?? 0);
@@ -315,7 +316,25 @@ function mapRentalFromApi(r) {
     selected_harvests: harvestDates,
     selected_harvest_date: userSelectedDate,
     selected_harvest_label: userSelectedLabel,
-    field_harvest_dates: fieldHarvestDates,
+    field_harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
+    harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
+    harvest_date:
+      userSelectedDate ||
+      linkedField?.harvest_date ||
+      linkedField?.harvestDate ||
+      null,
+    field_created_at:
+      r.field_created_at ||
+      r.fieldCreatedAt ||
+      linkedField?.created_at ||
+      linkedField?.createdAt ||
+      null,
+    created_at:
+      linkedField?.created_at ||
+      linkedField?.createdAt ||
+      r.created_at ||
+      r.createdAt ||
+      null,
     shipping_modes: shippingModes,
     farmer_name: r.owner_name || r.farmer_name,
     rentPeriod: r.start_date && r.end_date ? `${r.start_date} – ${r.end_date}` : null,
@@ -496,9 +515,20 @@ const RentedFields = () => {
         return;
       }
       setLoadingRentals(true);
-      const res = await rentedFieldsService.getMyRentals();
+      const [res, allFieldsRes] = await Promise.all([
+        rentedFieldsService.getMyRentals(),
+        fieldsService.getAllForMap(),
+      ]);
       const list = Array.isArray(res.data) ? res.data : [];
-      setMyRentals(list.map(mapRentalFromApi));
+      const allFields = Array.isArray(allFieldsRes.data) ? allFieldsRes.data : [];
+      const fieldById = new Map(allFields.map((f) => [String(f.id), f]));
+      setMyRentals(
+        list.map((r) => {
+          const fid = r?.field_id ?? r?.fieldId ?? r?.field?.id;
+          const linkedField = fid != null ? fieldById.get(String(fid)) : null;
+          return mapRentalFromApi(r, linkedField);
+        })
+      );
     } catch (error) {
       console.error('Error loading my rentals:', error);
       setMyRentals([]);
@@ -514,8 +544,13 @@ const RentedFields = () => {
         setPurchasedFields([]);
         return;
       }
-      const res = await orderService.getBuyerOrdersWithFields(user.id);
+      const [res, allFieldsRes] = await Promise.all([
+        orderService.getBuyerOrdersWithFields(user.id),
+        fieldsService.getAllForMap(),
+      ]);
       const orders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+      const allFields = Array.isArray(allFieldsRes.data) ? allFieldsRes.data : [];
+      const fieldById = new Map(allFields.map((f) => [String(f.id), f]));
       const byField = new Map();
 
       orders.forEach((o) => {
@@ -534,6 +569,7 @@ const RentedFields = () => {
         const availableAreaRaw = o.available_area ?? null;
         const availableArea = typeof availableAreaRaw === 'string' ? parseFloat(availableAreaRaw) : availableAreaRaw;
 
+        const linkedField = fieldById.get(String(fid)) || {};
         if (!byField.has(fid)) {
           byField.set(fid, {
             id: `purchased-${fid}`,
@@ -541,12 +577,12 @@ const RentedFields = () => {
             is_own_field: false,
             name: o.field_name || `Field ${fid}`,
             farmName: o.farmer_name,
-            location: o.location,
-            cropType: o.crop_type,
-            category: o.crop_type,
-            subcategory: o.subcategory || null,
-            total_area: Number.isFinite(totalArea) ? totalArea : 0,
-            available_area: Number.isFinite(availableArea) ? availableArea : null,
+            location: o.location || linkedField.location,
+            cropType: o.crop_type || linkedField.category || linkedField.subcategory,
+            category: o.crop_type || linkedField.category,
+            subcategory: o.subcategory || linkedField.subcategory || null,
+            total_area: Number.isFinite(totalArea) ? totalArea : (Number(linkedField.total_area ?? linkedField.area_m2 ?? linkedField.field_size) || 0),
+            available_area: Number.isFinite(availableArea) ? availableArea : (Number(linkedField.available_area) || null),
             purchased_area: 0,
             price_per_m2: o.price_per_m2,
             monthlyRent: 0,
@@ -559,6 +595,10 @@ const RentedFields = () => {
                 ? 'Completed'
                 : status || 'active',
             selected_harvests: [],
+            selected_harvest_date: null,
+            field_created_at: linkedField.created_at || linkedField.createdAt || null,
+            harvest_dates: linkedField.harvest_dates || linkedField.harvestDates || [],
+            harvest_date: linkedField.harvest_date || linkedField.harvestDate || null,
             shipping_modes: [],
             farmer_name: o.farmer_name,
             rentPeriod: null,
@@ -566,6 +606,9 @@ const RentedFields = () => {
         }
         const item = byField.get(fid);
         item.purchased_area = (item.purchased_area || 0) + qty;
+        if (o.selected_harvest_date) {
+          item.selected_harvest_date = o.selected_harvest_date;
+        }
       });
 
       const list = Array.from(byField.values()).map((item) => {
@@ -1325,9 +1368,7 @@ const RentedFields = () => {
               const format = (date) => {
                 if (!date) return '';
                 if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
-                const d = new Date(date);
-                if (isNaN(d.getTime())) return String(date);
-                return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                return formatHarvestDate(date);
               };
               if (items.length) {
                 const mapped = items.map(it => {
@@ -1340,7 +1381,9 @@ const RentedFields = () => {
                 const uniq = Array.from(new Set(mapped));
                 return uniq.join(', ') || 'Not specified';
               }
-              return field.selected_harvest_label || field.selected_harvest_date || 'Not specified';
+              const fallback = field.selected_harvest_date ? formatHarvestDate(field.selected_harvest_date) : '';
+              if (field.selected_harvest_label && fallback) return `${fallback} (${field.selected_harvest_label})`;
+              return fallback || field.selected_harvest_label || 'Not specified';
             })();
             const shippingText = (() => {
               const modes = Array.isArray(field.shipping_modes) ? field.shipping_modes : [];
@@ -1767,9 +1810,7 @@ const RentedFields = () => {
                           const format = (date) => {
                             if (!date) return '';
                             if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
-                            const d = new Date(date);
-                            if (isNaN(d.getTime())) return date;
-                            return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                            return formatHarvestDate(date);
                           };
                           if (items.length) {
                             const mapped = items.map(it => {
@@ -1782,7 +1823,9 @@ const RentedFields = () => {
                             const uniq = Array.from(new Set(mapped));
                             return uniq.join(', ') || 'Not specified';
                           }
-                          return selectedField.selected_harvest_label || selectedField.selected_harvest_date || 'Not specified';
+                          const fallback = selectedField.selected_harvest_date ? formatHarvestDate(selectedField.selected_harvest_date) : '';
+                          if (selectedField.selected_harvest_label && fallback) return `${fallback} (${selectedField.selected_harvest_label})`;
+                          return fallback || selectedField.selected_harvest_label || 'Not specified';
                         })()}
                       </Typography>
                     </Box>
@@ -2054,9 +2097,7 @@ const RentedFields = () => {
                           const format = (date) => {
                             if (!date) return '';
                             if (typeof date === 'string' && /\d{1,2}\s\w{3}\s\d{4}/.test(date)) return date;
-                            const d = new Date(date);
-                            if (isNaN(d.getTime())) return date;
-                            return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                            return formatHarvestDate(date);
                           };
                           if (items.length) {
                             const mapped = items.map(it => {
@@ -2069,7 +2110,9 @@ const RentedFields = () => {
                             const uniq = Array.from(new Set(mapped));
                             return uniq.join(', ') || 'Not specified';
                           }
-                          return selectedField.selected_harvest_label || selectedField.selected_harvest_date || 'Not specified';
+                          const fallback = selectedField.selected_harvest_date ? formatHarvestDate(selectedField.selected_harvest_date) : '';
+                          if (selectedField.selected_harvest_label && fallback) return `${fallback} (${selectedField.selected_harvest_label})`;
+                          return fallback || selectedField.selected_harvest_label || 'Not specified';
                         })()}
                       </div>
                     </div>

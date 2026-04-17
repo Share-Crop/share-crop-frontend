@@ -26,7 +26,7 @@ import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
 import { WEATHER_LEGEND_DATA } from './weatherLegendData';
-import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate } from '../../utils/harvestProgress';
+import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate, formatHarvestDate as sharedFormatHarvestDate, parseHarvestDate as sharedParseHarvestDate } from '../../utils/harvestProgress';
 
 const OWM_LAYERS = [
   { id: 'none', label: 'None', Icon: Block },
@@ -1951,14 +1951,14 @@ const EnhancedFarmMap = forwardRef(({
 
 
   const getDaysUntilHarvest = useCallback((prod) => {
-    const d = getHarvestDateObj(prod);
-    if (!d) return null;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const hDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const diffMs = hDay.getTime() - today.getTime();
-    return Math.round(diffMs / (24 * 60 * 60 * 1000));
-  }, [getHarvestDateObj]);
+    const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
+    const info = sharedGetHarvestProgressInfo({
+      ...prod,
+      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
+      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
+    });
+    return typeof info.daysLeft === 'number' ? info.daysLeft : null;
+  }, [purchasedProducts]);
 
   const getHarvestProgressInfo = useCallback((prod) => {
     const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
@@ -2234,12 +2234,7 @@ const EnhancedFarmMap = forwardRef(({
     const formatDate = (date) => {
       if (!date) return '';
       if (typeof date === 'string' && /^\d{1,2}\s\w{3}\s\d{4}$/.test(date)) return date;
-      try {
-        const d = new Date(date);
-        if (isNaN(d.getTime())) return date;
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
-      } catch { return date; }
+      return sharedFormatHarvestDate(date);
     };
     if (items.length > 0) {
       const seen = new Set();
@@ -4898,12 +4893,7 @@ const EnhancedFarmMap = forwardRef(({
                             // Function to format a date
                             const formatDate = (date) => {
                               if (!date) return null;
-                              try {
-                                const parsedDate = new Date(date);
-                                if (isNaN(parsedDate.getTime())) return date;
-                                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                                return `${parsedDate.getDate()} ${months[parsedDate.getMonth()]} ${parsedDate.getFullYear()}`;
-                              } catch (e) { return date; }
+                              return sharedFormatHarvestDate(date);
                             };
 
                             const validDates = futureDates.filter(hd => hd.date && hd.date.trim() !== '');
@@ -5018,7 +5008,15 @@ const EnhancedFarmMap = forwardRef(({
                               </div>
                             );
 
-                            const hDate = new Date(dateRaw);
+                            const hDate = sharedParseHarvestDate(dateRaw);
+                            if (!hDate || isNaN(hDate.getTime())) {
+                              return (
+                                <div>
+                                  <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
+                                  <div style={{ fontSize: '10px', padding: '4px 8px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '4px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
+                                </div>
+                              );
+                            }
                             const dDate = new Date(hDate);
                             dDate.setDate(dDate.getDate() + 2);
                             const formattedDDate = formatDate(dDate);

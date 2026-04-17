@@ -1,3 +1,5 @@
+import { parseHarvestDate } from './harvestProgress';
+
 // Utility functions for the application
 export const helpers = {
   // Format currency
@@ -109,14 +111,17 @@ export const helpers = {
     for (const entry of harvestDates) {
       const row = normalizeRow(entry);
       if (!row) continue;
-      const hDate = new Date(row.date);
+      const hDate = parseHarvestDate(row.date);
       if (Number.isNaN(hDate.getTime())) continue;
       hDate.setHours(0, 0, 0, 0);
       if (hDate.getTime() >= today.getTime()) {
-        out.push(row);
+        const yyyy = hDate.getFullYear();
+        const mm = String(hDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(hDate.getDate()).padStart(2, '0');
+        out.push({ ...row, date: `${yyyy}-${mm}-${dd}` });
       }
     }
-    out.sort((a, b) => new Date(a.date) - new Date(b.date));
+    out.sort((a, b) => parseHarvestDate(a.date) - parseHarvestDate(b.date));
     return out;
   },
 

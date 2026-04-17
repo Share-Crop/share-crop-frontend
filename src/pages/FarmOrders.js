@@ -56,6 +56,7 @@ import Loader from '../components/Common/Loader';
 import ErrorMessage from '../components/Common/ErrorMessage';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
+import fieldsService from '../services/fields';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -80,10 +81,18 @@ const FarmOrders = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await orderService.getFarmerOrdersWithFields(user.id);
+      const [response, fieldsResponse] = await Promise.all([
+        orderService.getFarmerOrdersWithFields(user.id),
+        fieldsService.getAll(),
+      ]);
       const apiOrders = Array.isArray(response.data) ? response.data : [];
+      const ownFields = Array.isArray(fieldsResponse.data) ? fieldsResponse.data : [];
+      const ownFieldById = new Map(
+        ownFields.map((field) => [String(field.id), field])
+      );
 
       const formattedOrders = apiOrders.map((order) => ({
+        ...(ownFieldById.get(String(order.field_id)) || {}),
         id: order.id,
         field_name: order.field_name || 'Unknown Field',
         buyer_name: order.buyer_name || 'Unknown Buyer',
@@ -92,15 +101,53 @@ const FarmOrders = () => {
         quantity: Number(order.quantity) || 0,
         total_cost: Number(order.total_price) || 0,
         status: order.status || 'pending',
-        created_at: order.created_at,
+        created_at:
+          ownFieldById.get(String(order.field_id))?.created_at ||
+          ownFieldById.get(String(order.field_id))?.createdAt ||
+          order.created_at,
+        order_created_at: order.created_at,
+        field_created_at:
+          order.field_created_at ||
+          order.fieldCreatedAt ||
+          order.field_created_date ||
+          order.fieldCreatedDate ||
+          ownFieldById.get(String(order.field_id))?.created_at ||
+          ownFieldById.get(String(order.field_id))?.createdAt ||
+          null,
         crop_type: order.crop_type || 'Mixed',
         subcategory: order.subcategory || order.sub_category || null,
         price_per_unit: Number(order.price_per_m2) || 0,
         location: order.location || 'Unknown',
         delivery_date: order.selected_harvest_date || null,
-        selected_harvest_date: order.selected_harvest_date || null,
-        harvest_date: order.harvest_date || order.harvestDate || order.selected_harvest_date || null,
-        harvest_dates: order.harvest_dates || order.harvestDates || [],
+        order_selected_harvest_date: order.selected_harvest_date || null,
+        selected_harvest_date:
+          ownFieldById.get(String(order.field_id))?.selected_harvest_date ||
+          ownFieldById.get(String(order.field_id))?.selectedHarvestDate?.date ||
+          ownFieldById.get(String(order.field_id))?.harvest_date ||
+          ownFieldById.get(String(order.field_id))?.harvestDate ||
+          order.selected_harvest_date ||
+          null,
+        selected_harvests:
+          ownFieldById.get(String(order.field_id))?.selected_harvests ||
+          ownFieldById.get(String(order.field_id))?.selectedHarvests ||
+          ownFieldById.get(String(order.field_id))?.harvest_dates ||
+          ownFieldById.get(String(order.field_id))?.harvestDates ||
+          order.selected_harvests ||
+          order.selectedHarvests ||
+          [],
+        harvest_date:
+          ownFieldById.get(String(order.field_id))?.harvest_date ||
+          ownFieldById.get(String(order.field_id))?.harvestDate ||
+          order.harvest_date ||
+          order.harvestDate ||
+          order.selected_harvest_date ||
+          null,
+        harvest_dates:
+          ownFieldById.get(String(order.field_id))?.harvest_dates ||
+          ownFieldById.get(String(order.field_id))?.harvestDates ||
+          order.harvest_dates ||
+          order.harvestDates ||
+          [],
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
       }));
@@ -189,7 +236,7 @@ const FarmOrders = () => {
         area: order.area_rented,
         cost: order.total_cost,
         status: order.status,
-        date: new Date(order.created_at).toLocaleDateString()
+        date: new Date(order.order_created_at || order.created_at).toLocaleDateString()
       }))
     };
 
@@ -589,7 +636,7 @@ const FarmOrders = () => {
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
                         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          {new Date(order.created_at).toLocaleDateString()}
+                          {new Date(order.order_created_at || order.created_at).toLocaleDateString()}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
@@ -845,7 +892,7 @@ const FarmOrders = () => {
                         Order Date
                       </Typography>
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        {new Date(selectedOrder.created_at).toLocaleDateString()}
+                        {new Date(selectedOrder.order_created_at || selectedOrder.created_at).toLocaleDateString()}
                       </Typography>
                     </Box>
                     {selectedOrder.delivery_date && (
