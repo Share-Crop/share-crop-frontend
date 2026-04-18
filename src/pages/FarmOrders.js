@@ -60,15 +60,26 @@ import ErrorMessage from '../components/Common/ErrorMessage';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 import fieldsService from '../services/fields';
+import { canSelectShippedOrCompletedStatus, getOrderHarvestYmd } from '../utils/orderHarvestGate';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
 
-/** Extract buyer delivery line from map checkout notes (matches backend farmer notification parsing). */
+/**
+ * Extract delivery address from order notes (map checkout: `Shipping: Delivery | Address: ...`
+ * or `| Deliver to: ...`; also splits on `|` and scans segments).
+ */
 const parseDeliveryAddressFromNotes = (notes) => {
   if (notes == null || typeof notes !== 'string') return '';
   const trimmed = notes.trim();
   if (!trimmed) return '';
+  if (trimmed.includes('|')) {
+    const parts = trimmed.split('|').map((p) => p.trim());
+    for (const p of parts) {
+      const m = p.match(/^Address:\s*(.+)$/i) || p.match(/^Deliver to:\s*(.+)$/i);
+      if (m?.[1]) return m[1].trim();
+    }
+  }
   const patterns = [
     /\|\s*Address:\s*(.+)$/i,
     /\|\s*Deliver to:\s*(.+)$/i,
@@ -80,6 +91,11 @@ const parseDeliveryAddressFromNotes = (notes) => {
     if (m?.[1]) return m[1].trim();
   }
   return '';
+};
+
+const isDeliveryMode = (order) => {
+  const m = String(order?.mode_of_shipping || '').toLowerCase();
+  return m === 'delivery' || m.includes('delivery');
 };
 
 const FarmOrders = () => {
@@ -176,6 +192,7 @@ const FarmOrders = () => {
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
         notes: order.notes ?? null,
+        selected_harvest_label: order.selected_harvest_label || null,
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
@@ -214,6 +231,7 @@ const FarmOrders = () => {
   const handleStatusChange = async (orderId, newStatus) => {
     if (!orderId || !newStatus) return;
     try {
+      setError(null);
       setUpdatingStatus(true);
       await orderService.updateOrderStatus(orderId, newStatus);
       setOrders((prev) =>
@@ -224,6 +242,7 @@ const FarmOrders = () => {
       }
     } catch (err) {
       console.error('Update order status error:', err);
+      setError(err.response?.data?.error || err.message || 'Could not update order status');
     } finally {
       setUpdatingStatus(false);
     }
@@ -496,6 +515,9 @@ const FarmOrders = () => {
           <AlertTitle sx={{ fontWeight: 700, color: '#0369a1' }}>Confirm Orders to Receive Payments</AlertTitle>
           When a buyer places an order, the coins are held in escrow. <strong>Change the status from "Pending" to "Active"</strong> to confirm the order and instantly receive the coins in your wallet.
           <Box sx={{ mt: 1.5, color: '#0f172a' }}>
+            <strong>Shipped / Completed:</strong> You can choose these only <strong>on or after the order&apos;s harvest date</strong> (the date the buyer selected). Until then they stay disabled in the status menu.
+          </Box>
+          <Box sx={{ mt: 1.5, color: '#0f172a' }}>
             <strong>Pending deadline:</strong> If you do not accept a <em>Pending</em> order within <strong>7 days</strong> of when it was placed, it is <strong>automatically cancelled</strong> and the buyer&apos;s coins are refunded.
           </Box>
           <Box sx={{ mt: 1, color: '#b91c1c' }}>
@@ -731,33 +753,73 @@ const FarmOrders = () => {
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ py: 1, minWidth: 150 }}>
-                        <FormControl size="small" fullWidth onClick={(e) => e.stopPropagation()}>
-                          <Select
-                            value={order.status}
-                            onChange={(e) => handleStatusChange(order.id, e.target.value)}
-                            disabled={updatingStatus}
-                            sx={{
-                              borderRadius: 1.5,
-                              fontSize: '0.75rem',
-                              height: 32,
-                              backgroundColor: order.status === 'pending' ? '#fffbeb' : 'white',
-                              '& .MuiSelect-select': {
-                                py: 0.5,
-                                fontWeight: 600,
-                                color: getStatusColor(order.status) === 'primary' ? '#1d4ed8' :
-                                  getStatusColor(order.status) === 'success' ? '#059669' :
-                                    getStatusColor(order.status) === 'info' ? '#0369a1' :
-                                    getStatusColor(order.status) === 'warning' ? '#d97706' : '#ef4444'
-                              }
-                            }}
-                          >
-                            <MenuItem value="pending" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#d97706' }}>Pending</MenuItem>
-                            <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>Active</MenuItem>
-                            <MenuItem value="shipped" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#0369a1' }}>Shipped</MenuItem>
-                            <MenuItem value="completed" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#059669' }}>Completed</MenuItem>
-                            <MenuItem value="cancelled" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>Cancelled</MenuItem>
-                          </Select>
-                        </FormControl>
+                        <Tooltip
+                          title={order.status === 'cancelled' ? 'Cancelled orders cannot be changed.' : ''}
+                          disableHoverListener={order.status !== 'cancelled'}
+                        >
+                          <Box sx={{ width: '100%' }} onClick={(e) => e.stopPropagation()}>
+                            <FormControl size="small" fullWidth>
+                              <Select
+                                value={order.status}
+                                onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                                disabled={updatingStatus || order.status === 'cancelled'}
+                                sx={{
+                                  borderRadius: 1.5,
+                                  fontSize: '0.75rem',
+                                  height: 32,
+                                  backgroundColor: order.status === 'pending' ? '#fffbeb' : 'white',
+                                  '& .MuiSelect-select': {
+                                    py: 0.5,
+                                    fontWeight: 600,
+                                    color: getStatusColor(order.status) === 'primary' ? '#1d4ed8' :
+                                      getStatusColor(order.status) === 'success' ? '#059669' :
+                                        getStatusColor(order.status) === 'info' ? '#0369a1' :
+                                        getStatusColor(order.status) === 'warning' ? '#d97706' : '#ef4444'
+                                  }
+                                }}
+                              >
+                                <MenuItem value="pending" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#d97706' }}>Pending</MenuItem>
+                                <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>Active</MenuItem>
+                                {(() => {
+                                  const harvestOk = canSelectShippedOrCompletedStatus(order);
+                                  const ymd = getOrderHarvestYmd(order);
+                                  const shipDisabled = !harvestOk && order.status !== 'shipped';
+                                  const doneDisabled = !harvestOk && order.status !== 'completed';
+                                  const lockHint = ymd
+                                    ? `Available on or after harvest (${ymd})`
+                                    : 'Set a harvest date on the order before Shipped or Completed.';
+                                  return (
+                                    <>
+                                      <Tooltip title={shipDisabled ? lockHint : ''}>
+                                        <span>
+                                          <MenuItem
+                                            value="shipped"
+                                            disabled={shipDisabled}
+                                            sx={{ fontSize: '0.75rem', fontWeight: 600, color: shipDisabled ? '#94a3b8' : '#0369a1' }}
+                                          >
+                                            Shipped
+                                          </MenuItem>
+                                        </span>
+                                      </Tooltip>
+                                      <Tooltip title={doneDisabled ? lockHint : ''}>
+                                        <span>
+                                          <MenuItem
+                                            value="completed"
+                                            disabled={doneDisabled}
+                                            sx={{ fontSize: '0.75rem', fontWeight: 600, color: doneDisabled ? '#94a3b8' : '#059669' }}
+                                          >
+                                            Completed
+                                          </MenuItem>
+                                        </span>
+                                      </Tooltip>
+                                    </>
+                                  );
+                                })()}
+                                <MenuItem value="cancelled" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>Cancelled</MenuItem>
+                              </Select>
+                            </FormControl>
+                          </Box>
+                        </Tooltip>
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
                         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
@@ -882,6 +944,115 @@ const FarmOrders = () => {
         <DialogContent sx={{ p: 3 }}>
           {selectedOrder && (
             <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2.5,
+                    borderRadius: 2,
+                    border: '2px solid #bfdbfe',
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%)',
+                  }}
+                >
+                  <Typography variant="overline" sx={{ fontWeight: 700, color: '#1d4ed8', letterSpacing: 0.08 }}>
+                    What you are fulfilling
+                  </Typography>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={2}
+                    sx={{ mt: 1.5 }}
+                    alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+                    flexWrap="wrap"
+                  >
+                    <Box sx={{ minWidth: 140 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                        Area purchased
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+                        {selectedOrder.quantity != null && selectedOrder.quantity !== ''
+                          ? `${Number(selectedOrder.quantity).toLocaleString(undefined, { maximumFractionDigits: 2 })} m²`
+                          : selectedOrder.area_rented}
+                      </Typography>
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+                    <Box sx={{ minWidth: 120 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                        Order total
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
+                        ${Number(selectedOrder.total_cost).toFixed(2)}
+                      </Typography>
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+                    <Box sx={{ flex: 1, minWidth: 200 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                        Shipping
+                      </Typography>
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.25 }}>
+                        <LocalShipping sx={{ fontSize: 22, color: '#1d4ed8' }} />
+                        <Typography variant="body1" sx={{ fontWeight: 700, textTransform: 'capitalize' }}>
+                          {String(selectedOrder.mode_of_shipping || '—').replace(/_/g, ' ')}
+                        </Typography>
+                      </Stack>
+                      {isDeliveryMode(selectedOrder) ? (
+                        selectedOrder.delivery_address ? (
+                          <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mt: 1 }}>
+                            <LocationOn sx={{ fontSize: 22, color: '#1d4ed8', mt: 0.25 }} />
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                Deliver to
+                              </Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
+                                {selectedOrder.delivery_address}
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        ) : selectedOrder.notes ? (
+                          <Alert severity="info" icon={<LocationOn />} sx={{ mt: 1.5, borderRadius: 2 }}>
+                            <AlertTitle sx={{ fontWeight: 700 }}>Delivery details</AlertTitle>
+                            <Typography variant="body2" sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                              {String(selectedOrder.notes).trim()}
+                            </Typography>
+                          </Alert>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            No delivery address was saved on this order. Contact the buyer for the ship-to address.
+                          </Typography>
+                        )
+                      ) : (
+                        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mt: 1 }}>
+                          <LocationOn sx={{ fontSize: 22, color: '#64748b', mt: 0.25 }} />
+                          <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                              Pickup location (field)
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
+                              {selectedOrder.location || '—'}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      )}
+                    </Box>
+                  </Stack>
+                  {(selectedOrder.selected_harvest_label || selectedOrder.delivery_date) && (
+                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #cbd5e1' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                        Harvest / delivery target
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600, mt: 0.5 }}>
+                        {[
+                          selectedOrder.selected_harvest_label,
+                          selectedOrder.delivery_date
+                            ? new Date(selectedOrder.delivery_date).toLocaleDateString()
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </Typography>
+                    </Box>
+                  )}
+                </Paper>
+              </Grid>
               <Grid item xs={12} md={6}>
                 <Paper
                   elevation={0}
@@ -1014,19 +1185,6 @@ const FarmOrders = () => {
                         </Typography>
                       </Stack>
                     </Box>
-                    {selectedOrder.delivery_address ? (
-                      <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
-                          Delivery address
-                        </Typography>
-                        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mt: 0.5 }}>
-                          <LocationOn sx={{ fontSize: 20, color: '#1d4ed8', mt: 0.25 }} />
-                          <Typography variant="body1" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
-                            {selectedOrder.delivery_address}
-                          </Typography>
-                        </Stack>
-                      </Box>
-                    ) : null}
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
                         Status
@@ -1038,25 +1196,6 @@ const FarmOrders = () => {
                           size="small"
                           sx={{
                             fontWeight: 500,
-                            borderRadius: 2,
-                            ...(selectedOrder.status === 'completed' && {
-                              color: '#ffffff'
-                            })
-                          }}
-                        />
-                      </Box>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
-                        Order Status
-                      </Typography>
-                      <Box sx={{ mt: 0.5 }}>
-                        <Chip
-                          label={selectedOrder.status}
-                          color={getStatusColor(selectedOrder.status)}
-                          size="small"
-                          sx={{
-                            fontWeight: 600,
                             borderRadius: 2,
                             ...(selectedOrder.status === 'completed' && {
                               color: '#ffffff'
