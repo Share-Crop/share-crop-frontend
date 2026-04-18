@@ -37,7 +37,6 @@ const OWM_LAYERS = [
   { id: 'wind_new', label: 'Wind', Icon: Air },
 ];
 
-
 // Detect mobile screens
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(false);
@@ -164,6 +163,29 @@ const EnhancedFarmMap = forwardRef(({
     return derived || purchasedFarms.has(prod.id) || purchasedProductIds.includes(prod.id);
   }, [purchasedFarms, purchasedProductIds]);
 
+  /** Harvest ring + occupancy wedge: only for fields this viewer rents/owns — not other users' partial occupancy. */
+  const showMapOccupancyOverlay = useCallback((prod) => {
+    if (!prod) return false;
+    const id = prod.id ?? prod.field_id;
+    if (id == null) return false;
+    const key = String(id);
+    if (stablePurchasedIdsRef.current.has(id)) return true;
+    if (purchasedFarms.has(id)) return true;
+    if (purchasedProductIds.some((x) => String(x) === key)) return true;
+    if (purchasedProducts.some((p) => String(p.id ?? p.field_id) === key)) return true;
+    const ownerId = prod.farmer_id || prod.owner_id || prod.created_by;
+    if (currentUser?.id && ownerId && String(ownerId) === String(currentUser.id)) return true;
+    if (prod.is_own_field === true && currentUser?.id) return true;
+    return false;
+  }, [purchasedFarms, purchasedProductIds, purchasedProducts, currentUser?.id]);
+
+  const isFieldOwnedByCurrentUser = useCallback((prod) => {
+    if (!prod || !currentUser?.id) return false;
+    if (prod.is_own_field === true) return true;
+    const ownerId = prod.farmer_id || prod.owner_id || prod.created_by;
+    return ownerId != null && String(ownerId) === String(currentUser.id);
+  }, [currentUser?.id]);
+
   // Function to fetch location for a product
   const fetchLocationForProduct = useCallback(async (product) => {
     if (!product) {
@@ -258,8 +280,7 @@ const EnhancedFarmMap = forwardRef(({
     setQuantity(1);
     setInsufficientFunds(false);
     setSelectedHarvestDate(null);
-    setPopupTab('details');
-    const availBuy = product.available_for_buy !== false && product.available_for_buy !== 'false';
+    setPopupTab('rent');
     // Rent disabled for now – only buy
     // const availRent = product.available_for_rent === true || product.available_for_rent === 'true';
     // const hasRentPrice = product.rent_price_per_month != null && product.rent_price_per_month !== '' && !isNaN(parseFloat(product.rent_price_per_month));
@@ -267,10 +288,6 @@ const EnhancedFarmMap = forwardRef(({
     // const canRent = availRent && hasRentPrice && hasRentDuration;
     setPurchaseMode('buy');
     // if (canRent) { if (product.rent_duration_monthly === true || product.rent_duration_monthly === 'true') setRentDuration('monthly'); else if (product.rent_duration_quarterly === true || product.rent_duration_quarterly === 'true') setRentDuration('quarterly'); else if (product.rent_duration_yearly === true || product.rent_duration_yearly === 'true') setRentDuration('yearly'); }
-    const alreadyPurchased = isProductPurchased(product);
-    setShowPurchaseUI(!alreadyPurchased);
-
-
     const ll = Array.isArray(flyToCenter) && flyToCenter.length >= 2 && Number.isFinite(flyToCenter[0]) && Number.isFinite(flyToCenter[1])
       ? flyToCenter
       : null;
@@ -313,9 +330,9 @@ const EnhancedFarmMap = forwardRef(({
     if (onProductSelect) {
       onProductSelect(product);
     }
-  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile, isProductPurchased]);
+  }, [onProductSelect, fetchLocationForProduct, fetchWeatherForProduct, isMobile]);
   const [selectedIcons, setSelectedIcons] = useState(new Set());
-  const [showPurchaseUI, setShowPurchaseUI] = useState(true);
+  const showPurchaseUI = true;
   const celebratedHarvestIdsRef = useRef(new Set());
   const burstsLayerRef = useRef(null);
   const [harvestGifs, setHarvestGifs] = useState([]);
@@ -443,13 +460,52 @@ const EnhancedFarmMap = forwardRef(({
   const deliveryIconRef = useRef(null);
   const [deliveryPanelLeft, setDeliveryPanelLeft] = useState(54);
   const [fieldOrderStats, setFieldOrderStats] = useState(new Map());
-  const [popupTab, setPopupTab] = useState('details');
+  const [popupTab, setPopupTab] = useState('rent');
+  const [fieldOccupancy, setFieldOccupancy] = useState(null);
+  /** Cached GET /api/fields/:id/occupancy per field so map markers stay correct without opening the popup. */
+  const [occupancyByFieldId, setOccupancyByFieldId] = useState({});
+  const [fieldReviews, setFieldReviews] = useState([]);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [purchaseMode, setPurchaseMode] = useState('buy'); // 'buy' | 'rent' – rent only for farmers
   const [rentDuration, setRentDuration] = useState('monthly'); // 'monthly' | 'quarterly' | 'yearly' – used when rent is selected
   const [rentInProgress, setRentInProgress] = useState(false);
   const [webcamPopupOpen, setWebcamPopupOpen] = useState(false);
   const [selectedFarmForWebcam, setSelectedFarmForWebcam] = useState(null);
   const popupContentScrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectedProduct?.id) {
+      setFieldOccupancy(null);
+      setFieldReviews([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [occRes, revRes] = await Promise.all([
+          api.get(`/api/fields/${selectedProduct.id}/occupancy`),
+          api.get(`/api/fields/${selectedProduct.id}/reviews`),
+        ]);
+        if (!cancelled) {
+          const occData = occRes.data || null;
+          setFieldOccupancy(occData);
+          if (occData) {
+            const k = String(selectedProduct.id);
+            setOccupancyByFieldId((prev) => ({ ...prev, [k]: occData }));
+          }
+          setFieldReviews(Array.isArray(revRes.data) ? revRes.data : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setFieldOccupancy(null);
+          setFieldReviews([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedProduct?.id]);
 
   // Add state for currency conversion
   const [coinsPerUnit, setCoinsPerUnit] = useState(10); // Default to 10 based on current logic
@@ -642,33 +698,37 @@ const EnhancedFarmMap = forwardRef(({
   const renderPopupTabs = () => (
     <div style={{
       display: 'flex',
-      backgroundColor: '#f1f5f9',
-      borderRadius: '6px',
-      padding: '2px',
+      gap: 0,
+      backgroundColor: '#e2e8f0',
+      borderRadius: '8px',
+      padding: '3px',
       marginBottom: '12px',
-      border: '1px solid #e2e8f0'
+      border: '1px solid #cbd5e1'
     }}>
-      {['details', 'weather'].map((tab) => (
+      {['rent', 'details'].map((tab) => (
         <div
           key={tab}
+          role="tab"
+          aria-selected={popupTab === tab}
           onClick={() => setPopupTab(tab)}
           style={{
             flex: 1,
             textAlign: 'center',
-            padding: '6px 0',
+            padding: '8px 6px',
             fontSize: '11px',
             fontWeight: 700,
-            borderRadius: '4px',
+            borderRadius: '6px',
             color: popupTab === tab ? '#0f172a' : '#64748b',
             backgroundColor: popupTab === tab ? '#ffffff' : 'transparent',
-            boxShadow: popupTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            boxShadow: popupTab === tab ? '0 1px 4px rgba(15,23,42,0.12)' : 'none',
+            border: popupTab === tab ? '1px solid #e2e8f0' : '1px solid transparent',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
             textTransform: 'uppercase',
-            letterSpacing: '0.05em'
+            letterSpacing: '0.06em'
           }}
         >
-          {tab}
+          {tab === 'rent' ? 'Rent' : 'Details'}
         </div>
       ))}
     </div>
@@ -1165,6 +1225,12 @@ const EnhancedFarmMap = forwardRef(({
       occupied_area: Number.isFinite(occupied) ? occupied : f.occupied_area,
       purchased_area: Number.isFinite(purchasedArea) ? purchasedArea : f.purchased_area,
       available_area: Number.isFinite(availableArea) ? availableArea : f.available_area,
+      /** Prefer server aggregate on /api/fields/all when backend adds it (avoids N× /occupancy calls). */
+      occupied_total_m2: f.occupied_total_m2 ?? f.occupiedTotalM2,
+      owner_id: f.owner_id ?? f.ownerId,
+      created_by: f.created_by ?? f.createdBy,
+      farmer_id: f.farmer_id ?? f.farmerId,
+      is_own_field: f.is_own_field === true || f.is_own_field === 'true',
       isPurchased: isPurchasedDerived,
       shipping_scope: f.shipping_scope ?? f.shippingScope ?? 'Global'
     };
@@ -1510,7 +1576,7 @@ const EnhancedFarmMap = forwardRef(({
       });
 
       if (autoOpenPopup) {
-        setPopupTab('details');
+        setPopupTab('rent');
         setSelectedProduct(farm);
 
         fetchLocationForProduct(farm);
@@ -1527,23 +1593,18 @@ const EnhancedFarmMap = forwardRef(({
 
 
   // Load farms data
+  // When `fields` prop is passed (including []), parent owns the list — never duplicate-fetch /api/fields/all.
+  // Only fetch internally when `fields` is undefined (e.g. admin embed before data loads).
   useEffect(() => {
 
-    // Prefer fields over farms for map rendering; only accept datasets with usable coordinates
-    if (externalFields && externalFields.length > 0) {
+    if (externalFields != null) {
       const normalizedExternal = externalFields.map(normalizeField);
-      const hasCoords = normalizedExternal.some(f => Array.isArray(f.coordinates) && Number.isFinite(f.coordinates[0]) && Number.isFinite(f.coordinates[1]));
-      if (hasCoords) {
-        const filteredExternal = normalizedExternal.filter(f => !shouldFilterOutByOccupiedArea(f));
-        setFarms(normalizedExternal);
-        setFilteredFarms(filteredExternal);
-        setSelectedIcons(new Set());
-        normalizedExternal.forEach(f => { if (f.isPurchased) stablePurchasedIdsRef.current.add(f.id); });
-      } else {
-      }
-      // Don't call onFarmsLoad for external fields to prevent circular updates
+      const filteredExternal = normalizedExternal.filter(f => !shouldFilterOutByOccupiedArea(f));
+      setFarms(normalizedExternal);
+      setFilteredFarms(filteredExternal);
+      setSelectedIcons(new Set());
+      normalizedExternal.forEach(f => { if (f.isPurchased) stablePurchasedIdsRef.current.add(f.id); });
     } else {
-      // Load fields from API only
       const loadFarms = async () => {
         try {
           // Load fields from database API
@@ -1617,7 +1678,7 @@ const EnhancedFarmMap = forwardRef(({
       };
       loadFarms();
     }
-  }, [onFarmsLoad, externalFarms, externalFields, refreshTrigger, normalizeField, shouldFilterOutByOccupiedArea]); // Refresh when refreshTrigger changes
+  }, [onFarmsLoad, externalFarms, externalFields, refreshTrigger, normalizeField, shouldFilterOutByOccupiedArea]);
 
   useEffect(() => {
     if (farms && farms.length > 0) {
@@ -1862,44 +1923,108 @@ const EnhancedFarmMap = forwardRef(({
   //   return (farm && !!farm.isPurchased) || purchasedFarms.has(productId) || purchasedProductIds.includes(productId);
   // }, [farms, purchasedFarms, purchasedProductIds]);
 
+  /** Denominator for occupied/total pie on markers (align with field records). */
+  const getFieldTotalAreaM2 = (prod) => {
+    if (!prod) return 0;
+    const n = (v) => (typeof v === 'string' ? parseFloat(v) : v);
+    const t = n(prod.total_area);
+    if (Number.isFinite(t) && t > 0) return t;
+    const fs = n(prod.field_size);
+    if (Number.isFinite(fs) && fs > 0) return fs;
+    const am = n(prod.area_m2);
+    if (Number.isFinite(am) && am > 0) return am;
+    return 0;
+  };
+
+  const getFieldAvailableAreaM2 = (prod) => {
+    if (!prod) return null;
+    const cand = prod.available_area ?? prod.available_m2 ?? prod.area_available;
+    const v = typeof cand === 'string' ? parseFloat(cand) : cand;
+    return Number.isFinite(v) && v >= 0 ? v : null;
+  };
+
+  /**
+   * Total rented/occupied m² on the field (all users). Prefer total − available when both exist so the
+   * marker matches the popup; `occupied_area` on list payloads is often partial (e.g. only one renter).
+   */
   const getOccupiedArea = useCallback((prod) => {
-    // If we have aggregated order stats for this field, prefer it (authoritative across all buyers).
+    if (!prod) return 0;
     const key = String(prod?.id ?? prod?.field_id ?? '');
+    if (fieldOccupancy && String(fieldOccupancy.field_id) === key) {
+      const occApi = parseFloat(fieldOccupancy.occupied_total_m2);
+      if (Number.isFinite(occApi) && occApi >= 0) return Math.max(0, occApi);
+    }
+    const fromCache = occupancyByFieldId[key];
+    if (fromCache != null && fromCache.occupied_total_m2 != null) {
+      const occCached = parseFloat(fromCache.occupied_total_m2);
+      if (Number.isFinite(occCached) && occCached >= 0) return Math.max(0, occCached);
+    }
+    const aggList = prod.occupied_total_m2 ?? prod.occupiedTotalM2;
+    if (aggList != null && aggList !== '') {
+      const av = typeof aggList === 'string' ? parseFloat(aggList) : aggList;
+      if (Number.isFinite(av) && av >= 0) return Math.max(0, av);
+    }
+    const totalM2 = getFieldTotalAreaM2(prod);
+    const availM2 = getFieldAvailableAreaM2(prod);
+    if (Number.isFinite(totalM2) && totalM2 > 0 && availM2 != null) {
+      return Math.max(0, Math.min(totalM2, totalM2 - availM2));
+    }
+
     const rented = fieldOrderStats.get(key)?.rented_area;
     const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
     if (Number.isFinite(rentedNum)) return Math.max(0, rentedNum);
 
     const occRaw = typeof prod?.occupied_area === 'string' ? parseFloat(prod.occupied_area) : prod?.occupied_area;
+    if (Number.isFinite(occRaw)) return Math.max(0, occRaw);
+
     const totalRaw = typeof (prod?.total_area ?? prod?.field_size) === 'string'
       ? parseFloat(prod?.total_area ?? prod?.field_size)
       : (prod?.total_area ?? prod?.field_size);
     const availRaw = typeof prod?.available_area === 'string' ? parseFloat(prod.available_area) : prod?.available_area;
-
-    let baseOcc = 0;
-    if (Number.isFinite(occRaw)) {
-      baseOcc = Math.max(0, occRaw);
-    } else if (Number.isFinite(totalRaw) && Number.isFinite(availRaw)) {
-      baseOcc = Math.max(0, totalRaw - availRaw);
+    if (Number.isFinite(totalRaw) && Number.isFinite(availRaw)) {
+      return Math.max(0, totalRaw - availRaw);
     }
-    const byOrder = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id))?.purchased_area;
-    const ordersOcc = typeof byOrder === 'string' ? parseFloat(byOrder) : byOrder;
-    const sumOcc = (Number.isFinite(baseOcc) ? baseOcc : 0) + (Number.isFinite(ordersOcc) ? ordersOcc : 0);
-    return Math.max(0, sumOcc);
-  }, [fieldOrderStats, purchasedProducts]);
+    return 0;
+  }, [fieldOrderStats, fieldOccupancy, occupancyByFieldId]);
 
   const getAvailableArea = (prod) => {
     const key = String(prod?.id ?? prod?.field_id ?? '');
     const rented = fieldOrderStats.get(key)?.rented_area;
     const rentedNum = typeof rented === 'string' ? parseFloat(rented) : rented;
-    const totalNum = typeof prod?.total_area === 'string' ? parseFloat(prod.total_area) : (prod?.total_area || 0);
-    if (Number.isFinite(totalNum) && Number.isFinite(rentedNum)) return Math.max(0, totalNum - rentedNum);
+    const totalNum = getFieldTotalAreaM2(prod);
+    if (Number.isFinite(totalNum) && totalNum > 0 && Number.isFinite(rentedNum)) return Math.max(0, totalNum - rentedNum);
 
-    const total = typeof prod.total_area === 'string' ? parseFloat(prod.total_area) : (prod.total_area || 0);
-    const avail = typeof prod.available_area === 'string' ? parseFloat(prod.available_area) : prod.available_area;
+    const availListed = getFieldAvailableAreaM2(prod);
+    if (Number.isFinite(totalNum) && totalNum > 0 && availListed != null) {
+      return Math.max(0, Math.min(totalNum, availListed));
+    }
+
     const occ = getOccupiedArea(prod);
-    if (Number.isFinite(total) && Number.isFinite(occ)) return Math.max(0, total - occ);
-    if (Number.isFinite(avail)) return Math.max(0, avail);
+    if (Number.isFinite(totalNum) && Number.isFinite(occ)) return Math.max(0, totalNum - occ);
+    if (availListed != null) return availListed;
     return 0;
+  };
+
+  /** True when no m² can be rented/purchased (uses /occupancy when it matches this field, else product + aggregates). */
+  const isFieldFullyOccupied = (product) => {
+    if (!product) return true;
+    const pid = String(product.id ?? product.field_id ?? '');
+    if (fieldOccupancy && String(fieldOccupancy.field_id) === pid) {
+      const availRaw = fieldOccupancy.available_m2;
+      const availNum = typeof availRaw === 'string' ? parseFloat(availRaw) : availRaw;
+      if (Number.isFinite(availNum) && availNum <= 0) return true;
+      const total = parseFloat(fieldOccupancy.total_area_m2);
+      const occ = parseFloat(fieldOccupancy.occupied_total_m2);
+      if (Number.isFinite(total) && total > 0 && Number.isFinite(occ) && occ >= total - 1e-6) return true;
+    }
+    const areaLeft = getAvailableArea(product);
+    if (!(areaLeft > 0)) return true;
+    const totalRaw = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area ?? 0);
+    const sizeRaw = typeof product.field_size === 'string' ? parseFloat(product.field_size) : (product.field_size ?? 0);
+    const totalArea = Number.isFinite(totalRaw) && totalRaw > 0 ? totalRaw : (Number.isFinite(sizeRaw) && sizeRaw > 0 ? sizeRaw : 0);
+    const occ2 = getOccupiedArea(product);
+    if (totalArea > 0 && Number.isFinite(occ2) && occ2 >= totalArea - 1e-6) return true;
+    return false;
   };
 
   // const formatArea = (val) => {
@@ -2067,14 +2192,33 @@ const EnhancedFarmMap = forwardRef(({
   const getPiePath = useCallback((radius, ratio) => {
     const cx = radius;
     const cy = radius;
+    const rclamped = Math.max(0, Math.min(1, ratio));
+    if (rclamped <= 0) {
+      return `M ${cx} ${cy} L ${cx} ${cy} Z`;
+    }
+    if (rclamped >= 1) {
+      // 100% occupied: two 180° arcs — a single 360° arc collapses (start === end) in SVG.
+      return `M ${cx} ${cy - radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy + radius} A ${radius} ${radius} 0 1 1 ${cx} ${cy - radius} Z`;
+    }
     const start = -Math.PI / 2;
-    const end = start + Math.max(0, Math.min(1, ratio)) * Math.PI * 2;
+    const end = start + rclamped * Math.PI * 2;
     const x1 = cx + radius * Math.cos(start);
     const y1 = cy + radius * Math.sin(start);
     const x2 = cx + radius * Math.cos(end);
     const y2 = cy + radius * Math.sin(end);
-    const largeArc = ratio > 0.5 ? 1 : 0;
+    const largeArc = rclamped > 0.5 ? 1 : 0;
     return `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+  }, []);
+
+  /** Occupancy pie fill: blue when empty → amber → red when full (hue tracks ratio). */
+  const getOccupancyPieColors = useCallback((ratio) => {
+    const r = Math.max(0, Math.min(1, ratio));
+    const hue = 200 * (1 - r);
+    return {
+      inner: `hsla(${hue}, 72%, 56%, 0.82)`,
+      outer: `hsla(${hue}, 78%, 42%, 0.45)`,
+      stroke: `hsla(${hue}, 82%, 36%, 0.92)`,
+    };
   }, []);
 
   /** Cache of icon URL -> data URL so Google 3D markers can embed images (avoids load/CORS in iframe). */
@@ -2090,25 +2234,30 @@ const EnhancedFarmMap = forwardRef(({
     const cx = size / 2;
     const cy = size / 2;
     const r = (size / 2) - (strokeW / 2);
-    const purchased = isProductPurchased(product);
+    const showStakeOverlay = showMapOccupancyOverlay(product);
 
     let harvestRingSvg = '';
     let rentPieSvg = '';
     let extraRingSvg = '';
-    if (purchased) {
+    const occ = getOccupiedArea(product);
+    const totalM2 = getFieldTotalAreaM2(product);
+    const occRatio = totalM2 > 0 ? Math.max(0, Math.min(1, occ / totalM2)) : 0;
+    const pieColors = getOccupancyPieColors(occRatio);
+    const path = totalM2 > 0 ? getPiePath(innerR, occRatio) : '';
+    const ringGradId = `g-ring-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
+    const glowId = `g-glow-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
+    const rentGradId = `g-rent-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
+    const rentGradSvg = `<radialGradient id="${rentGradId}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="${pieColors.inner}"/><stop offset="100%" stop-color="${pieColors.outer}"/></radialGradient>`;
+    if (showStakeOverlay) {
       const { progress } = getHarvestProgressInfo(product);
       const grad = getRingGradientByHarvest(product);
-      const occ = getOccupiedArea(product);
-      const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
-      const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
       const circumference = 2 * Math.PI * r;
       const dash = Math.max(0, Math.min(circumference, progress * circumference));
-      const path = getPiePath(innerR, occRatio);
-      const ringGradId = `g-ring-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
-      const glowId = `g-glow-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
-      const rentGradId = `g-rent-${String(product.id).replace(/[^a-z0-9_-]/gi, '_')}`;
-      harvestRingSvg = `<linearGradient id="${ringGradId}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${grad.start}" stop-opacity="0.95"/><stop offset="100%" stop-color="${grad.end}" stop-opacity="0.95"/></linearGradient><filter id="${glowId}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#FFD8A8" flood-opacity="0.45"/></filter><radialGradient id="${rentGradId}" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(33,150,243,0.7)"/><stop offset="100%" stop-color="rgba(33,150,243,0.4)"/></radialGradient>`;
-      rentPieSvg = `<circle cx="${cx}" cy="${cy}" r="${r}" stroke="rgba(255,255,255,0.30)" stroke-width="${strokeW}" fill="none"/><circle cx="${cx}" cy="${cy}" r="${r}" stroke="url(#${ringGradId})" stroke-width="${strokeW}" fill="none" stroke-linecap="round" stroke-dasharray="${dash} ${circumference}" stroke-dashoffset="0" transform="rotate(-90 ${cx} ${cy})" filter="url(#${glowId})"/><path d="${path}" fill="url(#${rentGradId})" stroke="rgba(33,150,243,0.85)" stroke-width="1.1" transform="translate(${cx - innerR}, ${cy - innerR})"/>`;
+      harvestRingSvg = `<linearGradient id="${ringGradId}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${grad.start}" stop-opacity="0.95"/><stop offset="100%" stop-color="${grad.end}" stop-opacity="0.95"/></linearGradient><filter id="${glowId}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="0" stdDeviation="2.4" flood-color="#FFD8A8" flood-opacity="0.45"/></filter>${rentGradSvg}`;
+      rentPieSvg = `<circle cx="${cx}" cy="${cy}" r="${r}" stroke="rgba(255,255,255,0.30)" stroke-width="${strokeW}" fill="none"/><circle cx="${cx}" cy="${cy}" r="${r}" stroke="url(#${ringGradId})" stroke-width="${strokeW}" fill="none" stroke-linecap="round" stroke-dasharray="${dash} ${circumference}" stroke-dashoffset="0" transform="rotate(-90 ${cx} ${cy})" filter="url(#${glowId})"/>`;
+      if (path) {
+        rentPieSvg += `<path d="${path}" fill="url(#${rentGradId})" stroke="${pieColors.stroke}" stroke-width="1.1" transform="translate(${cx - innerR}, ${cy - innerR})"/>`;
+      }
       extraRingSvg = `<circle cx="${cx}" cy="${cy}" r="${r + 2}" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="1"/>`;
     }
 
@@ -2122,17 +2271,18 @@ const EnhancedFarmMap = forwardRef(({
     const imgX = (size - imgSize) / 2;
     const imgY = (size - imgSize) / 2;
 
-    const keyframes = purchased
+    const keyframes = showStakeOverlay
       ? '<style>@keyframes g-glow-pulse{0%{filter:brightness(1) drop-shadow(0 0 12px rgba(255,255,255,0.9));transform:scale(1)}50%{filter:brightness(1.2) drop-shadow(0 0 20px rgba(255,255,255,1));transform:scale(1.05)}100%{filter:brightness(1) drop-shadow(0 0 12px rgba(255,255,255,0.9));transform:scale(1)}}@keyframes g-heartbeat{0%,50%,100%{transform:scale(1)}25%,75%{transform:scale(1.1)}}</style>'
       : '';
 
     const imageEl = `<image href="${imgSrc || ''}" xlink:href="${imgSrc || ''}" x="${imgX}" y="${imgY}" width="${imgSize}" height="${imgSize}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice"/>`;
-    const imageWithPulse = purchased
+    const imageWithPulse = showStakeOverlay
       ? `<g style="animation: g-glow-pulse 1.5s ease-in-out infinite, g-heartbeat 2s ease-in-out infinite; transform-origin: 50% 50%;"><image href="${imgSrc || ''}" xlink:href="${imgSrc || ''}" x="${imgX}" y="${imgY}" width="${imgSize}" height="${imgSize}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice"/></g>`
       : imageEl;
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><defs>${keyframes}${harvestRingSvg}<clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${imgSize / 2}"/></clipPath></defs>${purchased ? rentPieSvg : ''}${imageWithPulse}${extraRingSvg}</svg>`;
-  }, [getHarvestProgressInfo, getRingGradientByHarvest, getPiePath, getProductImageSrc, getOccupiedArea, isProductPurchased]);
+    const defsBlock = `${keyframes}${harvestRingSvg}<clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${imgSize / 2}"/></clipPath>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><defs>${defsBlock}</defs>${rentPieSvg}${imageWithPulse}${extraRingSvg}</svg>`;
+  }, [getHarvestProgressInfo, getRingGradientByHarvest, getPiePath, getOccupancyPieColors, getProductImageSrc, getOccupiedArea, showMapOccupancyOverlay]);
 
   // const isHarvestReached = useCallback((prod) => {
   //   const days = getDaysUntilHarvest(prod);
@@ -2325,6 +2475,14 @@ const EnhancedFarmMap = forwardRef(({
         if (onNotification) {
           onNotification('Please log in to make a purchase.', 'error');
         }
+        return;
+      }
+
+      if (isFieldFullyOccupied(product)) {
+        if (onNotification) {
+          onNotification('This field is fully occupied. No area is left to rent or purchase.', 'error');
+        }
+        setInsufficientFunds(false);
         return;
       }
 
@@ -2722,6 +2880,10 @@ const EnhancedFarmMap = forwardRef(({
     const ownerId = product.farmer_id || product.owner_id || product.created_by;
     if (ownerId && String(ownerId) === String(currentUser.id)) {
       if (onNotification) onNotification('You cannot rent your own field.', 'error');
+      return;
+    }
+    if (isFieldFullyOccupied(product)) {
+      if (onNotification) onNotification('This field is fully occupied. No area is left to rent.', 'error');
       return;
     }
     const availableArea = getAvailableArea(product);
@@ -3225,7 +3387,7 @@ const EnhancedFarmMap = forwardRef(({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setPopupTab('details');
+                  setPopupTab('rent');
                   setSelectedProduct(f);
 
                   fetchLocationForProduct(f);
@@ -3441,7 +3603,7 @@ const EnhancedFarmMap = forwardRef(({
                 {renderPopupTabs()}
 
                 {/* Tab Content */}
-                {popupTab === 'details' ? (
+                {popupTab === 'rent' ? (
                   <div style={{ animation: 'cardSlideIn 0.3s ease-out' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
                       <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>
@@ -3496,7 +3658,14 @@ const EnhancedFarmMap = forwardRef(({
                       </div>
                     </div>
                   </div>
-                ) : renderWeatherTabContent()}
+                ) : (
+                  <div style={{ animation: 'cardSlideIn 0.3s ease-out', fontSize: isMobile ? '9px' : '11px', color: '#475569', lineHeight: 1.4 }}>
+                    {selectedProduct.short_description ? (
+                      <div style={{ marginBottom: 8 }}>{selectedProduct.short_description}</div>
+                    ) : null}
+                    {(selectedProduct.description || '').slice(0, 400)}{(selectedProduct.description || '').length > 400 ? '…' : ''}
+                  </div>
+                )}
               </div>
 
             </div>
@@ -3673,72 +3842,10 @@ const EnhancedFarmMap = forwardRef(({
                         }}
                       />
                     )}
-                    {isProductPurchased(product) && (() => {
-                      const size = isMobile ? 46 : 60;
-                      const strokeW = isMobile ? 4 : 5;
-                      const innerR = isMobile ? 18 : 22;
-                      const { progress: harvestProgress } = getHarvestProgressInfo(product);
-                      const grad = getRingGradientByHarvest(product);
-                      const occ = getOccupiedArea(product);
-                      const total = typeof product.total_area === 'string' ? parseFloat(product.total_area) : (product.total_area || 0);
-                      const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
-                      const r = (size / 2) - (strokeW / 2);
-                      const circumference = 2 * Math.PI * r;
-                      const harvestDash = Math.max(0, Math.min(circumference, harvestProgress * circumference));
-                      const path = getPiePath(innerR, occRatio);
-                      const cx = size / 2;
-                      const cy = size / 2;
-                      const ringGradId = `ringGrad-${product.id}`;
-                      const glowId = `ringGlow-${product.id}`;
-                      const rentGradId = `rentGrad-${product.id}`;
-
-                      return (
-                        <svg
-                          width={size}
-                          height={size}
-                          style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1 }}
-                        >
-                          <defs>
-                            <linearGradient id={ringGradId} x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor={grad.start} stopOpacity="0.95" />
-                              <stop offset="100%" stopColor={grad.end} stopOpacity="0.95" />
-                            </linearGradient>
-                            <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
-                              <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#FFD8A8" floodOpacity="0.45" />
-                            </filter>
-                            <radialGradient id={rentGradId} cx="50%" cy="50%" r="50%">
-                              <stop offset="0%" stopColor="rgba(33,150,243,0.7)" />
-                              <stop offset="100%" stopColor="rgba(33,150,243,0.4)" />
-                            </radialGradient>
-                          </defs>
-                          <circle cx={cx} cy={cy} r={r} stroke={'rgba(255,255,255,0.30)'} strokeWidth={strokeW} fill="none" />
-                          <circle
-                            cx={cx}
-                            cy={cy}
-                            r={r}
-                            stroke={`url(#${ringGradId})`}
-                            strokeWidth={strokeW}
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeDasharray={`${harvestDash} ${circumference}`}
-                            strokeDashoffset={0}
-                            transform={`rotate(-90 ${cx} ${cy})`}
-                            filter={`url(#${glowId})`}
-                          />
-                          <path d={path} fill={`url(#${rentGradId})`} stroke={'rgba(33,150,243,0.85)'} strokeWidth={1.1} transform={`translate(${cx - innerR}, ${cy - innerR})`} />
-                        </svg>
-                      );
-                    })()}
-                    {(isProductPurchased(product) && isHarvestWithinGrace(product, 4)) && (() => {
-                      const modes = getShippingModes(product).map(m => (m || '').toLowerCase());
-                      const mode = modes.includes('pickup') ? 'pickup' : (modes.includes('delivery') ? 'delivery' : null);
-                      return mode ? addShippingOrbit(product, mode) : null;
-                    })()}
                     <img
                       src={getProductImageSrc(product)}
                       alt={product.name || product.productName || 'Product'}
                       onError={(e) => {
-                        // Debug: image failed, fallback to product icon
                         // eslint-disable-next-line no-console
                         console.warn('[Marker Image Error] Fallback to icon:', product.id, product.name, product.image);
                         const fallback = getProductIcon(product.subcategory || product.category);
@@ -3762,7 +3869,6 @@ const EnhancedFarmMap = forwardRef(({
                         padding: '0',
                         transition: 'all 0.3s ease',
                         transformOrigin: 'center bottom',
-
                         animation: isProductPurchased(product)
                           ? 'glow-pulse-white 1.5s infinite, heartbeat 2s infinite'
                           : product.isFarmerCreated
@@ -3771,6 +3877,79 @@ const EnhancedFarmMap = forwardRef(({
                         ...(harvestingIds.has(product.id) ? { animation: 'harvest-bounce 700ms ease-in-out infinite' } : {})
                       }}
                     />
+                    {(() => {
+                      if (!showMapOccupancyOverlay(product)) return null;
+                      const total = getFieldTotalAreaM2(product);
+                      const showPie = total > 0;
+
+                      const size = isMobile ? 46 : 60;
+                      const strokeW = isMobile ? 4 : 5;
+                      const innerR = isMobile ? 18 : 22;
+                      const cx = size / 2;
+                      const cy = size / 2;
+                      const r = (size / 2) - (strokeW / 2);
+                      const occ = getOccupiedArea(product);
+                      const occRatio = total > 0 ? Math.max(0, Math.min(1, occ / total)) : 0;
+                      const pieColors = getOccupancyPieColors(occRatio);
+                      const path = showPie ? getPiePath(innerR, occRatio) : '';
+                      const ringGradId = `ringGrad-${product.id}`;
+                      const glowId = `ringGlow-${product.id}`;
+                      const rentGradId = `rentGrad-${product.id}`;
+                      const { progress: harvestProgress } = getHarvestProgressInfo(product);
+                      const grad = getRingGradientByHarvest(product);
+                      const circumference = 2 * Math.PI * r;
+                      const harvestDash = Math.max(0, Math.min(circumference, harvestProgress * circumference));
+
+                      return (
+                        <svg
+                          width={size}
+                          height={size}
+                          style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1 }}
+                        >
+                          <defs>
+                            <linearGradient id={ringGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor={grad.start} stopOpacity="0.95" />
+                              <stop offset="100%" stopColor={grad.end} stopOpacity="0.95" />
+                            </linearGradient>
+                            <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
+                              <feDropShadow dx="0" dy="0" stdDeviation="2.4" floodColor="#FFD8A8" floodOpacity="0.45" />
+                            </filter>
+                            <radialGradient id={rentGradId} cx="50%" cy="50%" r="50%">
+                              <stop offset="0%" stopColor={pieColors.inner} />
+                              <stop offset="100%" stopColor={pieColors.outer} />
+                            </radialGradient>
+                          </defs>
+                          <circle cx={cx} cy={cy} r={r} stroke="rgba(255,255,255,0.30)" strokeWidth={strokeW} fill="none" />
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={r}
+                            stroke={`url(#${ringGradId})`}
+                            strokeWidth={strokeW}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={`${harvestDash} ${circumference}`}
+                            strokeDashoffset={0}
+                            transform={`rotate(-90 ${cx} ${cy})`}
+                            filter={`url(#${glowId})`}
+                          />
+                          {path ? (
+                            <path
+                              d={path}
+                              fill={`url(#${rentGradId})`}
+                              stroke={pieColors.stroke}
+                              strokeWidth={1.1}
+                              transform={`translate(${cx - innerR}, ${cy - innerR})`}
+                            />
+                          ) : null}
+                        </svg>
+                      );
+                    })()}
+                    {(isProductPurchased(product) && isHarvestWithinGrace(product, 4)) && (() => {
+                      const modes = getShippingModes(product).map(m => (m || '').toLowerCase());
+                      const mode = modes.includes('pickup') ? 'pickup' : (modes.includes('delivery') ? 'delivery' : null);
+                      return mode ? addShippingOrbit(product, mode) : null;
+                    })()}
                     {/* Farmer Created Badge */}
                     {product.isFarmerCreated && (
                       <div style={{
@@ -3792,6 +3971,32 @@ const EnhancedFarmMap = forwardRef(({
                         zIndex: 10
                       }}>
                         F
+                      </div>
+                    )}
+                    {isFieldOwnedByCurrentUser(product) && (
+                      <div
+                        title="Your field"
+                        style={{
+                          position: 'absolute',
+                          left: '50%',
+                          bottom: isMobile ? '-11px' : '-13px',
+                          transform: 'translateX(-50%)',
+                          fontSize: isMobile ? '7px' : '8px',
+                          fontWeight: 600,
+                          lineHeight: 1.15,
+                          color: '#0f172a',
+                          backgroundColor: '#ffffff',
+                          padding: '1px 4px',
+                          borderRadius: '3px',
+                          border: '1px solid rgba(15, 23, 42, 0.12)',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.12)',
+                          whiteSpace: 'nowrap',
+                          pointerEvents: 'none',
+                          zIndex: 11,
+                          letterSpacing: '0.02em',
+                        }}
+                      >
+                        My field
                       </div>
                     )}
                   </div>
@@ -4560,7 +4765,7 @@ const EnhancedFarmMap = forwardRef(({
               backgroundColor: 'white',
               borderRadius: isMobile ? '8px' : '12px',
               padding: '0',
-              width: isMobile ? '280px' : '340px',
+              width: isMobile ? 'min(92vw, 320px)' : '380px',
               boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
               border: '1px solid #e9ecef',
               fontFamily: 'system-ui, -apple-system, sans-serif',
@@ -4577,20 +4782,15 @@ const EnhancedFarmMap = forwardRef(({
                 }}
                 style={{
                   cursor: 'pointer',
-                  fontSize: isMobile ? '12px' : '14px',
-                  color: '#6c757d',
-                  width: isMobile ? '20px' : '24px',
-                  height: isMobile ? '20px' : '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '50%',
-                  backgroundColor: '#f0f0f0',
+                  fontSize: isMobile ? '14px' : '16px',
+                  color: '#94a3b8',
+                  lineHeight: 1,
                   position: 'absolute',
-                  top: isMobile ? '6px' : '8px',
-                  right: isMobile ? '6px' : '8px',
-                  fontWeight: 'bold',
-                  zIndex: 10
+                  top: isMobile ? '4px' : '6px',
+                  right: isMobile ? '8px' : '10px',
+                  fontWeight: 400,
+                  zIndex: 10,
+                  padding: '4px'
                 }}
               >
                 ✕
@@ -4598,30 +4798,29 @@ const EnhancedFarmMap = forwardRef(({
 
 
               {/* Location */}
-              {showPurchaseUI && (
-                <div style={{
-                  fontSize: isMobile ? '9px' : '10px',
-                  color: '#6c757d',
-                  marginBottom: isMobile ? '6px' : '8px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  fontWeight: 500
-                }}>
-                  {(() => {
-                    const cachedLocation = productLocations.get(selectedProduct.id);
-                    const fallbackLocation = selectedProduct.location;
-                    const displayLocation = cachedLocation || fallbackLocation || 'LOADING LOCATION...';
-                    return displayLocation;
-                  })()}
-                </div>
-              )}
+              <div style={{
+                fontSize: isMobile ? '9px' : '10px',
+                color: '#6c757d',
+                marginBottom: isMobile ? '6px' : '8px',
+                paddingRight: '28px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                fontWeight: 500
+              }}>
+                {(() => {
+                  const cachedLocation = productLocations.get(selectedProduct.id);
+                  const fallbackLocation = selectedProduct.location;
+                  const displayLocation = cachedLocation || fallbackLocation || 'LOADING LOCATION...';
+                  return displayLocation;
+                })()}
+              </div>
             </div>
 
               {/* Content */}
               <div
                 ref={popupContentScrollRef}
                 style={{
-                  padding: isMobile ? '0 12px 0' : '0 16px 0',
+                  padding: isMobile ? '0 12px 12px' : '0 16px 14px',
                   position: 'relative',
                   maxHeight: 'calc(75vh - 60px)',
                   overflowY: 'auto',
@@ -4632,256 +4831,274 @@ const EnhancedFarmMap = forwardRef(({
               <style>
                 {`@keyframes popupPulse { 0% { transform: scale(1); } 100% { transform: scale(1.07); } }`}
               </style>
-              {/* Main Content Row */}
-              <div style={{ display: 'flex', gap: isMobile ? '8px' : '10px', marginBottom: isMobile ? '10px' : '12px' }}>
-                {showPurchaseUI && (
-                  <>
-                    {/* Left side - Product Image */}
-                    <div style={{
-                      width: isMobile ? '60px' : '70px',
-                      height: isMobile ? '60px' : '70px',
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: isMobile ? '4px' : '6px',
-                      flexShrink: 0
-                    }}>
-                      <img
-                        src={getProductImageSrc(selectedProduct)}
-                        alt={selectedProduct.name || selectedProduct.productName || 'Product'}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: isMobile ? '4px' : '6px' }}
-                        onError={(e) => { e.currentTarget.src = getProductIcon(selectedProduct?.subcategory || selectedProduct?.category); }}
-                      />
-                    </div>
+              {/* Header row: thumbnail + stars | title block | weather + Cam + Chat */}
+              <div style={{ display: 'flex', gap: isMobile ? '8px' : '12px', marginBottom: isMobile ? '10px' : '12px', alignItems: 'flex-start' }}>
+                <div style={{ width: isMobile ? '64px' : '76px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <div style={{
+                    width: '100%',
+                    aspectRatio: '1',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: isMobile ? '6px' : '8px',
+                    overflow: 'hidden'
+                  }}>
+                    <img
+                      src={getProductImageSrc(selectedProduct)}
+                      alt={selectedProduct.name || selectedProduct.productName || 'Product'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => { e.currentTarget.src = getProductIcon(selectedProduct?.subcategory || selectedProduct?.category); }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0px', lineHeight: 1 }}>
+                    {(() => {
+                      const r = parseFloat(selectedProduct.rating);
+                      const rounded = Number.isFinite(r) ? Math.min(5, Math.max(0, Math.round(r))) : 0;
+                      return [1, 2, 3, 4, 5].map((star) => (
+                        <span key={star} style={{ color: star <= rounded ? '#fbbf24' : '#e5e7eb', fontSize: isMobile ? '11px' : '13px' }}>★</span>
+                      ));
+                    })()}
+                  </div>
+                </div>
 
-                    {/* Middle - Product Info */}
-                    <div style={{ flex: 1 }}>
-                      {/* Product Name and Category */}
-                      <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: '2px' }}>
-                        {selectedProduct.category || 'Category'}
-                      </div>
-                      <div style={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 600, color: '#212529', marginBottom: '2px' }}>
-                        {selectedProduct.name || 'Product Name'}
-                      </div>
-
-                      {/* Farm Name */}
-                      {selectedProduct.farmName && (
-                        <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#28a745', marginBottom: '2px', fontWeight: 500 }}>
-                          🏡 {selectedProduct.farmName}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', marginBottom: '2px' }}>
+                    {selectedProduct.subcategory || selectedProduct.category || 'Crop'}
+                  </div>
+                  <div style={{ fontSize: isMobile ? '15px' : '17px', fontWeight: 700, color: '#0f172a', marginBottom: '4px', lineHeight: 1.2 }}>
+                    {selectedProduct.name || 'Product Name'}
+                  </div>
+                  {(() => {
+                    const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
+                    const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
+                    const label = selectedProduct.farmName || selectedProduct.farm_name || selectedProduct.farmer_name || 'Farm';
+                    const farmerPath = userType === 'farmer' ? `/farmer/farmers/${ownerId}` : `/buyer/farmers/${ownerId}`;
+                    if (!ownerId || isOwner) {
+                      return (
+                        <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>
+                          {label}
                         </div>
-                      )}
-
-                      {/* Farmer Name - use current user name when they own the field (avoids stale "Demo Farmer") */}
-                      <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#6c757d', marginBottom: isMobile ? '6px' : '8px' }}>
-                        ({(() => {
-                          const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
-                          const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
-                          return (selectedProduct.isOwnField || isOwner) ? (currentUser?.name || 'You') : (selectedProduct.farmer_name || 'Farmer');
-                        })()})
-                      </div>
-
-                      {/* Action Buttons: Chat & Webcam */}
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: isMobile ? '8px' : '10px' }}>
-                        {/* Chat to owner */}
-                        {(() => {
-                          const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
-                          const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
-                          if (!ownerId || isOwner) return null;
-                          const messagesPath = userType === 'farmer' ? '/farmer/messages' : '/buyer/messages';
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedProduct(null);
-                                setPopupPosition(null);
-                                navigate(messagesPath, { state: { openWithUserId: ownerId, openWithUserName: selectedProduct.farmer_name || 'Field owner' } });
-                              }}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                padding: isMobile ? '4px 8px' : '6px 10px',
-                                backgroundColor: '#4caf50',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                fontSize: isMobile ? '10px' : '11px',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 6px rgba(76, 175, 80, 0.25)',
-                                transition: 'all 0.2s ease',
-                                flex: 1,
-                                justifyContent: 'center'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#43a047';
-                                e.currentTarget.style.transform = 'translateY(-1px)';
-                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(76, 175, 80, 0.35)';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = '#4caf50';
-                                e.currentTarget.style.transform = 'translateY(0)';
-                                e.currentTarget.style.boxShadow = '0 2px 6px rgba(76, 175, 80, 0.25)';
-                              }}
-                              title="Chat with owner"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" /></svg>
-                              Chat
-                            </button>
-                          );
-                        })()}
-
-                        {/* Webcam button */}
-                        {selectedProduct?.webcam_url && (
-                          <button
-                            type="button"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: isMobile ? '4px 8px' : '6px 10px',
-                              backgroundColor: '#007bff',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '6px',
-                              fontSize: isMobile ? '10px' : '11px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              boxShadow: '0 2px 6px rgba(0, 123, 255, 0.25)',
-                              transition: 'all 0.2s ease',
-                              flex: 1,
-                              justifyContent: 'center'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = '#0056b3';
-                              e.currentTarget.style.transform = 'translateY(-1px)';
-                              e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 123, 255, 0.35)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = '#007bff';
-                              e.currentTarget.style.transform = 'translateY(0)';
-                              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0, 123, 255, 0.25)';
-                            }}
-                            onClick={() => {
-                              setSelectedFarmForWebcam({
-                                name: selectedProduct?.farm_name || selectedProduct?.name || 'Farm',
-                                webcamUrl: selectedProduct?.webcam_url
-                              });
-                              setWebcamPopupOpen(true);
-                            }}
-                            title="View Live Camera Feed"
-                          >
-                            <svg width={isMobile ? "12" : "14"} height={isMobile ? "12" : "14"} viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7-3.5c0-1-.3-2-.8-2.8l2.4-2.4c.8 1.3 1.3 2.8 1.3 4.4s-.5 3.1-1.3 4.4l-2.4-2.4c.5-.8.8-1.8.8-2.8M4.3 19.3l2.4-2.4c.8.5 1.8.8 2.8.8s2-.3 2.8-.8l2.4 2.4c-1.3.8-2.8 1.3-4.4 1.3s-3.1-.5-4.4-1.3M19.7 4.7l-2.4 2.4c-.8-.5-1.8-.8-2.8-.8s-2 .3-2.8.8L9.3 4.7C10.6 3.9 12.2 3.4 13.8 3.4s3.1.5 4.4 1.3z" />
-                              <circle cx="12" cy="12" r="3" fill="currentColor" />
-                            </svg>
-                            Cam
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Rating */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1px', marginBottom: '2px' }}>
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <span key={star} style={{ color: star <= 4 ? '#ffc107' : '#e9ecef', fontSize: isMobile ? '10px' : '12px' }}>★</span>
-                        ))}
-                      </div>
-
-                      {/* Weather */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontSize: isMobile ? '10px' : '12px' }}>🌤️</span>
-                        <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#6c757d' }}>
-                          {productWeather.get(String(selectedProduct.id))?.weatherString || selectedProduct.weather || 'Unknown weather'}
-
-                        </div>
-                      </div>
+                      );
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { navigate(farmerPath); }}
+                        style={{
+                          display: 'block',
+                          fontSize: isMobile ? '10px' : '12px',
+                          color: '#64748b',
+                          marginBottom: '4px',
+                          fontWeight: 500,
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          border: 'none',
+                          background: 'none',
+                          padding: 0,
+                          textAlign: 'left'
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })()}
+                  {selectedProduct.short_description ? (
+                    <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#334155', lineHeight: 1.4 }}>
+                      {selectedProduct.short_description}
                     </div>
+                  ) : null}
+                </div>
 
-                    {/* Right side - Area Info */}
-                    <div style={{
-                      width: isMobile ? '60px' : '70px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                      justifyContent: 'center'
-                    }}>
-                      <div style={{ width: '100%', fontSize: isMobile ? '9px' : '10px', color: '#6c757d', marginBottom: '3px', textAlign: 'left', fontWeight: 600 }}>
-                        Occupied
+                <div style={{ width: isMobile ? '86px' : '96px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '6px' }}>
+                  {(() => {
+                    const w = productWeather.get(String(selectedProduct.id));
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '4px', fontSize: isMobile ? '9px' : '10px', color: '#64748b', lineHeight: 1.25 }}>
+                        <span style={{ flexShrink: 0 }}>
+                          {w?.icon ? (
+                            <img
+                              src={`https://openweathermap.org/img/wn/${w.icon}@2x.png`}
+                              alt=""
+                              style={{ width: 22, height: 22, display: 'block' }}
+                            />
+                          ) : '🌤️'}
+                        </span>
+                        <span style={{ wordBreak: 'break-word' }}>
+                          {w?.weatherString || selectedProduct.weather || '—'}
+                        </span>
                       </div>
-                      <div style={{ width: '100%', fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: '3px', textAlign: 'right' }}>
-                        {formatAreaInt(getOccupiedArea(selectedProduct))}/{formatAreaInt(selectedProduct.total_area || 0)}m²
-                      </div>
-                      <div style={{
+                    );
+                  })()}
+                  {selectedProduct?.webcam_url ? (
+                    <button
+                      type="button"
+                      style={{
                         width: '100%',
-                        height: isMobile ? '4px' : '6px',
-                        backgroundColor: '#e9ecef',
-                        borderRadius: isMobile ? '2px' : '3px',
-                        overflow: 'hidden',
-                        marginBottom: '3px'
-                      }}>
-                        <div style={{
-                          width: `${Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%`,
-                          height: '100%',
-                          backgroundColor: '#28a745'
-                        }} />
-                      </div>
-                      <div style={{
-                        fontSize: isMobile ? '9px' : '11px',
-                        color: '#28a745',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        padding: '6px 8px',
+                        backgroundColor: '#2563eb',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: isMobile ? '10px' : '11px',
                         fontWeight: 600,
-                        textAlign: 'right'
-                      }}>
-                        Occupied {Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%
-                      </div>
-
-                      <div style={{ width: '100%', fontSize: isMobile ? '9px' : '10px', color: '#6c757d', marginTop: '4px', marginBottom: '3px', textAlign: 'left', fontWeight: 600 }}>
-                        Harvest
-                      </div>
-                      <div style={{
-                        width: '100%',
-                        height: isMobile ? '4px' : '6px',
-                        backgroundColor: '#e9ecef',
-                        borderRadius: isMobile ? '2px' : '3px',
-                        overflow: 'hidden',
-                        marginTop: '4px',
-                        marginBottom: '3px'
-                      }}>
-                        <div style={{
-                          width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
-                          height: '100%',
-                          background: (() => {
-                            const grad = getRingGradientByHarvest(selectedProduct);
-                            return `linear-gradient(90deg, ${grad.start}, ${grad.end})`;
-                          })()
-                        }} />
-                      </div>
-                      <div style={{
-                        fontSize: isMobile ? '9px' : '11px',
-                        color: (() => getRingGradientByHarvest(selectedProduct).end)(),
-                        fontWeight: 600,
-                        textAlign: 'right'
-                      }}>
-                        {(() => {
-                          const info = getHarvestProgressInfo(selectedProduct);
-                          const pct = Math.round((info.progress || 0) * 100);
-                          const daysText = typeof info.daysUntil === 'number'
-                            ? ` • ${Math.max(0, info.daysUntil)}d left`
-                            : '';
-                          return `Harvest ${pct}%${daysText}`;
-                        })()}
-                      </div>
-                    </div>
-                  </>
-                )}
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(37,99,235,0.35)'
+                      }}
+                      onClick={() => {
+                        setSelectedFarmForWebcam({
+                          name: selectedProduct?.farm_name || selectedProduct?.name || 'Farm',
+                          webcamUrl: selectedProduct?.webcam_url
+                        });
+                        setWebcamPopupOpen(true);
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7-3.5c0-1-.3-2-.8-2.8l2.4-2.4c.8 1.3 1.3 2.8 1.3 4.4s-.5 3.1-1.3 4.4l-2.4-2.4c.5-.8.8-1.8.8-2.8M4.3 19.3l2.4-2.4c.8.5 1.8.8 2.8.8s2-.3 2.8-.8l2.4 2.4c-1.3.8-2.8 1.3-4.4 1.3s-3.1-.5-4.4-1.3M19.7 4.7l-2.4 2.4c-.8-.5-1.8-.8-2.8-.8s-2 .3-2.8.8L9.3 4.7C10.6 3.9 12.2 3.4 13.8 3.4s3.1.5 4.4 1.3z" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg>
+                      Cam
+                    </button>
+                  ) : null}
+                  {(() => {
+                    const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
+                    const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
+                    if (!ownerId || isOwner) return null;
+                    const fieldKey = String(selectedProduct?.id ?? selectedProduct?.field_id ?? '');
+                    const purchaseEntry = purchasedProducts.find(p => String(p.id ?? p.field_id) === fieldKey);
+                    const hasOrderInProgress = !!purchaseEntry && (
+                      purchaseEntry.last_order_purchased === true ||
+                      (typeof purchaseEntry.purchased_area === 'number' && purchaseEntry.purchased_area > 0)
+                    );
+                    if (!hasOrderInProgress) return null;
+                    const messagesPath = userType === 'farmer' ? '/farmer/messages' : '/buyer/messages';
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProduct(null);
+                          setPopupPosition(null);
+                          navigate(messagesPath, { state: { openWithUserId: ownerId, openWithUserName: selectedProduct.farmer_name || 'Field owner' } });
+                        }}
+                        style={{
+                          width: '100%',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          padding: '6px 8px',
+                          backgroundColor: '#22c55e',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: isMobile ? '10px' : '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 3px rgba(34,197,94,0.35)'
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" /></svg>
+                        Chat
+                      </button>
+                    );
+                  })()}
+                </div>
               </div>
+
+              {/* Occupancy + harvest (full width) */}
+              {(() => {
+                const totalRaw = fieldOccupancy?.total_area_m2 != null
+                  ? parseFloat(fieldOccupancy.total_area_m2)
+                  : parseFloat(selectedProduct.total_area || 0);
+                const total = Number.isFinite(totalRaw) ? totalRaw : 0;
+                let myM = fieldOccupancy != null ? parseFloat(fieldOccupancy.my_rented_m2) || 0 : null;
+                let otherM = fieldOccupancy != null ? parseFloat(fieldOccupancy.others_rented_m2) || 0 : null;
+                if (fieldOccupancy == null && total > 0) {
+                  const occ = getOccupiedArea(selectedProduct) || 0;
+                  const fk = String(selectedProduct?.id ?? selectedProduct?.field_id ?? '');
+                  const pe = purchasedProducts.find(p => String(p.id ?? p.field_id) === fk);
+                  const myRaw = pe?.purchased_area ?? pe?.quantity ?? pe?.area_rented;
+                  myM = typeof myRaw === 'string' ? parseFloat(myRaw) : (myRaw || 0);
+                  otherM = Math.max(0, occ - (myM || 0));
+                }
+                if (myM == null) myM = 0;
+                if (otherM == null) otherM = Math.max(0, (getOccupiedArea(selectedProduct) || 0) - myM);
+                const availVal = fieldOccupancy?.available_m2 != null
+                  ? parseFloat(fieldOccupancy.available_m2)
+                  : getAvailableArea(selectedProduct);
+                let rawMy = total > 0 ? (myM / total) * 100 : 0;
+                let rawOther = total > 0 ? (otherM / total) * 100 : 0;
+                const sumParts = rawMy + rawOther;
+                if (sumParts > 100) {
+                  rawMy = (rawMy / sumParts) * 100;
+                  rawOther = (rawOther / sumParts) * 100;
+                }
+                const pctAvail = Math.max(0, 100 - rawMy - rawOther);
+                const hInfo = getHarvestProgressInfo(selectedProduct);
+                const hPct = Math.round((hInfo.progress || 0) * 100);
+                const daysText = typeof hInfo.daysUntil === 'number'
+                  ? ` • ${Math.max(0, hInfo.daysUntil)} days left`
+                  : '';
+                return (
+                  <div style={{ marginBottom: isMobile ? '10px' : '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                      <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#16a34a', fontWeight: 600 }}>
+                        My rented area: {formatAreaInt(myM)} m²
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#0f172a', fontWeight: 700 }}>
+                          Total field {formatAreaInt(total)}m²
+                        </div>
+                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
+                          Available: {formatAreaInt(availVal)}m²
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{
+                      width: '100%',
+                      height: isMobile ? '8px' : '10px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '5px',
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'row',
+                      marginBottom: '10px'
+                    }}>
+                      <div title="Your area" style={{ width: `${rawMy}%`, height: '100%', backgroundColor: '#22c55e', flexShrink: 0 }} />
+                      <div title="Others" style={{ width: `${rawOther}%`, height: '100%', backgroundColor: '#4b5563', flexShrink: 0 }} />
+                      <div title="Available" style={{ width: `${pctAvail}%`, height: '100%', backgroundColor: '#e8eaed', flexShrink: 0 }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', fontWeight: 600 }}>Harvest progress</span>
+                      <span style={{ fontSize: isMobile ? '10px' : '11px', color: '#0f172a', fontWeight: 600 }}>
+                        {hPct}%{daysText}
+                      </span>
+                    </div>
+                    <div style={{
+                      width: '100%',
+                      height: isMobile ? '5px' : '6px',
+                      backgroundColor: '#e5e7eb',
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        width: `${hPct}%`,
+                        height: '100%',
+                        backgroundColor: '#ef4444'
+                      }} />
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Tab Navigation */}
               {renderPopupTabs()}
 
               {/* Tab Content */}
-              {popupTab === 'details' ? (
+              {popupTab === 'rent' ? (
                 <div style={{ animation: 'cardSlideIn 0.3s ease-out' }}>
                   {showPurchaseUI && (
                     <>
                       {/* Combined Harvest and Delivery Dates Row */}
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: isMobile ? '12px' : '16px' }}>
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: isMobile ? '12px' : '16px' }}>
                         {/* Harvest Date Section */}
                         <div style={{ flex: 1, fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
                           {(() => {
@@ -4906,10 +5123,10 @@ const EnhancedFarmMap = forwardRef(({
                                   <div
                                     style={{
                                       fontSize: '10px',
-                                      padding: '4px 8px',
+                                      padding: '8px 10px',
                                       backgroundColor: '#94a3b8',
                                       color: 'white',
-                                      borderRadius: '4px',
+                                      borderRadius: '10px',
                                       display: 'block',
                                       textAlign: 'center',
                                       fontWeight: 700,
@@ -4965,10 +5182,10 @@ const EnhancedFarmMap = forwardRef(({
                                 <div
                                   style={{
                                     fontSize: '10px',
-                                    padding: '4px 8px',
+                                    padding: '8px 10px',
                                     backgroundColor: '#10b981',
                                     color: 'white',
-                                    borderRadius: '4px',
+                                    borderRadius: '10px',
                                     display: 'block',
                                     textAlign: 'center',
                                     fontWeight: 700,
@@ -5004,7 +5221,7 @@ const EnhancedFarmMap = forwardRef(({
                             if (!dateRaw) return (
                               <div>
                                 <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
-                                <div style={{ fontSize: '10px', padding: '4px 8px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '4px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
+                                <div style={{ fontSize: '10px', padding: '8px 10px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '10px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
                               </div>
                             );
 
@@ -5013,7 +5230,7 @@ const EnhancedFarmMap = forwardRef(({
                               return (
                                 <div>
                                   <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
-                                  <div style={{ fontSize: '10px', padding: '4px 8px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '4px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
+                                  <div style={{ fontSize: '10px', padding: '8px 10px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '10px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
                                 </div>
                               );
                             }
@@ -5027,10 +5244,10 @@ const EnhancedFarmMap = forwardRef(({
                                 <div
                                   style={{
                                     fontSize: '10px',
-                                    padding: '4px 8px',
-                                    backgroundColor: '#f59e0b', // Thematic Orange
+                                    padding: '8px 10px',
+                                    backgroundColor: '#f59e0b',
                                     color: 'white',
-                                    borderRadius: '4px',
+                                    borderRadius: '10px',
                                     display: 'block',
                                     textAlign: 'center',
                                     fontWeight: 700,
@@ -5172,9 +5389,14 @@ const EnhancedFarmMap = forwardRef(({
                             <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
                               Price {(parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || parseFloat(selectedProduct.sellingPrice) || 0).toFixed(2)}$/m²
                             </div>
-                            <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
-                              Exp Prod {selectedProduct.production_rate || selectedProduct.productionRate || 'N/A'} {selectedProduct.production_rate_unit || 'Kg'}
+                            <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', fontWeight: 500 }}>
+                              Estimated Prod {selectedProduct.production_rate || selectedProduct.productionRate || 'N/A'} {selectedProduct.production_rate_unit || 'Kg'}/m²
                             </div>
+                            {selectedProduct.last_harvest_production_rate != null && selectedProduct.last_harvest_production_rate !== '' ? (
+                              <div style={{ fontSize: isMobile ? '9px' : '10px', color: '#94a3b8', marginTop: 2 }}>
+                                Last Harvest Prod {String(selectedProduct.last_harvest_production_rate)} {selectedProduct.production_rate_unit || 'Kg'}/m²
+                              </div>
+                            ) : null}
                           </div>
 
                           {/* Shipping Options (only for Buy) */}
@@ -5383,24 +5605,27 @@ const EnhancedFarmMap = forwardRef(({
                               </div>
                             ) : (
                               <button
+                                type="button"
                                 onClick={() => handleBuyNow(selectedProduct)}
-                                disabled={buyNowInProgress}
+                                disabled={buyNowInProgress || isFieldFullyOccupied(selectedProduct)}
+                                title={isFieldFullyOccupied(selectedProduct) ? 'This field is fully occupied' : undefined}
                                 style={{
                                   width: '100%',
-                                  backgroundColor: buyNowInProgress ? '#6c757d' : '#007bff',
+                                  backgroundColor: (buyNowInProgress || isFieldFullyOccupied(selectedProduct)) ? '#6c757d' : '#2563eb',
                                   color: 'white',
                                   border: 'none',
-                                  borderRadius: isMobile ? '4px' : '6px',
-                                  padding: isMobile ? '6px 0' : '8px 0',
-                                  fontSize: isMobile ? '10px' : '12px',
-                                  fontWeight: 600,
-                                  cursor: buyNowInProgress ? 'not-allowed' : 'pointer',
-                                  opacity: buyNowInProgress ? 0.7 : 1,
+                                  borderRadius: isMobile ? '8px' : '10px',
+                                  padding: isMobile ? '8px 6px' : '10px 8px',
+                                  fontSize: isMobile ? '10px' : '11px',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.04em',
+                                  cursor: (buyNowInProgress || isFieldFullyOccupied(selectedProduct)) ? 'not-allowed' : 'pointer',
+                                  opacity: (buyNowInProgress || isFieldFullyOccupied(selectedProduct)) ? 0.7 : 1,
                                   marginBottom: isMobile ? '6px' : '8px',
-                                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                                  boxShadow: '0 2px 6px rgba(37,99,235,0.35)'
                                 }}
                               >
-                                {buyNowInProgress ? 'Processing…' : 'BUY NOW'}
+                                {isFieldFullyOccupied(selectedProduct) ? 'FULLY OCCUPIED' : (buyNowInProgress ? 'Processing…' : 'RENT NOW')}
                               </button>
                             )
                           )}
@@ -5469,7 +5694,163 @@ const EnhancedFarmMap = forwardRef(({
                     </>
                   )}
                 </div>
-              ) : renderWeatherTabContent()}
+              ) : (
+                <div style={{ animation: 'cardSlideIn 0.3s ease-out', paddingBottom: isMobile ? '8px' : '10px' }}>
+                  {(() => {
+                    const raw = Array.isArray(selectedProduct.gallery_images) ? [...selectedProduct.gallery_images] : [];
+                    const slots = [];
+                    for (let i = 0; i < 5; i += 1) slots.push(raw[i] || null);
+                    return (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                        {slots.map((url, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              aspectRatio: '1',
+                              borderRadius: 6,
+                              background: url ? '#f8fafc' : '#e5e7eb',
+                              overflow: 'hidden',
+                              border: url ? 'none' : '1px solid #e2e8f0'
+                            }}
+                          >
+                            {url ? (
+                              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const full = String(selectedProduct.description || '').trim() || '—';
+                    const long = full.length > 220;
+                    const inner = (
+                      <div style={{
+                        fontSize: isMobile ? '10px' : '11px',
+                        color: '#334155',
+                        lineHeight: 1.45,
+                        display: '-webkit-box',
+                        WebkitLineClamp: long ? 4 : 6,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        marginBottom: 14
+                      }}
+                      >
+                        {full}
+                      </div>
+                    );
+                    return long ? (
+                      <Tooltip title={full} arrow placement="top">
+                        {inner}
+                      </Tooltip>
+                    ) : inner;
+                  })()}
+                  <div style={{ fontWeight: 700, fontSize: isMobile ? '10px' : '12px', marginBottom: 8, color: '#0f172a' }}>Reviews:</div>
+                  {fieldReviews.length === 0 ? (
+                    <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#94a3b8' }}>No reviews yet.</div>
+                  ) : (
+                    fieldReviews.map((rev, revIdx) => (
+                      <div
+                        key={rev.id}
+                        style={{
+                          borderTop: revIdx === 0 ? 'none' : '1px solid #e2e8f0',
+                          paddingTop: revIdx === 0 ? 0 : 10,
+                          marginTop: revIdx === 0 ? 0 : 10,
+                          display: 'flex',
+                          gap: 10,
+                          alignItems: 'flex-start'
+                        }}
+                      >
+                        <div style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: '50%',
+                          backgroundColor: '#e2e8f0',
+                          flexShrink: 0
+                        }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', marginBottom: rev.comment ? 4 : 0 }}>
+                            <span style={{ fontWeight: 600, fontSize: isMobile ? '10px' : '11px', color: '#0f172a' }}>
+                              {rev.user_name}:
+                            </span>
+                            <span style={{ fontSize: isMobile ? '11px' : '12px', color: '#fbbf24', letterSpacing: '-2px' }}>
+                              {'★'.repeat(rev.rating)}{'☆'.repeat(Math.max(0, 5 - rev.rating))}
+                            </span>
+                          </div>
+                          {rev.comment ? (
+                            <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#334155', lineHeight: 1.4 }}>{rev.comment}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {(() => {
+                    const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
+                    if (!currentUser?.id || (ownerId && String(ownerId) === String(currentUser.id))) return null;
+                    return (
+                      <div style={{ marginTop: 12, borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+                        <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>Add your review</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 10, color: '#64748b' }}>Rating</span>
+                          <select
+                            value={reviewRating}
+                            onChange={(e) => setReviewRating(Number(e.target.value))}
+                            style={{ fontSize: 11, padding: '4px 6px', borderRadius: 4, border: '1px solid #e2e8f0' }}
+                          >
+                            {[5, 4, 3, 2, 1].map((n) => (
+                              <option key={n} value={n}>{n} stars</option>
+                            ))}
+                          </select>
+                        </div>
+                        <textarea
+                          value={reviewComment}
+                          onChange={(e) => setReviewComment(e.target.value)}
+                          placeholder="Share your experience"
+                          rows={3}
+                          style={{ width: '100%', fontSize: 11, padding: 8, borderRadius: 6, border: '1px solid #e2e8f0', resize: 'vertical', boxSizing: 'border-box' }}
+                        />
+                        <button
+                          type="button"
+                          disabled={reviewSubmitting}
+                          onClick={async () => {
+                            setReviewSubmitting(true);
+                            try {
+                              await api.post(`/api/fields/${selectedProduct.id}/reviews`, {
+                                rating: reviewRating,
+                                comment: reviewComment
+                              });
+                              const revRes = await api.get(`/api/fields/${selectedProduct.id}/reviews`);
+                              setFieldReviews(Array.isArray(revRes.data) ? revRes.data : []);
+                              setReviewComment('');
+                              if (onNotification) onNotification('Review saved.', 'success');
+                            } catch (e) {
+                              const msg = e.response?.data?.error || e.message || 'Could not save review';
+                              if (onNotification) onNotification(msg, 'error');
+                            } finally {
+                              setReviewSubmitting(false);
+                            }
+                          }}
+                          style={{
+                            marginTop: 8,
+                            padding: '8px 12px',
+                            backgroundColor: reviewSubmitting ? '#94a3b8' : '#0ea5e9',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: reviewSubmitting ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {reviewSubmitting ? 'Saving…' : 'Submit review'}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
 
 
@@ -5588,217 +5969,6 @@ const EnhancedFarmMap = forwardRef(({
                 </div>
               )}
 
-
-              {/* Rented Field Card when not in purchase mode */}
-              {!showPurchaseUI && (
-                <div style={{ padding: isMobile ? '8px' : '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '10px', marginBottom: isMobile ? '10px' : '12px' }}>
-                    <div style={{
-                      width: isMobile ? '60px' : '70px',
-                      height: isMobile ? '60px' : '70px',
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: isMobile ? '4px' : '6px',
-                      flexShrink: 0,
-                      overflow: 'hidden'
-                    }}>
-                      <img
-                        src={getProductImageSrc(selectedProduct)}
-                        alt={selectedProduct.name || 'Product'}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={(e) => { e.currentTarget.src = getProductIcon(selectedProduct?.subcategory || selectedProduct?.category); }}
-                      />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '12px' : '14px', lineHeight: 1.3 }}>
-                        {selectedProduct.name || selectedProduct.farmName}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', marginTop: '2px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="#64748b"><path d="M12 2C8.1 2 5 5.1 5 9c0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5c-1.4 0-2.5-1.1-2.5-2.5S10.6 6.5 12 6.5s2.5 1.1 2.5 2.5S13.4 11.5 12 11.5z" /></svg>
-                        </span>
-                        <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px', marginLeft: '6px' }}>
-                          {productLocations.get(selectedProduct.id) || selectedProduct.location}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                        <span style={{ fontSize: isMobile ? '10px' : '12px' }}>🌤️</span>
-                        <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
-                          {productWeather.get(String(selectedProduct.id))?.weatherString || selectedProduct.weather || 'Unknown weather'}
-
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {(() => {
-                    const fieldStatus = getFieldStatus(selectedProduct);
-                    return (
-                      <div style={{
-                        display: 'inline-block',
-                        backgroundColor: fieldStatus.color,
-                        color: 'white',
-                        borderRadius: isMobile ? '10px' : '12px',
-                        padding: isMobile ? '3px 10px' : '4px 12px',
-                        fontSize: isMobile ? '10px' : '11px',
-                        fontWeight: 700,
-                        marginBottom: isMobile ? '8px' : '10px',
-                        boxShadow: `0 2px 8px ${alpha(fieldStatus.color, 0.4)}`,
-                        animation: fieldStatus.label.includes('Today') ? 'popupPulse 1.2s infinite alternate ease-in-out' : 'none'
-                      }}>
-                        {fieldStatus.icon} {fieldStatus.label}
-                      </div>
-                    );
-                  })()}
-                  {(() => {
-                    const availBuy = selectedProduct.available_for_buy !== false && selectedProduct.available_for_buy !== 'false';
-                    if (!availBuy) return null;
-
-                  })()}
-
-                  <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: isMobile ? '8px 0' : '10px 0' }} />
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#10b981"><path d="M5 21h14v-2H5v2zm7-18l-5 5h3v4h4v-4h3l-5-5z" /></svg>
-                      </span>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Crop Type</div>
-                    </div>
-                    <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>{selectedProduct.subcategory || selectedProduct.category}</div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 15H5V10h14v9z" /></svg>
-                      </span>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Harvest Date</div>
-                    </div>
-                    <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>
-                      {(() => { const list = getSelectedHarvestList(selectedProduct); const uniq = Array.from(new Set(list)); return uniq.length ? uniq.join(', ') : 'Not specified'; })()}
-                    </div>
-                  </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b"><path d="M20 8h-3V4H7v4H4v12h16V8zm-9 0V6h2v2h-2zm9 10H4v-8h16v8z" /></svg>
-                      </span>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Est. Delivery</div>
-                    </div>
-                    <div style={{ fontWeight: 600, color: '#f59e0b', fontSize: isMobile ? '11px' : '12px' }}>
-                      {(() => {
-                        // Use selected harvest date if available
-                        const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates || [];
-                        const futureDates = helpers.getFutureHarvestDates(harvestDates);
-                        const dateRaw = selectedHarvestDate?.date || (futureDates.length > 0 ? futureDates[0].date : null);
-                        if (!dateRaw) return 'Not specified';
-                        const hDate = new Date(dateRaw);
-                        if (isNaN(hDate.getTime())) return 'Not specified';
-                        const dDate = new Date(hDate);
-                        dDate.setDate(dDate.getDate() + 2);
-                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                        return `${dDate.getDate()} ${months[dDate.getMonth()]} ${dDate.getFullYear()}`;
-                      })()}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b"><path d="M20 8h-3V4H7v4H4v12h16V8zm-9 0V6h2v2h-2zm9 10H4v-8h16v8z" /></svg>
-                      </span>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Mode of Shipping</div>
-                    </div>
-                    <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>
-                      {(function () { const modes = getShippingModes(selectedProduct); return modes.length ? modes.join(', ') : 'Not specified'; })()}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
-                    <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Your purchased: {formatAreaInt(((() => { const pidA = selectedProduct?.id ?? selectedProduct?.field_id; const byId = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(pidA)); if (byId) return byId.purchased_area || 0; const canonProd = canonicalizeCategory(selectedProduct?.subcategory || selectedProduct?.category || selectedProduct?.category_key || selectedProduct?.id); const matches = purchasedProducts.filter(p => { const kp = canonicalizeCategory(p?.subcategory || p?.category || p?.category_key || p?.id); return kp.key === canonProd.key; }); return matches.length === 1 ? (matches[0].purchased_area || 0) : 0; })()))}m²</div>
-                    <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>Available: {formatAreaInt(getAvailableArea(selectedProduct))}m²</div>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Occupied area</div>
-                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>{Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%</div>
-                    </div>
-                    <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.round(((getOccupiedArea(selectedProduct) || 0) / (selectedProduct.total_area || 1)) * 100)}%`, height: '100%', backgroundColor: '#10b981' }} />
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: isMobile ? '8px' : '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '10px' : '12px' }}>Harvest progress</div>
-                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '11px' : '12px' }}>
-                        {(() => {
-                          const info = getHarvestProgressInfo(selectedProduct);
-                          const pct = Math.round((info.progress || 0) * 100);
-                          const daysText = typeof info.daysUntil === 'number'
-                            ? ` • ${Math.max(0, info.daysUntil)} days left`
-                            : '';
-                          return `${pct}%${daysText}`;
-                        })()}
-                      </div>
-                    </div>
-                    <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
-                          height: '100%',
-                          background: (() => {
-                            const grad = getRingGradientByHarvest(selectedProduct);
-                            return `linear-gradient(90deg, ${grad.start}, ${grad.end})`;
-                          })()
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Sticky Footer with Buy More Area Button */}
-            <div style={{
-              padding: isMobile ? '8px 12px 12px' : '10px 16px 16px',
-              position: 'sticky',
-              bottom: 0,
-              backgroundColor: 'white',
-              borderTop: '1px solid #e9ecef',
-              marginTop: 'auto'
-            }}>
-              {!showPurchaseUI && (
-                <button
-                  onClick={() => {
-                    setShowPurchaseUI(true);
-                    setPopupTab('details');
-                    requestAnimationFrame(() => {
-                      if (popupContentScrollRef.current) {
-                        popupContentScrollRef.current.scrollTop = 0;
-                      }
-                    });
-                  }}
-                  style={{
-                    width: '100%',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: isMobile ? '10px 0' : '12px 0',
-                    fontSize: isMobile ? '13px' : '14px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
-                    transition: 'all 0.2s ease',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.025em'
-                  }}>
-                  Buy More Area
-                </button>
-              )}
             </div>
           </div>
         </div>

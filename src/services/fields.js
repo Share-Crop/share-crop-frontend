@@ -18,7 +18,7 @@ const publicApi = axios.create({
 const fieldsService = {
   /** List current user's fields only (for My Fields page). */
   getAll: () => api.get('/api/fields'),
-  /** List all fields for map (discovery, browse, buy). */
+  /** List all fields for map (discovery, browse, buy). Prefer including occupied_total_m2 (+ available) per row on the backend to avoid per-field /occupancy calls. */
   getAllForMap: () => api.get('/api/fields/all'),
   /** List fields available for farmer to rent (other owners' fields). Farmer-only. */
   getAvailableToRent: () => api.get('/api/fields/available-to-rent'),

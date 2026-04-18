@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -43,7 +43,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../../services/userDocuments';
 import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
-import fieldsService from '../../services/fields';
 import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
 import { FIELD_CATEGORY_DATA as categoryData } from '../../utils/fieldCategoryData';
 
@@ -305,6 +304,21 @@ const formatDateForInput = (dateStr) => {
   }
 };
 
+/** yyyy-MM-dd for local calendar "today" (same basis as native date inputs). */
+const getTodayYmdLocal = () => {
+  const t = new Date();
+  const y = t.getFullYear();
+  const m = String(t.getMonth() + 1).padStart(2, '0');
+  const d = String(t.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+/** True if ymd string (yyyy-MM-dd) is strictly before local today. */
+const isYmdBeforeLocalToday = (ymd) => {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  return ymd < getTodayYmdLocal();
+};
+
 const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialData = null, farmsList = [], fieldsList = [] }) => {
   // Debug logging
 
@@ -313,6 +327,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   const { user } = useAuth();
   const navigate = useNavigate();
+  const minSelectableDate = getTodayYmdLocal();
+  /** Avoid repeated GET /api/farms/:id when parent props churn re-runs the area effect. */
+  const farmDetailCacheRef = useRef(new Map());
 
   const [formData, setFormData] = useState({
     selectedIcon: '',
@@ -320,6 +337,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     subcategory: '',
     productName: '',
     description: '',
+    shortDescription: '',
+    galleryImages: [],
     totalProduction: '',
     fieldSize: '',
     fieldSizeUnit: normalizeAreaUnit('sqm'),
@@ -353,6 +372,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
 
   // Selected farm info for area validation
@@ -407,17 +427,28 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     });
   }, [formData.totalProduction, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount]);
 
+  useEffect(() => {
+    if (!open) {
+      farmDetailCacheRef.current.clear();
+    }
+  }, [open]);
+
   // Calculate remaining area whenever farm selection or fields change
   useEffect(() => {
     const calculateArea = async () => {
       if (formData.farmId) {
-        let farm = farmsList.find(f => String(f.id || f._id) === String(formData.farmId));
+        const farmIdStr = String(formData.farmId);
+        let farm = farmsList.find(f => String(f.id || f._id) === farmIdStr);
 
-        if (!farm || (editMode && formData.farmId)) {
+        if (!farm) {
+          farm = farmDetailCacheRef.current.get(farmIdStr);
+        }
+        if (!farm) {
           try {
-            const response = await farmsService.getById(formData.farmId);
+            const response = await farmsService.getById(farmIdStr);
             if (response.data) {
               farm = response.data;
+              farmDetailCacheRef.current.set(farmIdStr, farm);
             }
           } catch (err) {
             console.error('Error fetching farm details:', err);
@@ -429,18 +460,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
           const totalArea = parseFloat(farm.area_value || farm.areaValue) || 0;
           const farmUnit = normalizeAreaUnit(farm.area_unit || farm.areaUnit || 'sqm');
 
-          let allFields = fieldsList || [];
-
-          if (allFields.length === 0) {
-            try {
-              const fieldsResponse = await fieldsService.getAllForMap();
-              if (fieldsResponse.data) {
-                allFields = fieldsResponse.data;
-              }
-            } catch (err) {
-              console.error('Error fetching fields list:', err);
-            }
-          }
+          // Use fields from parent only. Avoid calling /api/fields/all here (it was firing on every
+          // effect run when the list was empty and fighting the map + form).
+          const allFields = fieldsList || [];
 
           const farmFields = allFields.filter(field => {
             const fieldFarmId = String(field.farm_id || field.farmId || '').trim().toLowerCase();
@@ -493,7 +515,13 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                 farmHarvestDates.push({ date: farm.harvest_date, label: '' });
               }
               if (farmHarvestDates.length > 0) {
-                updates.harvestDates = farmHarvestDates;
+                const futureHarvests = farmHarvestDates.filter((h) => {
+                  const ymd = formatDateForInput(h.date);
+                  return ymd && !isYmdBeforeLocalToday(ymd);
+                });
+                if (futureHarvests.length > 0) {
+                  updates.harvestDates = futureHarvests;
+                }
               }
             }
             
@@ -549,7 +577,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
     calculateArea();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.farmId, farmsList, fieldsList, editMode, initialData]);
+  }, [formData.farmId, farmsList, fieldsList, editMode]);
 
   // State for license check and upload
   const [checkingLicense, setCheckingLicense] = useState(true);
@@ -663,8 +691,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
   // State for location address display
   const [locationAddress, setLocationAddress] = useState('');
 
-  // Update form data when initialData changes
+  // Hydrate edit/create form when dialog opens or edited field id changes — not on every parent re-render
+  // (parent `fields` refreshes used to replace initialData by reference and wipe in-progress edits).
   useEffect(() => {
+    if (!open) return;
     if (initialData && editMode) {
       setFormData(prev => ({
         ...prev,
@@ -675,6 +705,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         ...prev,
         productName: initialData.name || '',
         description: initialData.description || '',
+        shortDescription: initialData.short_description || initialData.shortDescription || '',
+        galleryImages: Array.isArray(initialData.gallery_images) ? [...initialData.gallery_images] : (Array.isArray(initialData.galleryImages) ? [...initialData.galleryImages] : []),
         // Ensure category matches a parent category, if not use subcategory logic or fallback
         category: initialData.category || '',
         subcategory: initialData.subcategory || '',
@@ -773,7 +805,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       // Reset location address for new forms
       setLocationAddress('');
     }
-  }, [initialData, editMode]);
+  }, [open, editMode, initialData?.id, initialData?._id]);
 
   // Quick apply recommended delivery rates
   const applyRecommendedRates = () => {
@@ -795,6 +827,19 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       const numValue = parseFloat(value);
       if (!isNaN(numValue) && numValue > selectedFarmArea.remaining) {
         processedValue = selectedFarmArea.remaining.toString();
+      }
+    }
+
+    if (field === 'deliveryTime' && processedValue) {
+      const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(processedValue).trim())
+        ? String(processedValue).trim()
+        : formatDateForInput(processedValue);
+      if (ymd && isYmdBeforeLocalToday(ymd)) {
+        setErrors(prev => ({
+          ...prev,
+          deliveryTime: `Date cannot be in the past (minimum ${minSelectableDate})`
+        }));
+        return;
       }
     }
 
@@ -821,6 +866,13 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Handle harvest date changes
   const handleHarvestDateChange = (index, field, value) => {
+    if (field === 'date' && value && isYmdBeforeLocalToday(value)) {
+      setErrors(prev => ({
+        ...prev,
+        harvestDates: `Date cannot be in the past (minimum ${minSelectableDate})`
+      }));
+      return;
+    }
     setFormData(prev => ({
       ...prev,
       harvestDates: (prev.harvestDates || []).map((date, i) =>
@@ -938,6 +990,31 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     const harvestDatesArray = formData.harvestDates || [];
     const hasValidHarvestDate = harvestDatesArray.some(date => date.date && date.date.trim() !== '');
     if (!hasValidHarvestDate) newErrors.harvestDates = 'At least one harvest date is required';
+    else {
+      const todayYmd = getTodayYmdLocal();
+      for (let i = 0; i < harvestDatesArray.length; i += 1) {
+        const raw = harvestDatesArray[i]?.date;
+        if (!raw || !String(raw).trim()) continue;
+        const ymd = formatDateForInput(raw);
+        if (!ymd) {
+          newErrors.harvestDates = `Harvest date ${i + 1} is not valid`;
+          break;
+        }
+        if (isYmdBeforeLocalToday(ymd)) {
+          newErrors.harvestDates = `Harvest date ${i + 1} cannot be in the past (use today (${todayYmd}) or a future date)`;
+          break;
+        }
+      }
+    }
+
+    if (formData.deliveryTime && String(formData.deliveryTime).trim() !== '') {
+      const dYmd = formatDateForInput(formData.deliveryTime);
+      if (!dYmd) {
+        newErrors.deliveryTime = 'Estimated delivery date is not valid';
+      } else if (isYmdBeforeLocalToday(dYmd)) {
+        newErrors.deliveryTime = `Delivery date cannot be in the past (use today (${getTodayYmdLocal()}) or a future date)`;
+      }
+    }
 
     if (formData.hasWebcam && (!formData.webcamUrl || !formData.webcamUrl.trim())) {
       newErrors.webcamUrl = 'Webcam URL is required when webcam is enabled';
@@ -1002,6 +1079,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       category: formData.category,
       subcategory: formData.subcategory,
       description: formData.description,
+      short_description: formData.shortDescription || '',
+      shortDescription: formData.shortDescription || '',
+      gallery_image_urls: (formData.galleryImages || []).filter(Boolean).slice(0, 5),
+      galleryImages: (formData.galleryImages || []).filter(Boolean).slice(0, 5),
       price: parseFloat(formData.sellingPrice),
       latitude: parseFloat(formData.latitude),
       longitude: parseFloat(formData.longitude),
@@ -1078,6 +1159,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       subcategory: '',
       productName: '',
       description: '',
+      shortDescription: '',
+      galleryImages: [],
       totalProduction: '',
       fieldSize: '',
       fieldSizeUnit: 'sqm',
@@ -1440,6 +1523,101 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                     isMobile={isMobile}
                     sx={{ width: isMobile ? '100%' : '664px !important' }}
                   />
+
+                  <StyledTextField
+                    label="Short description (map popup)"
+                    placeholder="One or two lines for the map card"
+                    value={formData.shortDescription}
+                    onChange={(e) => handleInputChange('shortDescription', e.target.value)}
+                    isMobile={isMobile}
+                    multiline
+                    minRows={2}
+                    sx={{ width: isMobile ? '100%' : '664px !important' }}
+                  />
+
+                  <Box sx={{ width: isMobile ? '100%' : '664px' }}>
+                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: 'text.secondary' }}>
+                      Gallery images (max 5)
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                      {(formData.galleryImages || []).map((url, idx) => (
+                        <Box key={`${url}-${idx}`} sx={{ position: 'relative' }}>
+                          <Box
+                            component="img"
+                            src={url}
+                            alt=""
+                            sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, border: '1px solid #e5e7eb' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = (formData.galleryImages || []).filter((_, i) => i !== idx);
+                              handleInputChange('galleryImages', next);
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: -6,
+                              right: -6,
+                              width: 22,
+                              height: 22,
+                              borderRadius: '50%',
+                              border: 'none',
+                              background: '#ef4444',
+                              color: '#fff',
+                              fontSize: 12,
+                              cursor: 'pointer',
+                              lineHeight: 1
+                            }}
+                          >
+                            ×
+                          </button>
+                        </Box>
+                      ))}
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      component="label"
+                      size="small"
+                      disabled={galleryUploading || (formData.galleryImages || []).length >= 5}
+                    >
+                      {galleryUploading ? 'Uploading…' : 'Add photos'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        hidden
+                        onChange={async (e) => {
+                          const files = Array.from(e.target.files || []);
+                          const room = 5 - (formData.galleryImages || []).length;
+                          if (room <= 0 || !files.length) return;
+                          setGalleryUploading(true);
+                          const uploaded = [];
+                          try {
+                            for (const file of files.slice(0, room)) {
+                              const fileExt = file.name.split('.').pop();
+                              const fileName = `${uuidv4()}-${file.name}`;
+                              const filePath = `field-gallery/${fileName}`;
+                              const { error: uploadError } = await supabase.storage
+                                .from('user-documents')
+                                .upload(filePath, file);
+                              if (uploadError) throw uploadError;
+                              const { data: { publicUrl } } = supabase.storage
+                                .from('user-documents')
+                                .getPublicUrl(filePath);
+                              uploaded.push(publicUrl);
+                            }
+                            handleInputChange('galleryImages', [...(formData.galleryImages || []), ...uploaded]);
+                          } catch (err) {
+                            console.error(err);
+                            alert('Failed to upload one or more images.');
+                          } finally {
+                            setGalleryUploading(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </Button>
+                  </Box>
                 </Box>
               </FormSection>
 
@@ -1542,6 +1720,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                               value={formatDateForInput(harvestDate?.date)}
                               onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
                               InputLabelProps={{ shrink: true }}
+                              inputProps={{ min: minSelectableDate }}
                               isMobile={isMobile}
                             />
 
@@ -1611,6 +1790,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 value={formatDateForInput(harvestDate?.date)}
                                 onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
                                 InputLabelProps={{ shrink: true }}
+                                inputProps={{ min: minSelectableDate }}
                                 isMobile={isMobile}
                                 sx={{ width: '100%' }}
                               />
@@ -2007,7 +2187,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       value={formatDateForInput(formData.deliveryTime)}
                       onChange={(e) => handleInputChange('deliveryTime', e.target.value)}
                       InputLabelProps={{ shrink: true }}
-                      helperText="Expected delivery date after harvest"
+                      inputProps={{ min: minSelectableDate }}
+                      error={!!errors.deliveryTime}
+                      helperText={errors.deliveryTime || 'Expected delivery date after harvest (today or future only)'}
                       isMobile={isMobile}
                     />
                   </Grid>

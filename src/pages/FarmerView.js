@@ -19,6 +19,7 @@ import RentedFields from './RentedFields';
 import MyFarms from './MyFarms';
 import Orders from './Orders';
 import FarmOrders from './FarmOrders';
+import FarmerPublicProfile from './FarmerPublicProfile';
 import LicenseInfo from './LicenseInfo';
 import Transaction from './Transaction';
 import BuyCoins from './BuyCoins';
@@ -364,6 +365,8 @@ const FarmerView = () => {
         const newField = {
           name: formData.productName,
           description: formData.description,
+          short_description: formData.short_description || formData.shortDescription || '',
+          gallery_image_urls: formData.gallery_image_urls || formData.galleryImages || [],
           category: formData.subcategory || formData.category, // Use subcategory for product icon mapping
           subcategory: formData.subcategory || null,
           price: formData.price || 0, // Use the price calculated by the form
@@ -587,6 +590,7 @@ const FarmerView = () => {
           <Route path="/settings" element={<Settings />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/complaints" element={<Complaints />} />
+          <Route path="/farmers/:farmerId" element={<FarmerPublicProfile userType="farmer" />} />
         </Routes>
       </Box>
 
@@ -598,7 +602,7 @@ const FarmerView = () => {
 
       {/* Create Field Form Dialog */}
       <CreateFieldForm
-        key={editingField ? `edit-field-${editingField.id || editingField._id}` : `create-field-${farmsList.length}`}
+        key={editingField ? `edit-field-${editingField.id || editingField._id}` : 'create-field'}
         open={createFieldOpen}
         onClose={() => {
           setCreateFieldOpen(false);
