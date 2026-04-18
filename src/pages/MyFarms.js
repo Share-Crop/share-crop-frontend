@@ -56,6 +56,7 @@ import StatCard from '../components/Common/StatCard';
 import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
+import { formatTotalProductionWithUnit } from '../utils/fieldProductionUnits';
 
 const normalizeAreaUnit = (raw) => {
   const u = String(raw || '').trim().toLowerCase();
@@ -314,6 +315,7 @@ const MyFarms = () => {
               soilType: field.soil_type,
               irrigationType: field.irrigation_type,
               totalProduction,
+              totalProductionUnit: field.total_production_unit,
               potentialIncome,
               monthlyRevenue: potentialIncome,
               status: field.status,
@@ -455,7 +457,7 @@ const MyFarms = () => {
     };
 
     if (format === 'csv') {
-      const headers = ['Farm Name', 'Location', 'Crop Type', 'Area', 'Production (Kg)', 'Potential Income', 'Occupied %', 'Status', 'Soil Type', 'Irrigation'];
+      const headers = ['Farm Name', 'Location', 'Crop Type', 'Area', 'Production (total)', 'Potential Income', 'Occupied %', 'Status', 'Soil Type', 'Irrigation'];
       const rows = reportData.farms.map(f => [
         f.name,
         f.location,
@@ -519,7 +521,7 @@ const MyFarms = () => {
                 <div class="summary-label">Active Farms</div>
               </div>
               <div class="summary-card">
-                <div class="summary-value">${reportData.totalProduction.toLocaleString()} Kg</div>
+                <div class="summary-value">${reportData.totalProduction.toLocaleString()} total</div>
                 <div class="summary-label">Total Production</div>
               </div>
               <div class="summary-card">
@@ -547,7 +549,7 @@ const MyFarms = () => {
                     <td>${farm.location}</td>
                     <td>${farm.cropType}</td>
                     <td>${farm.area}</td>
-                    <td>${farm.totalProduction?.toLocaleString() || '0'} Kg</td>
+                    <td>${farm.totalProduction?.toLocaleString() || '0'} total</td>
                     <td>${currencySymbols[userCurrency]}${(farm.potentialIncome || 0).toFixed(2)}</td>
                     <td>${farm.progress}%</td>
                   </tr>
@@ -692,7 +694,7 @@ const MyFarms = () => {
             icon={<Assessment sx={{ fontSize: 20 }} />}
             iconBg="#ffedd5"
             iconColor="#ea580c"
-            value={`${totalProduction.toLocaleString()} Kg`}
+            value={`${totalProduction.toLocaleString()} total`}
             label="Total Production"
           />
           <StatCard
@@ -792,7 +794,7 @@ const MyFarms = () => {
                       {farm.totalProduction > 0 && (
                         <div className="flex-1 rounded-lg bg-amber-50 p-2 text-center">
                           <div className="text-xs text-slate-500">Production</div>
-                          <div className="text-sm font-bold text-amber-700">{farm.totalProduction.toLocaleString()} Kg</div>
+                          <div className="text-sm font-bold text-amber-700">{farm.totalProduction.toLocaleString()} total</div>
                         </div>
                       )}
                       {farm.totalPotentialIncome > 0 && (
@@ -1004,7 +1006,7 @@ const MyFarms = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-slate-600">Total Production</span>
                       <span className="text-sm font-semibold text-amber-600">
-                        {selectedFarm.totalProduction?.toLocaleString() || '0'} Kg
+                        {selectedFarm.totalProduction?.toLocaleString() || '0'} total
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1073,7 +1075,12 @@ const MyFarms = () => {
                               </div>
                               <div className="rounded-lg bg-amber-50 p-1.5 text-center">
                                 <div className="text-[0.6rem] text-slate-500">Production</div>
-                                <div className="text-xs font-semibold text-amber-700">{Math.round(field.totalProduction || 0).toLocaleString()} Kg</div>
+                                <div className="text-xs font-semibold text-amber-700">
+                                  {formatTotalProductionWithUnit(
+                                    Math.round(field.totalProduction || 0),
+                                    field.totalProductionUnit
+                                  )}
+                                </div>
                               </div>
                             </div>
 
@@ -1208,7 +1215,7 @@ const MyFarms = () => {
                 <Grid item xs={12} sm={6} md={3}>
                   <Paper sx={{ p: 2, backgroundColor: '#fef3c7', borderRadius: 2, textAlign: 'center' }}>
                     <Typography variant="h4" sx={{ fontWeight: 700, color: '#d97706', mb: 0.5 }}>
-                      {totalProduction.toLocaleString()} Kg
+                      {totalProduction.toLocaleString()} total
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Total Production
@@ -1257,7 +1264,7 @@ const MyFarms = () => {
                               : `${farm.areaValue || 0} ${farm.areaUnit || 'm²'}`
                             }
                           </TableCell>
-                          <TableCell>{farm.totalProduction?.toLocaleString() || '0'} Kg</TableCell>
+                          <TableCell>{farm.totalProduction?.toLocaleString() || '0'} total</TableCell>
                           <TableCell>{formatCurrency(farm.totalPotentialIncome || 0)}</TableCell>
                           <TableCell>{farm.progress}%</TableCell>
                         </TableRow>

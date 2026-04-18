@@ -4,6 +4,7 @@ import { Map as MapboxMap, Marker, NavigationControl, FullscreenControl } from '
 import { LocationOn, Close, Agriculture, Tune, FilterList } from '@mui/icons-material';
 import { DARK_MAP_STYLE } from '../../utils/mapConfig';
 import { getProductIcon } from '../../utils/productIcons';
+import { formatTotalProductionWithUnit } from '../../utils/fieldProductionUnits';
 import { buildCoincidentMarkerPositionMap, getProductLngLat } from '../../utils/spreadCoincidentMapMarkers';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -291,7 +292,10 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
             <Box sx={{ p: 1.5, bgcolor: '#fff8e1', borderRadius: 1.5 }}>
               <Typography variant="caption" color="text.secondary">Production</Typography>
               <Typography variant="body2" fontWeight={600}>
-                {selectedField.total_production || 0} Kg
+                {formatTotalProductionWithUnit(
+                  selectedField.total_production,
+                  selectedField.total_production_unit
+                )}
               </Typography>
             </Box>
             <Box sx={{ p: 1.5, bgcolor: '#f3e5f5', borderRadius: 1.5 }}>

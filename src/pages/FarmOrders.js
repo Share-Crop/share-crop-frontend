@@ -61,6 +61,24 @@ import fieldsService from '../services/fields';
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
 
+/** Extract buyer delivery line from map checkout notes (matches backend farmer notification parsing). */
+const parseDeliveryAddressFromNotes = (notes) => {
+  if (notes == null || typeof notes !== 'string') return '';
+  const trimmed = notes.trim();
+  if (!trimmed) return '';
+  const patterns = [
+    /\|\s*Address:\s*(.+)$/i,
+    /\|\s*Deliver to:\s*(.+)$/i,
+    /Address:\s*(.+)$/i,
+    /Deliver to:\s*(.+)$/i,
+  ];
+  for (const re of patterns) {
+    const m = trimmed.match(re);
+    if (m?.[1]) return m[1].trim();
+  }
+  return '';
+};
+
 const FarmOrders = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -150,6 +168,8 @@ const FarmOrders = () => {
           [],
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
+        notes: order.notes ?? null,
+        delivery_address: parseDeliveryAddressFromNotes(order.notes),
       }));
 
       setOrders(formattedOrders);
@@ -236,16 +256,19 @@ const FarmOrders = () => {
         area: order.area_rented,
         cost: order.total_cost,
         status: order.status,
-        date: new Date(order.order_created_at || order.created_at).toLocaleDateString()
+        date: new Date(order.order_created_at || order.created_at).toLocaleDateString(),
+        deliverTo: order.delivery_address || '',
       }))
     };
 
     if (format === 'csv') {
-      const headers = ['Order ID', 'Field Name', 'Buyer Name', 'Area', 'Total Cost', 'Status', 'Date'];
+      const headers = ['Order ID', 'Field Name', 'Buyer Name', 'Deliver to', 'Area', 'Total Cost', 'Status', 'Date'];
+      const csvEscape = (cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`;
       const rows = reportData.orders.map(o => [
         o.id,
         o.field,
         o.buyer,
+        o.deliverTo,
         o.area,
         `$${Number(o.cost).toFixed(2)}`,
         o.status,
@@ -254,7 +277,7 @@ const FarmOrders = () => {
 
       const csvContent = [
         headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+        ...rows.map((row) => row.map(csvEscape).join(','))
       ].join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -309,6 +332,7 @@ const FarmOrders = () => {
                   <th>Order ID</th>
                   <th>Field</th>
                   <th>Buyer</th>
+                  <th>Deliver to</th>
                   <th>Area</th>
                   <th>Cost</th>
                   <th>Status</th>
@@ -321,6 +345,7 @@ const FarmOrders = () => {
                     <td>#${order.id}</td>
                     <td>${order.field}</td>
                     <td>${order.buyer}</td>
+                    <td>${order.deliverTo || '—'}</td>
                     <td>${order.area}</td>
                     <td>$${Number(order.cost).toFixed(2)}</td>
                     <td>${order.status}</td>
@@ -546,6 +571,7 @@ const FarmOrders = () => {
 
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Field / Product</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Buyer</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Deliver to</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Area</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Revenue</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Status</TableCell>
@@ -594,6 +620,29 @@ const FarmOrders = () => {
                         {order.buyer_email && (
                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                             {order.buyer_email}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ py: 1.5, maxWidth: 200 }}>
+                        {order.delivery_address ? (
+                          <Tooltip title={order.delivery_address}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontSize: '0.8rem',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              {order.delivery_address}
+                            </Typography>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                            —
                           </Typography>
                         )}
                       </TableCell>
@@ -838,6 +887,30 @@ const FarmOrders = () => {
                         </Typography>
                       </Box>
                     )}
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
+                        Shipping
+                      </Typography>
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+                        <LocalShipping sx={{ fontSize: 18, color: '#64748b' }} />
+                        <Typography variant="body1" sx={{ fontWeight: 500, textTransform: 'capitalize' }}>
+                          {String(selectedOrder.mode_of_shipping || '—').replace(/_/g, ' ')}
+                        </Typography>
+                      </Stack>
+                    </Box>
+                    {selectedOrder.delivery_address ? (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
+                          Delivery address
+                        </Typography>
+                        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ mt: 0.5 }}>
+                          <LocationOn sx={{ fontSize: 20, color: '#1d4ed8', mt: 0.25 }} />
+                          <Typography variant="body1" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+                            {selectedOrder.delivery_address}
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    ) : null}
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
                         Status

@@ -98,6 +98,7 @@ const FieldForm = ({ open, onClose, onSubmit }) => {
               value={formData.area_m2}
               onChange={handleInputChange('area_m2')}
               required
+              inputProps={{ min: 0, step: 'any' }}
             />
           </Grid>
 
@@ -117,6 +118,7 @@ const FieldForm = ({ open, onClose, onSubmit }) => {
               fullWidth
               label="Usual Production"
               type="number"
+              inputProps={{ min: 0, step: 'any' }}
               value={formData.usual_production_per_harvest}
               onChange={handleInputChange('usual_production_per_harvest')}
               helperText="Per harvest season"

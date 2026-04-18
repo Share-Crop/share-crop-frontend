@@ -8,6 +8,7 @@ import fieldsService from '../../services/fields';
 import { mockProductService } from '../../services/mockServices';
 import notificationsService from '../../services/notifications';
 import api from '../../services/api';
+import supabase from '../../services/supabase';
 
 import { mockOrderService } from '../../services/mockServices';
 import rentedFieldsService from '../../services/rentedFields';
@@ -27,6 +28,7 @@ import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
 import { WEATHER_LEGEND_DATA } from './weatherLegendData';
 import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate, formatHarvestDate as sharedFormatHarvestDate, parseHarvestDate as sharedParseHarvestDate } from '../../utils/harvestProgress';
+import { displayProductionRateUnit } from '../../utils/fieldProductionUnits';
 
 const OWM_LAYERS = [
   { id: 'none', label: 'None', Icon: Block },
@@ -36,6 +38,62 @@ const OWM_LAYERS = [
   { id: 'pressure_new', label: 'Pressure', Icon: Compress },
   { id: 'wind_new', label: 'Wind', Icon: Air },
 ];
+
+function normalizeFieldGalleryImages(field) {
+  const raw = field?.gallery_images ?? field?.galleryImages;
+  return Array.isArray(raw) ? raw.filter(Boolean) : [];
+}
+
+/** True when the logged-in user may edit this field's gallery (owner match or map flag). */
+function isViewerOwnedFieldForGallery(user, field) {
+  if (!user?.id || !field) return false;
+  const oid = field.owner_id ?? field.farmer_id ?? field.created_by;
+  if (oid != null && String(oid) === String(user.id)) return true;
+  if (field.is_own_field === true || field.is_own_field === 'true') return true;
+  return false;
+}
+
+function newGalleryObjectName(originalName) {
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  return `${id}-${originalName}`;
+}
+
+/** Reviewer avatar: uses API `user_profile_image_url` when present; initial letter fallback. */
+function FieldReviewAvatar({ imageUrl, userName, size = 36 }) {
+  const [failed, setFailed] = useState(false);
+  const url = typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : '';
+  const initial = (String(userName || '?').trim().charAt(0) || '?').toUpperCase();
+  const wrap = {
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    backgroundColor: '#e2e8f0',
+    flexShrink: 0,
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: Math.max(12, Math.round(size * 0.36)),
+    fontWeight: 700,
+    color: '#64748b',
+  };
+  if (url && !failed) {
+    return (
+      <div style={wrap}>
+        <img
+          src={url}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+  return <div style={wrap}>{initial}</div>;
+}
 
 // Detect mobile screens
 const useIsMobile = () => {
@@ -120,6 +178,7 @@ const EnhancedFarmMap = forwardRef(({
   const [currentLocation, setCurrentLocation] = useState(null);
   const [addressError, setAddressError] = useState('');
   const [showAddressOverlay, setShowAddressOverlay] = useState(false);
+  const [savingDeliveryAddress, setSavingDeliveryAddress] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState([]);
   const addressSearchTimeoutRef = useRef(null);
   const addressOverlayContentRef = useRef(null);
@@ -465,6 +524,11 @@ const EnhancedFarmMap = forwardRef(({
   /** Cached GET /api/fields/:id/occupancy per field so map markers stay correct without opening the popup. */
   const [occupancyByFieldId, setOccupancyByFieldId] = useState({});
   const [fieldReviews, setFieldReviews] = useState([]);
+  const [popupGalleryUploading, setPopupGalleryUploading] = useState(false);
+  const [popupShortDescDraft, setPopupShortDescDraft] = useState('');
+  const [popupShortDescSaving, setPopupShortDescSaving] = useState(false);
+  /** When true, owner sees textarea + Save (after Add description or Edit). */
+  const [popupShortDescComposing, setPopupShortDescComposing] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -506,6 +570,122 @@ const EnhancedFarmMap = forwardRef(({
     })();
     return () => { cancelled = true; };
   }, [selectedProduct?.id]);
+
+  const syncGalleryAcrossMapState = useCallback((fieldId, gallery_images) => {
+    setSelectedProduct((prev) =>
+      prev && String(prev.id) === String(fieldId) ? { ...prev, gallery_images } : prev
+    );
+    setFarms((prev) => prev.map((f) => (String(f.id) === String(fieldId) ? { ...f, gallery_images } : f)));
+    setFilteredFarms((prev) => prev.map((f) => (String(f.id) === String(fieldId) ? { ...f, gallery_images } : f)));
+  }, []);
+
+  const persistFieldGalleryFromPopup = useCallback(
+    async (fieldId, urls) => {
+      try {
+        const res = await api.put(`/api/fields/${fieldId}/gallery-images`, {
+          urls,
+          gallery_image_urls: urls,
+        });
+        const list = Array.isArray(res.data?.gallery_images) ? res.data.gallery_images : urls;
+        syncGalleryAcrossMapState(fieldId, list);
+        if (onNotification) onNotification('Gallery saved.', 'success');
+      } catch (e) {
+        console.error(e);
+        if (onNotification) onNotification('Could not save gallery.', 'error');
+        throw e;
+      }
+    },
+    [syncGalleryAcrossMapState, onNotification]
+  );
+
+  const handlePopupGalleryUpload = useCallback(
+    async (field, fileList) => {
+      if (!isViewerOwnedFieldForGallery(currentUser, field)) return;
+      if (!supabase) {
+        if (onNotification) onNotification('Photo upload is not configured.', 'error');
+        else window.alert('Photo upload is not configured.');
+        return;
+      }
+      const files = Array.from(fileList || []);
+      const existing = normalizeFieldGalleryImages(field);
+      const room = Math.max(0, 5 - existing.length);
+      if (room <= 0 || !files.length) return;
+      setPopupGalleryUploading(true);
+      try {
+        const uploaded = [];
+        for (const file of files.slice(0, room)) {
+          const fileName = newGalleryObjectName(file.name);
+          const filePath = `field-gallery/${fileName}`;
+          const { error } = await supabase.storage.from('user-documents').upload(filePath, file);
+          if (error) throw error;
+          const { data: { publicUrl } } = supabase.storage.from('user-documents').getPublicUrl(filePath);
+          uploaded.push(publicUrl);
+        }
+        const merged = [...existing, ...uploaded].slice(0, 5);
+        await persistFieldGalleryFromPopup(field.id, merged);
+      } catch (e) {
+        console.error(e);
+        if (onNotification) onNotification('Failed to upload image(s).', 'error');
+        else window.alert('Failed to upload one or more images.');
+      } finally {
+        setPopupGalleryUploading(false);
+      }
+    },
+    [currentUser, persistFieldGalleryFromPopup, onNotification]
+  );
+
+  const handlePopupGalleryRemoveAt = useCallback(
+    async (field, index) => {
+      if (!isViewerOwnedFieldForGallery(currentUser, field)) return;
+      const existing = normalizeFieldGalleryImages(field);
+      const next = existing.filter((_, i) => i !== index);
+      setPopupGalleryUploading(true);
+      try {
+        await persistFieldGalleryFromPopup(field.id, next);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setPopupGalleryUploading(false);
+      }
+    },
+    [currentUser, persistFieldGalleryFromPopup]
+  );
+
+  const syncShortDescriptionAcrossMapState = useCallback((fieldId, short_description) => {
+    setSelectedProduct((prev) =>
+      prev && String(prev.id) === String(fieldId) ? { ...prev, short_description } : prev
+    );
+    setFarms((prev) => prev.map((f) => (String(f.id) === String(fieldId) ? { ...f, short_description } : f)));
+    setFilteredFarms((prev) => prev.map((f) => (String(f.id) === String(fieldId) ? { ...f, short_description } : f)));
+  }, []);
+
+  const persistShortDescriptionFromPopup = useCallback(
+    async (fieldId, text) => {
+      const trimmed = text.trim();
+      const payload = trimmed === '' ? null : trimmed.slice(0, 500);
+      try {
+        const res = await api.put(`/api/fields/${fieldId}/short-description`, {
+          short_description: payload,
+        });
+        const next = res.data?.short_description ?? null;
+        syncShortDescriptionAcrossMapState(fieldId, next);
+        setPopupShortDescDraft(next ?? '');
+        setPopupShortDescComposing(false);
+        if (onNotification) onNotification('Short description saved.', 'success');
+      } catch (e) {
+        console.error(e);
+        if (onNotification) onNotification('Could not save short description.', 'error');
+      }
+    },
+    [syncShortDescriptionAcrossMapState, onNotification]
+  );
+
+  useEffect(() => {
+    if (!selectedProduct?.id) return;
+    const v = selectedProduct.short_description ?? selectedProduct.shortDescription;
+    setPopupShortDescDraft(v != null ? String(v) : '');
+    setPopupShortDescComposing(false);
+  }, [selectedProduct?.id, selectedProduct?.short_description, selectedProduct?.shortDescription]);
 
   // Add state for currency conversion
   const [coinsPerUnit, setCoinsPerUnit] = useState(10); // Default to 10 based on current logic
@@ -602,6 +782,39 @@ const EnhancedFarmMap = forwardRef(({
       setDeliveryListLoading(false);
     }
   }, [currentUser?.id]);
+
+  const fetchSavedDeliveryAddress = useCallback(async () => {
+    if (!currentUser?.id) {
+      setExistingDeliveryAddress('');
+      return;
+    }
+    try {
+      const res = await api.get('/api/users/me/delivery-address');
+      const data = res?.data;
+      if (data && typeof data === 'object') {
+        setExistingDeliveryAddress(String(data.summary || '').trim());
+        setNewDeliveryAddress((prev) => ({
+          name: data.name != null ? String(data.name) : (prev.name || ''),
+          phone: data.phone != null ? String(data.phone) : (prev.phone || ''),
+          line1: data.line1 != null ? String(data.line1) : '',
+          line2: data.line2 != null ? String(data.line2) : '',
+          city: data.city != null ? String(data.city) : '',
+          state: data.state != null ? String(data.state) : '',
+          zip: data.zip != null ? String(data.zip) : '',
+          country: data.country != null ? String(data.country) : '',
+        }));
+      } else {
+        setExistingDeliveryAddress('');
+      }
+    } catch (e) {
+      console.warn('Saved delivery address fetch failed:', e);
+      setExistingDeliveryAddress('');
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    fetchSavedDeliveryAddress();
+  }, [fetchSavedDeliveryAddress]);
 
   useEffect(() => {
     if (showDeliveryModal) fetchDeliveryList();
@@ -3605,16 +3818,16 @@ const EnhancedFarmMap = forwardRef(({
                 {/* Tab Content */}
                 {popupTab === 'rent' ? (
                   <div style={{ animation: 'cardSlideIn 0.3s ease-out' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '8px' : '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '5px' : '6px', rowGap: 2, flexWrap: 'wrap' }}>
                       <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>
                         Rented: {formatAreaInt(getOccupiedArea(selectedProduct))}m²
                       </div>
-                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px' }}>
+                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px', marginLeft: 'auto' }}>
                         Available: {formatAreaInt(getAvailableArea(selectedProduct))}m²
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '4px' : '5px' }}>
                       <div style={{ display: 'flex', alignItems: 'center' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="#3b82f6"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 15H5V10h14v9z" /></svg>
@@ -3630,8 +3843,8 @@ const EnhancedFarmMap = forwardRef(({
                       </div>
                     </div>
 
-                    <div style={{ marginTop: isMobile ? '8px' : '10px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <div style={{ marginTop: isMobile ? '4px' : '5px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
                         <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>Harvest progress</div>
                         <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px' }}>
                           {(() => {
@@ -3644,7 +3857,7 @@ const EnhancedFarmMap = forwardRef(({
                           })()}
                         </div>
                       </div>
-                      <div style={{ height: isMobile ? '6px' : '8px', borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
+                      <div style={{ height: isMobile ? 8 : 10, borderRadius: '4px', backgroundColor: '#e9ecef', overflow: 'hidden' }}>
                         <div
                           style={{
                             width: `${Math.round((getHarvestProgressInfo(selectedProduct).progress || 0) * 100)}%`,
@@ -3660,9 +3873,241 @@ const EnhancedFarmMap = forwardRef(({
                   </div>
                 ) : (
                   <div style={{ animation: 'cardSlideIn 0.3s ease-out', fontSize: isMobile ? '9px' : '11px', color: '#475569', lineHeight: 1.4 }}>
-                    {selectedProduct.short_description ? (
-                      <div style={{ marginBottom: 8 }}>{selectedProduct.short_description}</div>
-                    ) : null}
+                    {(() => {
+                      const field = selectedProduct;
+                      const canGallery = isViewerOwnedFieldForGallery(currentUser, field);
+                      const raw = normalizeFieldGalleryImages(field);
+                      const slots = [];
+                      for (let i = 0; i < 5; i += 1) slots.push(raw[i] || null);
+                      return (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Gallery</div>
+                          <div style={{ display: 'flex', gap: 4, marginBottom: canGallery ? 6 : 0, flexWrap: 'wrap' }}>
+                            {slots.map((url, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  position: 'relative',
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 4,
+                                  background: url ? '#f8fafc' : '#e5e7eb',
+                                  overflow: 'hidden',
+                                  border: url ? 'none' : '1px solid #e2e8f0',
+                                  flexShrink: 0,
+                                  isolation: 'isolate'
+                                }}
+                              >
+                                {url ? (
+                                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                ) : null}
+                                {url && canGallery ? (
+                                  <button
+                                    type="button"
+                                    disabled={popupGalleryUploading}
+                                    onClick={() => handlePopupGalleryRemoveAt(field, i)}
+                                    style={{
+                                      position: 'absolute',
+                                      top: 2,
+                                      right: 2,
+                                      width: 18,
+                                      height: 18,
+                                      borderRadius: '50%',
+                                      border: 'none',
+                                      background: 'rgba(239, 68, 68, 0.95)',
+                                      color: '#fff',
+                                      fontSize: 11,
+                                      cursor: 'pointer',
+                                      lineHeight: 1,
+                                      padding: 0
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                          {canGallery && currentUser?.id ? (
+                            <label
+                              style={{
+                                display: 'inline-block',
+                                fontSize: 10,
+                                padding: '4px 10px',
+                                background: '#fff',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: 6,
+                                cursor: popupGalleryUploading || raw.length >= 5 ? 'not-allowed' : 'pointer',
+                                opacity: popupGalleryUploading || raw.length >= 5 ? 0.6 : 1,
+                                fontWeight: 600
+                              }}
+                            >
+                              {popupGalleryUploading ? 'Uploading…' : 'Add photos'}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                hidden
+                                disabled={popupGalleryUploading || raw.length >= 5}
+                                onChange={(e) => {
+                                  handlePopupGalleryUpload(field, e.target.files);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const canEditShort = isViewerOwnedFieldForGallery(currentUser, selectedProduct) && !!currentUser?.id;
+                      if (canEditShort) {
+                        const savedRaw = selectedProduct.short_description ?? selectedProduct.shortDescription ?? '';
+                        const savedTrim = String(savedRaw).trim();
+                        const hasSaved = savedTrim.length > 0;
+                        const linkBtn = {
+                          padding: 0,
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          color: '#2563eb',
+                          fontWeight: 600,
+                          textDecoration: 'underline',
+                          textUnderlineOffset: 2
+                        };
+                        const editBtn = {
+                          padding: '2px 6px',
+                          fontSize: 9,
+                          borderRadius: 5,
+                          border: '1px solid #cbd5e1',
+                          background: '#fff',
+                          color: '#475569',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          lineHeight: 1.2
+                        };
+                        const cancelShortDesc = () => {
+                          setPopupShortDescDraft(hasSaved ? savedTrim : '');
+                          setPopupShortDescComposing(false);
+                        };
+                        if (!popupShortDescComposing) {
+                          if (!hasSaved) {
+                            return (
+                              <Box sx={{ mb: 1, width: '100%' }}>
+                                <Typography variant="caption" sx={{ fontSize: '8px', fontWeight: 600, color: 'text.secondary', display: 'block', mb: 0.25 }}>
+                                  Map summary
+                                </Typography>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPopupShortDescDraft('');
+                                    setPopupShortDescComposing(true);
+                                  }}
+                                  style={linkBtn}
+                                >
+                                  + Add description
+                                </button>
+                              </Box>
+                            );
+                          }
+                          return (
+                            <Box sx={{ mb: 1, width: '100%' }}>
+                              <Typography variant="caption" sx={{ fontSize: '8px', fontWeight: 600, color: 'text.secondary', display: 'block', mb: 0.25 }}>
+                                Map summary
+                              </Typography>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, justifyContent: 'space-between' }}>
+                                <div style={{ fontSize: 10, color: '#334155', lineHeight: 1.35, flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{savedTrim}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPopupShortDescDraft(savedTrim);
+                                    setPopupShortDescComposing(true);
+                                  }}
+                                  style={editBtn}
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </Box>
+                          );
+                        }
+                        return (
+                          <Box sx={{ mb: 1, width: '100%' }}>
+                            <Typography variant="caption" sx={{ fontSize: '8px', fontWeight: 600, color: 'text.secondary', display: 'block', mb: 0.25 }}>
+                              Map summary
+                            </Typography>
+                            <TextField
+                              value={popupShortDescDraft}
+                              onChange={(e) => setPopupShortDescDraft(e.target.value)}
+                              multiline
+                              minRows={2}
+                              maxRows={6}
+                              inputProps={{ maxLength: 500 }}
+                              placeholder="Optional short text for map"
+                              size="small"
+                              fullWidth
+                              disabled={popupShortDescSaving}
+                              sx={{ '& .MuiInputBase-input': { fontSize: '10px', py: 0.5 } }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
+                              <button
+                                type="button"
+                                disabled={popupShortDescSaving}
+                                onClick={cancelShortDesc}
+                                style={{
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  border: '1px solid #e2e8f0',
+                                  background: '#fff',
+                                  color: '#64748b',
+                                  fontSize: 9,
+                                  fontWeight: 600,
+                                  cursor: popupShortDescSaving ? 'default' : 'pointer'
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 8, color: '#94a3b8' }}>{popupShortDescDraft.length}/500</span>
+                                <button
+                                  type="button"
+                                  disabled={popupShortDescSaving}
+                                  onClick={() => {
+                                    const fieldId = selectedProduct?.id;
+                                    if (!fieldId) return;
+                                    setPopupShortDescSaving(true);
+                                    persistShortDescriptionFromPopup(fieldId, popupShortDescDraft).finally(() => {
+                                      setPopupShortDescSaving(false);
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '3px 8px',
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    backgroundColor: '#0f172a',
+                                    color: '#fff',
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    cursor: popupShortDescSaving ? 'wait' : 'pointer'
+                                  }}
+                                >
+                                  {popupShortDescSaving ? '…' : 'Save'}
+                                </button>
+                              </div>
+                            </div>
+                          </Box>
+                        );
+                      }
+                      const shown = selectedProduct.short_description ?? selectedProduct.shortDescription;
+                      if (shown) return <div style={{ marginBottom: 8, fontSize: 10, color: '#334155', lineHeight: 1.35 }}>{shown}</div>;
+                      return (
+                        <div style={{ marginBottom: 6, fontSize: 9, color: '#94a3b8', fontStyle: 'italic' }}>
+                          No short summary.
+                        </div>
+                      );
+                    })()}
                     {(selectedProduct.description || '').slice(0, 400)}{(selectedProduct.description || '').length > 400 ? '…' : ''}
                   </div>
                 )}
@@ -4900,11 +5345,180 @@ const EnhancedFarmMap = forwardRef(({
                       </button>
                     );
                   })()}
-                  {selectedProduct.short_description ? (
-                    <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#334155', lineHeight: 1.4 }}>
-                      {selectedProduct.short_description}
-                    </div>
-                  ) : null}
+                  <div style={{ marginTop: 4, width: '100%', maxWidth: '100%' }}>
+                    {(() => {
+                      const canEditShort = isViewerOwnedFieldForGallery(currentUser, selectedProduct) && !!currentUser?.id;
+                      if (canEditShort) {
+                        const savedRaw = selectedProduct.short_description ?? selectedProduct.shortDescription ?? '';
+                        const savedTrim = String(savedRaw).trim();
+                        const hasSaved = savedTrim.length > 0;
+                        const captionSx = {
+                          display: 'block',
+                          color: 'text.secondary',
+                          mb: 0.25,
+                          fontSize: isMobile ? '9px' : '10px',
+                          fontWeight: 600
+                        };
+                        const linkBtn = {
+                          padding: 0,
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          fontSize: isMobile ? '10px' : '11px',
+                          color: '#2563eb',
+                          fontWeight: 600,
+                          textDecoration: 'underline',
+                          textUnderlineOffset: 2
+                        };
+                        const editBtn = {
+                          padding: '2px 8px',
+                          fontSize: isMobile ? '9px' : '10px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5e1',
+                          background: '#fff',
+                          color: '#475569',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          lineHeight: 1.2
+                        };
+                        const cancelShortDesc = () => {
+                          setPopupShortDescDraft(hasSaved ? savedTrim : '');
+                          setPopupShortDescComposing(false);
+                        };
+                        if (!popupShortDescComposing) {
+                          if (!hasSaved) {
+                            return (
+                              <Box sx={{ mt: 0.25, width: '100%' }}>
+                                <Typography variant="caption" sx={captionSx}>Map card summary</Typography>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPopupShortDescDraft('');
+                                    setPopupShortDescComposing(true);
+                                  }}
+                                  style={linkBtn}
+                                >
+                                  + Add description
+                                </button>
+                              </Box>
+                            );
+                          }
+                          return (
+                            <Box sx={{ mt: 0.25, width: '100%' }}>
+                              <Typography variant="caption" sx={captionSx}>Map card summary</Typography>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, justifyContent: 'space-between' }}>
+                                <div style={{
+                                  fontSize: isMobile ? '10px' : '11px',
+                                  color: '#334155',
+                                  lineHeight: 1.45,
+                                  wordBreak: 'break-word',
+                                  flex: 1,
+                                  minWidth: 0
+                                }}
+                                >
+                                  {savedTrim}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPopupShortDescDraft(savedTrim);
+                                    setPopupShortDescComposing(true);
+                                  }}
+                                  style={editBtn}
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </Box>
+                          );
+                        }
+                        return (
+                          <Box sx={{ mt: 0.25, width: '100%' }}>
+                            <Typography variant="caption" sx={captionSx}>Map card summary</Typography>
+                            <TextField
+                              value={popupShortDescDraft}
+                              onChange={(e) => setPopupShortDescDraft(e.target.value)}
+                              multiline
+                              minRows={2}
+                              maxRows={8}
+                              inputProps={{ maxLength: 500 }}
+                              placeholder="Optional — one or two lines on the map popup"
+                              size="small"
+                              fullWidth
+                              disabled={popupShortDescSaving}
+                              sx={{
+                                '& .MuiInputBase-input': { fontSize: isMobile ? '10px' : '11px', lineHeight: 1.35 },
+                              }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 8, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                disabled={popupShortDescSaving}
+                                onClick={cancelShortDesc}
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: 8,
+                                  border: '1px solid #e2e8f0',
+                                  background: '#fff',
+                                  color: '#64748b',
+                                  fontSize: isMobile ? '10px' : '11px',
+                                  fontWeight: 600,
+                                  cursor: popupShortDescSaving ? 'default' : 'pointer'
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 10, color: '#94a3b8' }}>{popupShortDescDraft.length}/500</span>
+                                <button
+                                  type="button"
+                                  disabled={popupShortDescSaving}
+                                  onClick={() => {
+                                    const fieldId = selectedProduct?.id;
+                                    if (!fieldId) return;
+                                    setPopupShortDescSaving(true);
+                                    persistShortDescriptionFromPopup(fieldId, popupShortDescDraft).finally(() => {
+                                      setPopupShortDescSaving(false);
+                                    });
+                                  }}
+                                  style={{
+                                    padding: '4px 12px',
+                                    borderRadius: 8,
+                                    border: 'none',
+                                    backgroundColor: '#0f172a',
+                                    color: '#fff',
+                                    fontSize: isMobile ? '10px' : '11px',
+                                    fontWeight: 600,
+                                    cursor: popupShortDescSaving ? 'wait' : 'pointer',
+                                    opacity: popupShortDescSaving ? 0.75 : 1
+                                  }}
+                                >
+                                  {popupShortDescSaving ? 'Saving…' : 'Save'}
+                                </button>
+                              </div>
+                            </div>
+                          </Box>
+                        );
+                      }
+                      const shown = selectedProduct.short_description ?? selectedProduct.shortDescription;
+                      return (
+                        <div
+                          style={{
+                            marginTop: 2,
+                            minHeight: 36,
+                            fontSize: isMobile ? '10px' : '11px',
+                            color: shown ? '#334155' : '#94a3b8',
+                            lineHeight: 1.45,
+                            fontStyle: shown ? 'normal' : 'italic',
+                            wordBreak: 'break-word'
+                          }}
+                        >
+                          {shown || '—'}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 <div style={{ width: isMobile ? '86px' : '96px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '6px' }}>
@@ -5005,6 +5619,7 @@ const EnhancedFarmMap = forwardRef(({
 
               {/* Occupancy + harvest (full width) */}
               {(() => {
+                const isOwnFieldPopup = isViewerOwnedFieldForGallery(currentUser, selectedProduct);
                 const totalRaw = fieldOccupancy?.total_area_m2 != null
                   ? parseFloat(fieldOccupancy.total_area_m2)
                   : parseFloat(selectedProduct.total_area || 0);
@@ -5021,6 +5636,7 @@ const EnhancedFarmMap = forwardRef(({
                 }
                 if (myM == null) myM = 0;
                 if (otherM == null) otherM = Math.max(0, (getOccupiedArea(selectedProduct) || 0) - myM);
+                const showMyRentedInPopup = !isOwnFieldPopup || myM > 0;
                 const availVal = fieldOccupancy?.available_m2 != null
                   ? parseFloat(fieldOccupancy.available_m2)
                   : getAvailableArea(selectedProduct);
@@ -5031,51 +5647,92 @@ const EnhancedFarmMap = forwardRef(({
                   rawMy = (rawMy / sumParts) * 100;
                   rawOther = (rawOther / sumParts) * 100;
                 }
-                const pctAvail = Math.max(0, 100 - rawMy - rawOther);
+                const barMyPct = showMyRentedInPopup ? rawMy : 0;
+                const barAvailPct = Math.max(0, 100 - barMyPct - rawOther);
                 const hInfo = getHarvestProgressInfo(selectedProduct);
                 const hPct = Math.round((hInfo.progress || 0) * 100);
                 const daysText = typeof hInfo.daysUntil === 'number'
                   ? ` • ${Math.max(0, hInfo.daysUntil)} days left`
                   : '';
+                const occTotal = getOccupiedArea(selectedProduct) || 0;
+                const fs = isMobile ? '10px' : '11px';
+                const popupProgressBarH = isMobile ? 8 : 10;
                 return (
-                  <div style={{ marginBottom: isMobile ? '10px' : '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                      <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#16a34a', fontWeight: 600 }}>
-                        My rented area: {formatAreaInt(myM)} m²
+                  <div style={{ marginBottom: isMobile ? '8px' : '10px' }}>
+                    {/* One stats row: context left, total · available right (matches harvest row rhythm) */}
+                    <div style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      columnGap: 8,
+                      rowGap: 2,
+                      marginBottom: 4,
+                      minHeight: 0
+                    }}
+                    >
+                      <div style={{
+                        fontSize: fs,
+                        color: isOwnFieldPopup ? '#64748b' : '#16a34a',
+                        fontWeight: 600,
+                        flex: '1 1 auto',
+                        minWidth: 0,
+                        lineHeight: 1.25
+                      }}
+                      >
+                        {!isOwnFieldPopup
+                          ? `My rented · ${formatAreaInt(myM)} m²`
+                          : `Occupied · ${formatAreaInt(occTotal)} m²`}
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#0f172a', fontWeight: 700 }}>
-                          Total field {formatAreaInt(total)}m²
-                        </div>
-                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
-                          Available: {formatAreaInt(availVal)}m²
-                        </div>
+                      <div style={{
+
+
+                        fontSize: fs,
+                        color: '#0f172a',
+                        fontWeight: 700,
+                        textAlign: 'right',
+                        flex: '0 1 auto',
+                        lineHeight: 1.25,
+                        marginLeft: 'auto'
+                      }}
+                      >
+                        <span>Total {formatAreaInt(total)}m²</span>
+                        <span style={{ color: '#cbd5e1', fontWeight: 500, margin: '0 5px' }}>·</span>
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>Available {formatAreaInt(availVal)}m²</span>
                       </div>
                     </div>
                     <div style={{
                       width: '100%',
-                      height: isMobile ? '8px' : '10px',
+                      height: popupProgressBarH,
                       backgroundColor: '#ffffff',
                       border: '1px solid #e2e8f0',
                       borderRadius: '5px',
                       overflow: 'hidden',
                       display: 'flex',
                       flexDirection: 'row',
-                      marginBottom: '10px'
+                      marginBottom: 6
                     }}>
-                      <div title="Your area" style={{ width: `${rawMy}%`, height: '100%', backgroundColor: '#22c55e', flexShrink: 0 }} />
+                      <div
+                        title="Your area"
+                        style={{
+                          width: `${barMyPct}%`,
+                          height: '100%',
+                          backgroundColor: '#22c55e',
+                          flexShrink: 0
+                        }}
+                      />
                       <div title="Others" style={{ width: `${rawOther}%`, height: '100%', backgroundColor: '#4b5563', flexShrink: 0 }} />
-                      <div title="Available" style={{ width: `${pctAvail}%`, height: '100%', backgroundColor: '#e8eaed', flexShrink: 0 }} />
+                      <div title="Available" style={{ width: `${barAvailPct}%`, height: '100%', backgroundColor: '#e8eaed', flexShrink: 0 }} />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontSize: isMobile ? '10px' : '11px', color: '#64748b', fontWeight: 600 }}>Harvest progress</span>
-                      <span style={{ fontSize: isMobile ? '10px' : '11px', color: '#0f172a', fontWeight: 600 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                      <span style={{ fontSize: fs, color: '#64748b', fontWeight: 600 }}>Harvest progress</span>
+                      <span style={{ fontSize: fs, color: '#0f172a', fontWeight: 600 }}>
                         {hPct}%{daysText}
                       </span>
                     </div>
                     <div style={{
                       width: '100%',
-                      height: isMobile ? '5px' : '6px',
+                      height: popupProgressBarH,
                       backgroundColor: '#e5e7eb',
                       borderRadius: '4px',
                       overflow: 'hidden'
@@ -5390,11 +6047,13 @@ const EnhancedFarmMap = forwardRef(({
                               Price {(parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || parseFloat(selectedProduct.sellingPrice) || 0).toFixed(2)}$/m²
                             </div>
                             <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', fontWeight: 500 }}>
-                              Estimated Prod {selectedProduct.production_rate || selectedProduct.productionRate || 'N/A'} {selectedProduct.production_rate_unit || 'Kg'}/m²
+                              Estimated Prod {selectedProduct.production_rate || selectedProduct.productionRate || 'N/A'}{' '}
+                              {displayProductionRateUnit(selectedProduct)}
                             </div>
                             {selectedProduct.last_harvest_production_rate != null && selectedProduct.last_harvest_production_rate !== '' ? (
                               <div style={{ fontSize: isMobile ? '9px' : '10px', color: '#94a3b8', marginTop: 2 }}>
-                                Last Harvest Prod {String(selectedProduct.last_harvest_production_rate)} {selectedProduct.production_rate_unit || 'Kg'}/m²
+                                Last Harvest Prod {String(selectedProduct.last_harvest_production_rate)}{' '}
+                                {displayProductionRateUnit(selectedProduct)}
                               </div>
                             ) : null}
                           </div>
@@ -5504,7 +6163,11 @@ const EnhancedFarmMap = forwardRef(({
                                     <div
                                       role="button"
                                       aria-pressed={deliveryMode === 'existing'}
-                                      onClick={() => { setDeliveryMode('existing'); setShowAddressOverlay(false); }}
+                                      onClick={() => {
+                                        setDeliveryMode('existing');
+                                        setShowAddressOverlay(false);
+                                        void fetchSavedDeliveryAddress();
+                                      }}
                                       style={{
                                         padding: '4px 8px',
                                         backgroundColor: deliveryMode === 'existing' ? '#ff9800' : '#f8f9fa',
@@ -5697,29 +6360,112 @@ const EnhancedFarmMap = forwardRef(({
               ) : (
                 <div style={{ animation: 'cardSlideIn 0.3s ease-out', paddingBottom: isMobile ? '8px' : '10px' }}>
                   {(() => {
-                    const raw = Array.isArray(selectedProduct.gallery_images) ? [...selectedProduct.gallery_images] : [];
+                    const field = selectedProduct;
+                    const canGallery = isViewerOwnedFieldForGallery(currentUser, field);
+                    const raw = normalizeFieldGalleryImages(field);
                     const slots = [];
                     for (let i = 0; i < 5; i += 1) slots.push(raw[i] || null);
                     return (
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                        {slots.map((url, i) => (
-                          <div
-                            key={i}
-                            style={{
-                              flex: 1,
-                              minWidth: 0,
-                              aspectRatio: '1',
-                              borderRadius: 6,
-                              background: url ? '#f8fafc' : '#e5e7eb',
-                              overflow: 'hidden',
-                              border: url ? 'none' : '1px solid #e2e8f0'
-                            }}
-                          >
-                            {url ? (
-                              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            ) : null}
-                          </div>
-                        ))}
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontWeight: 700, fontSize: isMobile ? '10px' : '12px', color: '#0f172a' }}>Gallery</span>
+                          {canGallery && currentUser?.id ? (
+                            <label
+                              style={{
+                                fontSize: isMobile ? '9px' : '11px',
+                                fontWeight: 600,
+                                padding: '4px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: popupGalleryUploading || raw.length >= 5 ? 'not-allowed' : 'pointer',
+                                opacity: popupGalleryUploading || raw.length >= 5 ? 0.55 : 1
+                              }}
+                            >
+                              {popupGalleryUploading ? 'Uploading…' : 'Add photos'}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                hidden
+                                disabled={popupGalleryUploading || raw.length >= 5}
+                                onChange={(e) => {
+                                  handlePopupGalleryUpload(field, e.target.files);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {slots.map((url, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                aspectRatio: '1',
+                                borderRadius: 6,
+                                background: url ? '#f8fafc' : '#e5e7eb',
+                                overflow: 'hidden',
+                                border: url ? 'none' : '1px solid #e2e8f0',
+                                position: 'relative'
+                              }}
+                            >
+                              {url ? (
+                                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              ) : null}
+                              {url && canGallery ? (
+                                <button
+                                  type="button"
+                                  disabled={popupGalleryUploading}
+                                  onClick={() => handlePopupGalleryRemoveAt(field, i)}
+                                  title="Remove"
+                                  style={{
+                                    position: 'absolute',
+                                    top: 4,
+                                    right: 4,
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: '50%',
+                                    border: 'none',
+                                    background: 'rgba(239, 68, 68, 0.95)',
+                                    color: '#fff',
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    lineHeight: 1,
+                                    padding: 0,
+                                    boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                                    zIndex: 2
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const sum = String(selectedProduct.short_description ?? selectedProduct.shortDescription ?? '').trim();
+                    if (!sum) return null;
+                    return (
+                      <div style={{
+                        marginBottom: 10,
+                        padding: isMobile ? '8px 10px' : '10px 12px',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: 8,
+                        border: '1px solid #e2e8f0'
+                      }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: isMobile ? '9px' : '10px', color: '#64748b', marginBottom: 4, letterSpacing: '0.02em' }}>
+                          Summary
+                        </div>
+                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#334155', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                          {sum}
+                        </div>
                       </div>
                     );
                   })()}
@@ -5763,17 +6509,15 @@ const EnhancedFarmMap = forwardRef(({
                           alignItems: 'flex-start'
                         }}
                       >
-                        <div style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: '50%',
-                          backgroundColor: '#e2e8f0',
-                          flexShrink: 0
-                        }} />
+                        <FieldReviewAvatar
+                          imageUrl={rev.user_profile_image_url ?? rev.userProfileImageUrl}
+                          userName={rev.user_name ?? rev.userName}
+                          size={36}
+                        />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', marginBottom: rev.comment ? 4 : 0 }}>
                             <span style={{ fontWeight: 600, fontSize: isMobile ? '10px' : '11px', color: '#0f172a' }}>
-                              {rev.user_name}:
+                              {rev.user_name ?? rev.userName}:
                             </span>
                             <span style={{ fontSize: isMobile ? '11px' : '12px', color: '#fbbf24', letterSpacing: '-2px' }}>
                               {'★'.repeat(rev.rating)}{'☆'.repeat(Math.max(0, 5 - rev.rating))}
@@ -5894,28 +6638,69 @@ const EnhancedFarmMap = forwardRef(({
                       <TextField label="Country" variant="outlined" size="small" fullWidth value={newDeliveryAddress.country} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, country: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
                       {addressError && (<div style={{ color: '#ef4444', fontSize: isMobile ? '10px' : '12px', marginTop: isMobile ? '8px' : '10px', fontWeight: 600 }}>{addressError}</div>)}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: isMobile ? '10px' : '12px' }}>
-                        <button onClick={() => {
-                          const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
-                          const scope = String(scopeRaw || '').toLowerCase();
-                          let valid = true;
-                          if (scope !== 'global') {
-                            const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-                            const p = extractCityCountry(locStr);
-                            if (scope === 'city') {
-                              const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
-                              valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
-                            } else if (scope === 'country') {
-                              const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
-                              valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+                        <button
+                          type="button"
+                          disabled={savingDeliveryAddress}
+                          onClick={async () => {
+                            const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
+                            const scope = String(scopeRaw || '').toLowerCase();
+                            let valid = true;
+                            if (scope !== 'global') {
+                              const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+                              const p = extractCityCountry(locStr);
+                              if (scope === 'city') {
+                                const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
+                                valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
+                              } else if (scope === 'country') {
+                                const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
+                                valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+                              }
                             }
-                          }
-                          if (!valid) { setAddressError('Address is outside the delivery region.'); return; }
-                          const summary = `${newDeliveryAddress.name}, ${newDeliveryAddress.line1}${newDeliveryAddress.line2 ? ' ' + newDeliveryAddress.line2 : ''}, ${newDeliveryAddress.city}, ${newDeliveryAddress.state ? newDeliveryAddress.state + ', ' : ''}${newDeliveryAddress.zip}, ${newDeliveryAddress.country}`;
-                          setExistingDeliveryAddress(summary);
-                          setDeliveryMode('existing');
-                          setShowAddressOverlay(false);
-                          setAddressError('');
-                        }} style={{ backgroundColor: '#ff9800', color: 'white', border: 'none', borderRadius: isMobile ? '4px' : '6px', padding: isMobile ? '8px 12px' : '10px 14px', fontSize: isMobile ? '12px' : '13px', cursor: 'pointer', fontWeight: 600 }}>Save Address</button>
+                            if (!valid) { setAddressError('Address is outside the delivery region.'); return; }
+                            const summary = `${newDeliveryAddress.name}, ${newDeliveryAddress.line1}${newDeliveryAddress.line2 ? ` ${newDeliveryAddress.line2}` : ''}, ${newDeliveryAddress.city}, ${newDeliveryAddress.state ? `${newDeliveryAddress.state}, ` : ''}${newDeliveryAddress.zip}, ${newDeliveryAddress.country}`;
+                            if (!currentUser?.id) {
+                              setAddressError('Please log in to save your delivery address.');
+                              return;
+                            }
+                            setSavingDeliveryAddress(true);
+                            try {
+                              await api.put('/api/users/me/delivery-address', {
+                                name: newDeliveryAddress.name,
+                                phone: newDeliveryAddress.phone,
+                                line1: newDeliveryAddress.line1,
+                                line2: newDeliveryAddress.line2,
+                                city: newDeliveryAddress.city,
+                                state: newDeliveryAddress.state,
+                                zip: newDeliveryAddress.zip,
+                                country: newDeliveryAddress.country,
+                                summary,
+                              });
+                              setExistingDeliveryAddress(summary);
+                              setDeliveryMode('existing');
+                              setShowAddressOverlay(false);
+                              setAddressError('');
+                              if (onNotification) onNotification('Delivery address saved.', 'success');
+                            } catch (err) {
+                              const msg = err.response?.data?.error || err.message || 'Could not save address';
+                              setAddressError(msg);
+                              if (onNotification) onNotification(msg, 'error');
+                            } finally {
+                              setSavingDeliveryAddress(false);
+                            }
+                          }}
+                          style={{
+                            backgroundColor: savingDeliveryAddress ? '#ccc' : '#ff9800',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: isMobile ? '4px' : '6px',
+                            padding: isMobile ? '8px 12px' : '10px 14px',
+                            fontSize: isMobile ? '12px' : '13px',
+                            cursor: savingDeliveryAddress ? 'not-allowed' : 'pointer',
+                            fontWeight: 600
+                          }}
+                        >
+                          {savingDeliveryAddress ? 'Saving…' : 'Save Address'}
+                        </button>
                       </div>
                       {addressSuggestionsPos && addressSuggestions.length > 0 && (
                         <Paper

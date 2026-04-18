@@ -45,6 +45,32 @@ import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
 import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
 import { FIELD_CATEGORY_DATA as categoryData } from '../../utils/fieldCategoryData';
+import {
+  normalizeTotalProductionUnit,
+  perAreaUnitSuffix,
+  usdPerProductionUnitSuffix,
+  productionUnitLabel,
+} from '../../utils/fieldProductionUnits';
+
+/** Numeric inputs that must not go negative (field size, pricing, rent). */
+const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
+  'fieldSize',
+  'totalProduction',
+  'distributionPrice',
+  'retailPrice',
+  'sellingPrice',
+  'sellingAmount',
+  'rent_price_per_month',
+]);
+
+function clampNonNegativeNumericInput(value) {
+  if (value === '' || value == null) return value;
+  const s = String(value);
+  if (/^-/.test(s)) return s.replace(/^-+/, '') || '';
+  const n = parseFloat(s);
+  if (!Number.isNaN(n) && n < 0) return '';
+  return s;
+}
 
 // Custom hook for mobile detection
 const useIsMobile = () => {
@@ -194,16 +220,22 @@ const StyledButton = styled(Button)(({ theme, isMobile }) => ({
 const CombinedInputContainer = styled(Box)(({ theme, isMobile }) => ({
   display: 'flex',
   alignItems: 'flex-start',
-  gap: isMobile ? '8px' : '12px',
-  width: isMobile ? '100%' : '320px',
+  flexWrap: isMobile ? 'wrap' : 'nowrap',
+  gap: isMobile ? '12px' : '12px',
+  width: '100%',
+  maxWidth: '100%',
   '& .MuiTextField-root': {
-    flex: 1,
+    flex: '1 1 auto',
+    minWidth: 0,
     width: 'auto !important',
+    maxWidth: '100%',
   },
   '& .MuiFormControl-root': {
-    width: '120px',
-    flexShrink: 0,
-  }
+    flex: isMobile ? '1 1 100%' : '0 0 auto',
+    width: isMobile ? '100% !important' : '132px !important',
+    minWidth: isMobile ? '100%' : 132,
+    maxWidth: isMobile ? '100%' : 132,
+  },
 }));
 
 const SectionTitle = styled(Typography)(({ theme }) => ({
@@ -367,7 +399,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     rent_price_per_month: '',
     rent_duration_monthly: false,
     rent_duration_quarterly: false,
-    rent_duration_yearly: false
+    rent_duration_yearly: false,
+    totalProductionUnit: 'kg',
   });
 
   const [errors, setErrors] = useState({});
@@ -425,7 +458,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         appFees: fees.toFixed(2)
       };
     });
-  }, [formData.totalProduction, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount]);
+  }, [formData.totalProduction, formData.totalProductionUnit, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount]);
 
   useEffect(() => {
     if (!open) {
@@ -730,6 +763,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         deliveryCharges: Array.isArray(initialData.delivery_charges) ? initialData.delivery_charges :
           Array.isArray(initialData.deliveryCharges) ? initialData.deliveryCharges :
             [{ upto: '', amount: '' }],
+        deliveryTime: formatDateForInput(
+          initialData.estimated_delivery_date ??
+            initialData.estimatedDeliveryDate ??
+            initialData.deliveryTime ??
+            initialData.delivery_time
+        ) || '',
         shippingScope: initialData.shipping_scope || 'Global',
         price_per_m2: initialData.price_per_m2 || initialData.pricePerM2 || 0,
         available_for_buy: initialData.available_for_buy ?? true,
@@ -737,7 +776,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         rent_price_per_month: initialData.rent_price_per_month ?? '',
         rent_duration_monthly: Boolean(initialData.rent_duration_monthly),
         rent_duration_quarterly: Boolean(initialData.rent_duration_quarterly),
-        rent_duration_yearly: Boolean(initialData.rent_duration_yearly)
+        rent_duration_yearly: Boolean(initialData.rent_duration_yearly),
+        totalProductionUnit: normalizeTotalProductionUnit(
+          initialData.total_production_unit || initialData.totalProductionUnit
+        ),
       }));
 
       // Special fix for the "Watermelon" in category warning:
@@ -782,6 +824,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
         description: '',
         fieldSize: '',
         fieldSizeUnit: 'sqm',
+        totalProduction: '',
+        totalProductionUnit: 'kg',
         productionRate: '',
         productionRateUnit: 'Kg',
         sellingAmount: '',
@@ -821,6 +865,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   const handleInputChange = (field, value) => {
     let processedValue = value;
+    if (NON_NEGATIVE_NUMERIC_FIELDS.has(field)) {
+      processedValue = clampNonNegativeNumericInput(processedValue);
+    }
 
     // Preventive validation for field size - cap at available remaining area
     if (field === 'fieldSize' && formData.farmId) {
@@ -933,10 +980,11 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     setFormData(prev => {
       const updatedCharges = (prev.deliveryCharges || []).map((charge, i) => {
         if (i === index) {
-          const newCharge = { ...charge, [field]: value };
+          const rawVal = field === 'upto' || field === 'amount' ? clampNonNegativeNumericInput(value) : value;
+          const newCharge = { ...charge, [field]: rawVal };
           // Auto-fill amount based on upto value
           if (field === 'upto') {
-            const num = parseFloat(value);
+            const num = parseFloat(rawVal);
             if (!isNaN(num)) {
               if (num <= 12) newCharge.amount = '15.00';
               else if (num <= 36) newCharge.amount = '25.00';
@@ -981,10 +1029,15 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     }
 
     if (!formData.totalProduction) newErrors.totalProduction = 'Total production is required';
+    else if (parseFloat(formData.totalProduction) <= 0) newErrors.totalProduction = 'Total production must be greater than zero';
     if (!formData.distributionPrice) newErrors.distributionPrice = 'Distribution price is required';
+    else if (parseFloat(formData.distributionPrice) < 0) newErrors.distributionPrice = 'Cannot be negative';
     if (!formData.sellingAmount) newErrors.sellingAmount = 'How much product to sell is required';
+    else if (parseFloat(formData.sellingAmount) <= 0) newErrors.sellingAmount = 'Selling quantity must be greater than zero';
     if (!formData.sellingPrice) newErrors.sellingPrice = 'Your sharecrop price is required';
+    else if (parseFloat(formData.sellingPrice) < 0) newErrors.sellingPrice = 'Cannot be negative';
     if (!formData.retailPrice) newErrors.retailPrice = 'Retail price is required';
+    else if (parseFloat(formData.retailPrice) < 0) newErrors.retailPrice = 'Cannot be negative';
 
     // Validate harvest dates
     const harvestDatesArray = formData.harvestDates || [];
@@ -1025,6 +1078,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     if (formData.available_for_rent) {
       if (!formData.rent_price_per_month || String(formData.rent_price_per_month).trim() === '' || isNaN(parseFloat(formData.rent_price_per_month))) {
         newErrors.rent_price_per_month = 'Rent price per month is required when available for rent';
+      } else if (parseFloat(formData.rent_price_per_month) < 0) {
+        newErrors.rent_price_per_month = 'Rent price cannot be negative';
       }
       if (!formData.rent_duration_monthly && !formData.rent_duration_quarterly && !formData.rent_duration_yearly) {
         newErrors.rent_duration = 'Select at least one rent duration (Monthly, Quarterly, or Yearly)';
@@ -1094,10 +1149,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       field_size_unit: formData.fieldSizeUnit, // Snake case
       productionRate: formData.productionPerArea,
       production_rate: formData.productionPerArea, // Calculated production per area
-      productionRateUnit: 'Kg/m²',
-      production_rate_unit: 'Kg/m²',
+      productionRateUnit: perAreaUnitSuffix(formData.totalProductionUnit),
+      production_rate_unit: perAreaUnitSuffix(formData.totalProductionUnit),
       totalProduction: formData.totalProduction,
       total_production: formData.totalProduction,
+      totalProductionUnit: normalizeTotalProductionUnit(formData.totalProductionUnit),
+      total_production_unit: normalizeTotalProductionUnit(formData.totalProductionUnit),
       distributionPrice: formData.distributionPrice,
       distribution_price: formData.distributionPrice,
       sellingAmount: formData.sellingAmount,
@@ -1191,7 +1248,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       rent_price_per_month: '',
       rent_duration_monthly: false,
       rent_duration_quarterly: false,
-      rent_duration_yearly: false
+      rent_duration_yearly: false,
+      totalProductionUnit: 'kg',
     });
     setErrors({});
     setIsSubmitting(false);
@@ -1638,6 +1696,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         helperText={errors.fieldSize || (formData.farmId ? `Max ${selectedFarmArea.remaining.toFixed(2)} ${selectedFarmArea.unit === 'sqm' ? 'm²' : selectedFarmArea.unit} available` : '')}
                         isMobile={isMobile}
                         type="number"
+                        inputProps={{ min: 0, step: 'any' }}
                       />
                       <StyledFormControl isMobile={isMobile}>
                         <InputLabel>Unit</InputLabel>
@@ -1902,26 +1961,69 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
               <FormSection>
                 <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Pricing Information</SectionTitle>
                 <Grid container spacing={3}>
-                  {/* Total Production */}
-                  <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="Total production per harvest"
-                      placeholder="e.g. 200"
-                      value={formData.totalProduction}
-                      onChange={(e) => handleInputChange('totalProduction', e.target.value)}
-                      error={!!errors.totalProduction}
-                      helperText={errors.totalProduction}
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        endAdornment: <InputAdornment position="end">Kg</InputAdornment>
-                      }}
+                  {/* Total production row: most grid width; amount field grows more than unit */}
+                  <Grid item xs={12} md={9}>
+                    <CombinedInputContainer
                       isMobile={isMobile}
-                    />
+                      sx={
+                        isMobile
+                          ? undefined
+                          : {
+                              '& .MuiTextField-root': {
+                                flex: '1 1 0%',
+                                minWidth: 300,
+                              },
+                              '& .MuiFormControl-root': {
+                                flex: '0 0 118px',
+                                width: '118px !important',
+                                minWidth: '118px !important',
+                                maxWidth: '118px !important',
+                              },
+                            }
+                      }
+                    >
+                      <StyledTextField
+                        fullWidth
+                        label="Total production per harvest"
+                        placeholder="e.g. 200"
+                        type="number"
+                        inputProps={{ min: 0, step: 'any' }}
+                        value={formData.totalProduction}
+                        onChange={(e) => handleInputChange('totalProduction', e.target.value)}
+                        error={!!errors.totalProduction}
+                        helperText={errors.totalProduction || 'Amount expected for one harvest'}
+                        InputLabelProps={{
+                          shrink: true,
+                          sx: {
+                            whiteSpace: 'normal',
+                            lineHeight: 1.25,
+                            '&.MuiInputLabel-shrink': { maxWidth: 'calc(100% + 8px)' },
+                          },
+                        }}
+                        isMobile={isMobile}
+                      />
+                      <StyledFormControl isMobile={isMobile}>
+                        <InputLabel id="total-prod-unit-label" shrink>
+                          Unit
+                        </InputLabel>
+                        <Select
+                          labelId="total-prod-unit-label"
+                          label="Unit"
+                          notched
+                          value={normalizeTotalProductionUnit(formData.totalProductionUnit)}
+                          onChange={(e) => handleInputChange('totalProductionUnit', e.target.value)}
+                        >
+                          <MenuItem value="kg">kg</MenuItem>
+                          <MenuItem value="L">L (liters)</MenuItem>
+                          <MenuItem value="lbs">lbs</MenuItem>
+                          <MenuItem value="units">units</MenuItem>
+                        </Select>
+                      </StyledFormControl>
+                    </CombinedInputContainer>
                   </Grid>
 
-                  {/* Field Size Display */}
-                  <Grid item xs={12} md={6}>
+                  {/* Linked area — compact column */}
+                  <Grid item xs={12} md={3}>
                     <StyledTextField
                       fullWidth
                       label="Linked Field Area"
@@ -1932,7 +2034,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         readOnly: true,
                         endAdornment: <InputAdornment position="end">📍</InputAdornment>
                       }}
-                      sx={{ opacity: 0.8 }}
+                      sx={{
+                        opacity: 0.8,
+                        '& .MuiInputLabel-root': { whiteSpace: 'normal', lineHeight: 1.25 },
+                      }}
                       helperText="Size linked from Field Details section"
                       isMobile={isMobile}
                     />
@@ -1949,9 +2054,11 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
                           readOnly: true,
-                          endAdornment: <InputAdornment position="end">Kg/m²</InputAdornment>
+                          endAdornment: (
+                            <InputAdornment position="end">{perAreaUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                          ),
                         }}
-                        helperText="Calculated from Total Production and Normalized Area"
+                        helperText="Calculated from total production and normalized field area"
                         isMobile={isMobile}
                       />
                       <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
@@ -1972,8 +2079,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       helperText={errors.distributionPrice}
                       InputLabelProps={{ shrink: true }}
                       InputProps={{
-                        endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                        endAdornment: (
+                          <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                        ),
                       }}
+                      inputProps={{ min: 0, step: 'any' }}
+                      type="number"
                       isMobile={isMobile}
                     />
                   </Grid>
@@ -1990,8 +2101,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       helperText={errors.retailPrice}
                       InputLabelProps={{ shrink: true }}
                       InputProps={{
-                        endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                        endAdornment: (
+                          <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                        ),
                       }}
+                      inputProps={{ min: 0, step: 'any' }}
+                      type="number"
                       isMobile={isMobile}
                     />
                   </Grid>
@@ -2007,7 +2122,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
                           readOnly: true,
-                          endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                          endAdornment: (
+                            <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                          ),
                         }}
                         helperText="Calculated: (Wholesale + Retail) / 2"
                         isMobile={isMobile}
@@ -2031,8 +2148,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         helperText={errors.sellingPrice}
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
-                          endAdornment: <InputAdornment position="end">USD / Kg</InputAdornment>
+                          endAdornment: (
+                            <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                          ),
                         }}
+                        inputProps={{ min: 0, step: 'any' }}
+                        type="number"
                         isMobile={isMobile}
                       />
                       <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
@@ -2080,8 +2201,12 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         helperText={errors.sellingAmount}
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
-                          endAdornment: <InputAdornment position="end">Kg</InputAdornment>
+                          endAdornment: (
+                            <InputAdornment position="end">{productionUnitLabel(formData.totalProductionUnit)}</InputAdornment>
+                          ),
                         }}
+                        inputProps={{ min: 0, step: 'any' }}
+                        type="number"
                         isMobile={isMobile}
                       />
                       <Box sx={{ display: 'flex', minWidth: 'fit-content', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -2257,14 +2382,18 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         ✨ Suggested Delivery Rates by Sharecrop:
                       </Typography>
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>0 Kg – 12 Kg:</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
+                          0–12 {productionUnitLabel(formData.totalProductionUnit)}:
+                        </Typography>
                         <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$15.00 USD</Typography>
-                        
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>13 Kg – 36 Kg:</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
+                          13–36 {productionUnitLabel(formData.totalProductionUnit)}:
+                        </Typography>
                         <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00 USD</Typography>
-                        
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>37 Kg – 1000 Kg:</Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00+ (Increases with weight)</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
+                          37–1000 {productionUnitLabel(formData.totalProductionUnit)}:
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00+ (tiered)</Typography>
                       </Box>
                     </Box>
 
@@ -2272,12 +2401,14 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       <Box key={index} sx={{ display: 'flex', flexDirection: 'column', mb: 2 }}>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                           <StyledTextField
-                            label="Upto (Kg)"
-                            placeholder="Kg"
+                            label={`Upto (${productionUnitLabel(formData.totalProductionUnit)})`}
+                            placeholder={productionUnitLabel(formData.totalProductionUnit)}
                             value={charge?.upto ?? ''}
                             onChange={(e) => updateDeliveryCharge(index, 'upto', e.target.value)}
                             isMobile={isMobile}
                             size="small"
+                            type="number"
+                            inputProps={{ min: 0, step: 'any' }}
                           />
                           <StyledTextField
                             label="Amount ($)"
@@ -2286,6 +2417,8 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                             onChange={(e) => updateDeliveryCharge(index, 'amount', e.target.value)}
                             isMobile={isMobile}
                             size="small"
+                            type="number"
+                            inputProps={{ min: 0, step: 'any' }}
                           />
                           {(formData.deliveryCharges || []).length > 1 && (
                             <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error">

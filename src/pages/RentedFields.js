@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import fieldsService from '../services/fields';
+import {
+  formatTotalProductionWithUnit,
+  displayProductionRateUnit,
+} from '../utils/fieldProductionUnits';
 
 import {
   Container,
@@ -174,6 +178,7 @@ function mapFieldFromApi(raw, currentUserId) {
     price_per_m2: pricePerM2,
     price: price,
     total_production: totalProduction,
+    total_production_unit: raw.total_production_unit,
     distribution_price: distributionPrice,
     retail_price: retailPrice,
     app_fees: appFees,
@@ -303,6 +308,7 @@ function mapRentalFromApi(r, linkedField = null) {
     price_per_m2: parseFloat(r.price_per_m2) || 0,
     price: parseFloat(r.price) || 0,
     total_production: parseFloat(r.total_production) || 0,
+    total_production_unit: r.total_production_unit || linkedField?.total_production_unit,
     distribution_price: parseFloat(r.distribution_price) || 0,
     retail_price: parseFloat(r.retail_price) || 0,
     app_fees: parseFloat(r.app_fees) || 0,
@@ -1096,7 +1102,7 @@ const RentedFields = () => {
                 <div class="summary-label">Active Fields</div>
               </div>
               <div class="summary-card">
-                <div class="summary-value">${totalProduction.toLocaleString()} Kg</div>
+                <div class="summary-value">${totalProduction.toLocaleString()} total</div>
                 <div class="summary-label">Total Production</div>
               </div>
               <div class="summary-card">
@@ -1257,7 +1263,7 @@ const RentedFields = () => {
             icon={<Assessment sx={{ fontSize: 20 }} />}
             iconBg="#f3e8ff"
             iconColor="#7c3aed"
-            value={`${totalProduction.toLocaleString()} Kg`}
+            value={`${totalProduction.toLocaleString()} total`}
             label="Total Production"
           />
           <StatCard
@@ -1443,7 +1449,7 @@ const RentedFields = () => {
                           </span>
                           <span className="flex items-center gap-0.5">
                             <span className="font-medium text-slate-500">Total:</span>
-                            {field.total_production}Kg
+                            {formatTotalProductionWithUnit(field.total_production, field.total_production_unit)}
                           </span>
                         </div>
                         <div className="mt-2">
@@ -1459,7 +1465,7 @@ const RentedFields = () => {
                               {currencySymbols[userCurrency]}{(parseFloat(field.price_per_m2) || 0).toFixed(2)}/m²
                             </div>
                             <div className="text-[0.6rem] font-medium text-slate-400">
-                              {field.production_rate}Kg/m²
+                              {field.production_rate} {displayProductionRateUnit(field)}
                             </div>
                           </div>
                         </div>
@@ -1557,7 +1563,10 @@ const RentedFields = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500">Your Production</span>
                           <span className="font-semibold text-amber-600">
-                            {Math.round((field.progress / 100) * (field.total_production || 0))} Kg
+                            {formatTotalProductionWithUnit(
+                              Math.round((field.progress / 100) * (field.total_production || 0)),
+                              field.total_production_unit
+                            )}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -1588,12 +1597,14 @@ const RentedFields = () => {
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Production Rate</span>
                             <span className="font-semibold text-slate-900">
-                              {field.production_rate} {field.production_rate_unit || 'Kg/m²'}
+                              {field.production_rate} {displayProductionRateUnit(field)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Total Production</span>
-                            <span className="font-semibold text-slate-900">{field.total_production} Kg</span>
+                            <span className="font-semibold text-slate-900">
+                              {formatTotalProductionWithUnit(field.total_production, field.total_production_unit)}
+                            </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Price/m²</span>
@@ -2304,13 +2315,17 @@ const RentedFields = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-slate-600">Production Rate</span>
                       <span className="font-semibold text-slate-900">
-                        {(parseFloat(selectedField.production_rate) || 0).toFixed(3)} {selectedField.production_rate_unit || 'Kg/m²'}
+                        {(parseFloat(selectedField.production_rate) || 0).toFixed(3)}{' '}
+                        {displayProductionRateUnit(selectedField)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-slate-600">Total Production</span>
                       <span className="font-semibold text-slate-900">
-                        {(parseFloat(selectedField.total_production) || 0).toFixed(2)} Kg
+                        {formatTotalProductionWithUnit(
+                          selectedField.total_production,
+                          selectedField.total_production_unit
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -2510,7 +2525,7 @@ const RentedFields = () => {
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, backgroundColor: '#fef3c7', borderRadius: 2, textAlign: 'center' }}>
                   <Typography variant="h4" sx={{ fontWeight: 700, color: '#d97706', mb: 0.5 }}>
-                    {totalProduction.toLocaleString()} Kg
+                    {totalProduction.toLocaleString()} total
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Total Production

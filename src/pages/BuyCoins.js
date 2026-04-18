@@ -13,10 +13,6 @@ import {
   Stack,
   Divider,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
 } from '@mui/material';
 import {
   MonetizationOn,
@@ -32,12 +28,19 @@ import {
 } from '@mui/icons-material';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import coinService from '../services/coinService';
-import api from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
+
+/** Must match backend coin purchase fee in `routes/coins.js`. */
+const COIN_PURCHASE_APP_FEE_PERCENT = 5;
+
+function coinCheckoutFeeBreakdown(subtotal) {
+  const s = Number(subtotal) || 0;
+  const fee = Math.round(s * 100 * (COIN_PURCHASE_APP_FEE_PERCENT / 100)) / 100;
+  const total = Math.round((s + fee) * 100) / 100;
+  return { subtotal: s, fee, total };
+}
 
 const BuyCoins = ({ onSuccess }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const basePath = location.pathname.replace(/\/buy-coins.*/, '/buy-coins');
@@ -50,7 +53,8 @@ const BuyCoins = ({ onSuccess }) => {
   const [purchasing, setPurchasing] = useState(null);
   const [error, setError] = useState(null);
   const [customCoins, setCustomCoins] = useState('');
-  const [selectedCurrency, setSelectedCurrency] = useState('');
+  /** Checkout currency: USD-only for now (product decision). Keep state for easy restore with commented currency UI below. */
+  const [selectedCurrency, setSelectedCurrency] = useState('USD');
   const purchaseInProgressRef = useRef(false);
   const success = searchParams.get('success');
   const cancel = searchParams.get('cancel');
@@ -63,71 +67,40 @@ const BuyCoins = ({ onSuccess }) => {
 
   useEffect(() => {
     let mounted = true;
-    
-    // Only fetch and set currency if not already set
-    if (selectedCurrency) {
-      // Still load packs and rates, but don't change currency
-      Promise.all([
-        coinService.getCoinPacks(),
-        coinService.getCurrencyRates()
-      ]).then(([packsData, ratesData]) => {
-        if (mounted) {
-          if (packsData.packs) {
-            setPacks(packsData.packs);
-          }
-          if (ratesData.rates) {
-            setCurrencyRates(ratesData.rates);
-          }
-        }
-      }).catch((err) => {
+    Promise.all([
+      coinService.getCoinPacks(),
+      coinService.getCurrencyRates(),
+    ])
+      .then(([packsData, ratesData]) => {
+        if (!mounted) return;
+        if (packsData.packs) setPacks(packsData.packs);
+        if (ratesData.rates) setCurrencyRates(ratesData.rates);
+        setSelectedCurrency('USD');
+      })
+      .catch((err) => {
         console.error('Error loading coin packs:', err);
         if (mounted) {
           setError('Failed to load packages. Please try again later.');
           setPacks([]);
         }
-      }).finally(() => {
+      })
+      .finally(() => {
         if (mounted) setLoading(false);
       });
-      return () => { mounted = false; };
-    }
-    
-    Promise.all([
-      coinService.getCoinPacks(),
-      coinService.getCurrencyRates(),
-      // Get user's preferred currency
-      user?.id ? api.get(`/api/users/${user.id}/preferred-currency`).catch(() => ({ data: { preferred_currency: null } })) : Promise.resolve({ data: { preferred_currency: null } })
-    ]).then(([packsData, ratesData, currencyData]) => {
-      if (mounted && !selectedCurrency) {
-        if (packsData.packs) {
-          setPacks(packsData.packs);
-        }
-        if (ratesData.rates) {
-          setCurrencyRates(ratesData.rates);
-        }
-        
-        // Set default currency: user's preferred > first pack > first rate > USD
-        const preferredCurrency = currencyData.data?.preferred_currency;
-        if (preferredCurrency) {
-          setSelectedCurrency(preferredCurrency);
-        } else if (packsData.packs?.length > 0) {
-          setSelectedCurrency(packsData.packs[0].currency || 'USD');
-        } else if (ratesData.rates?.length > 0) {
-          setSelectedCurrency(ratesData.rates[0].currency || 'USD');
-        } else {
-          setSelectedCurrency('USD');
-        }
-      }
-    }).catch((err) => {
-      console.error('Error loading coin packs:', err);
-      if (mounted) {
-        setError('Failed to load packages. Please try again later.');
-        setPacks([]);
-      }
-    }).finally(() => {
-      if (mounted) setLoading(false);
-    });
-    return () => { mounted = false; };
-  }, [user?.id, selectedCurrency]);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /*
+   * Multi-currency (restore when product allows non-USD checkout again):
+   * - Re-add `import api from '../services/api'` if using preferred-currency below.
+   * - Replace the effect above with logic that loads preferred currency and sets
+   *   `selectedCurrency` from user preference / first pack / first rate, and re-fetch
+   *   when `user?.id` or `selectedCurrency` changes as needed.
+   * - Uncomment the Currency <Select> block in the Custom Coin card and re-add MUI imports:
+   *   FormControl, InputLabel, Select, MenuItem from '@mui/material'.
+   */
 
   const handleBuy = async (packId) => {
     if (purchaseInProgressRef.current) return;
@@ -160,11 +133,6 @@ const BuyCoins = ({ onSuccess }) => {
       setError('Please enter a valid number of coins');
       return;
     }
-    if (!selectedCurrency) {
-      setError('Please select a currency');
-      return;
-    }
-    
     setError(null);
     purchaseInProgressRef.current = true;
     setPurchasing('custom');
@@ -173,7 +141,7 @@ const BuyCoins = ({ onSuccess }) => {
         successUrl,
         cancelUrl,
         customCoins: parseInt(customCoins),
-        currency: selectedCurrency,
+        currency: 'USD',
       });
       if (url) {
         window.location.href = url;
@@ -189,18 +157,24 @@ const BuyCoins = ({ onSuccess }) => {
   };
 
   const calculateCustomPrice = () => {
-    if (!customCoins || !selectedCurrency || currencyRates.length === 0) return null;
+    if (!customCoins) return null;
     const coins = parseFloat(customCoins);
     if (isNaN(coins) || coins < 1) return null;
-    
-    const rate = currencyRates.find(r => r.currency === selectedCurrency);
-    if (!rate || !rate.coins_per_unit) return null;
-    
-    const coinsPerUnit = parseFloat(rate.coins_per_unit);
-    const price = coins / coinsPerUnit;
-    const symbol = rate.symbol || selectedCurrency;
-    
-    return { price, symbol, currency: selectedCurrency, coinsPerUnit };
+
+    const rate = currencyRates.find((r) => r.currency === selectedCurrency);
+    if (rate?.coins_per_unit) {
+      const coinsPerUnit = parseFloat(rate.coins_per_unit);
+      const price = coins / coinsPerUnit;
+      const symbol = rate.symbol || '$';
+      return { price, symbol, currency: selectedCurrency, coinsPerUnit };
+    }
+    // USD-only: 1 coin = US$1.00 when rates omit USD row
+    return {
+      price: coins,
+      symbol: '$',
+      currency: 'USD',
+      coinsPerUnit: 1,
+    };
   };
 
   if (success === '1') {
@@ -355,15 +329,21 @@ const BuyCoins = ({ onSuccess }) => {
           Add Coins to Your Account
         </Typography>
         <Typography variant="h6" sx={{ color: 'text.secondary', fontWeight: 400, mb: 1 }}>
-          {packs.length > 0 && packs[0].currencySymbol 
-            ? `1 coin = ${packs[0].currencySymbol}1.00 USD value`
-            : '1 coin = $1.00 USD value'}
+          1 coin = US$1.00 of in-app value — the standard unit is USD.
         </Typography>
         <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 2, flexWrap: 'wrap' }}>
           <Chip icon={<Security />} label="Secure Payment" size="small" color="success" variant="outlined" />
           <Chip icon={<Payment />} label="Card, Apple Pay, Google Pay" size="small" color="primary" variant="outlined" />
           <Chip icon={<Verified />} label="Instant Delivery" size="small" color="info" variant="outlined" />
         </Stack>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.5, px: 2 }}>
+          A <strong>{COIN_PURCHASE_APP_FEE_PERCENT}% platform fee</strong> is added to your payment (you still receive the full coin amount).
+        </Typography>
+        {/*
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75, px: 2 }}>
+          Non-USD prices use our fixed rates, not live bank exchange rates — choose USD if you prefer to pay in dollars.
+        </Typography>
+        */}
       </Box>
 
       {error && (
@@ -383,7 +363,8 @@ const BuyCoins = ({ onSuccess }) => {
             Buy Custom Amount
           </Typography>
           <Grid container spacing={3} alignItems="stretch">
-            {/* Currency Selection */}
+            {/*
+             * Multi-currency dropdown — commented out per product (USD-only checkout). Restore with effect block above.
             <Grid item xs={12} md={3}>
               <FormControl fullWidth>
                 <InputLabel>Currency *</InputLabel>
@@ -401,9 +382,10 @@ const BuyCoins = ({ onSuccess }) => {
                 </Select>
               </FormControl>
             </Grid>
+            */}
 
             {/* Coins Input */}
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Number of Coins *"
@@ -412,20 +394,27 @@ const BuyCoins = ({ onSuccess }) => {
                 onChange={(e) => setCustomCoins(e.target.value)}
                 inputProps={{ min: 1 }}
                 placeholder="e.g., 500"
-                helperText={selectedCurrency && currencyRates.find(r => r.currency === selectedCurrency)
-                  ? `Rate: ${currencyRates.find(r => r.currency === selectedCurrency).coins_per_unit} coins = ${currencyRates.find(r => r.currency === selectedCurrency).symbol}1.00`
-                  : 'Select currency first'}
+                helperText={currencyRates.find((r) => r.currency === selectedCurrency)
+                  ? (() => {
+                      const r = currencyRates.find((x) => x.currency === selectedCurrency);
+                      return `${r.coins_per_unit} coins = ${r.symbol}1.00`;
+                    })()
+                  : '1 coin = US$1.00'}
                 sx={{ '& .MuiInputBase-root': { height: '56px' } }}
               />
             </Grid>
 
             {/* Price Display */}
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
-                label=""
-                value={calculateCustomPrice() 
-                  ? `${calculateCustomPrice().symbol}${calculateCustomPrice().price.toFixed(2)}`
+                label="Total at checkout"
+                value={calculateCustomPrice()
+                  ? (() => {
+                      const cp = calculateCustomPrice();
+                      const b = coinCheckoutFeeBreakdown(cp.price);
+                      return `${cp.symbol}${b.total.toFixed(2)}`;
+                    })()
                   : ''}
                 InputProps={{
                   readOnly: true,
@@ -443,11 +432,17 @@ const BuyCoins = ({ onSuccess }) => {
                     },
                   }
                 }}
-                helperText={calculateCustomPrice() 
-                  ? (calculateCustomPrice().coinsPerUnit === 1 
-                      ? `${customCoins} coins × ${calculateCustomPrice().symbol}1.00 = ${calculateCustomPrice().symbol}${calculateCustomPrice().price.toFixed(2)}`
-                      : `${customCoins} coins ÷ ${calculateCustomPrice().coinsPerUnit} = ${calculateCustomPrice().symbol}${calculateCustomPrice().price.toFixed(2)}`)
-                  : 'Enter coins and select currency'}
+                helperText={calculateCustomPrice()
+                  ? (() => {
+                      const cp = calculateCustomPrice();
+                      const b = coinCheckoutFeeBreakdown(cp.price);
+                      const rateLine =
+                        cp.coinsPerUnit === 1
+                          ? `${customCoins} coins × ${cp.symbol}1.00 = ${cp.symbol}${b.subtotal.toFixed(2)} subtotal`
+                          : `${customCoins} coins ÷ ${cp.coinsPerUnit} = ${cp.symbol}${b.subtotal.toFixed(2)} subtotal`;
+                      return `${rateLine}. + ${COIN_PURCHASE_APP_FEE_PERCENT}% fee: total ${cp.symbol}${b.total.toFixed(2)}.`;
+                    })()
+                  : 'Enter coin amount'}
                 placeholder="Enter details to see price"
                 sx={{ 
                   '& .MuiInputBase-root': { 
@@ -483,13 +478,13 @@ const BuyCoins = ({ onSuccess }) => {
             </Grid>
 
             {/* Buy Button */}
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={4}>
               <Button
                 fullWidth
                 variant="contained"
                 size="large"
                 onClick={handleCustomBuy}
-                disabled={purchasing !== null || !customCoins || parseInt(customCoins) < 1 || !selectedCurrency}
+                disabled={purchasing !== null || !customCoins || parseInt(customCoins) < 1}
                 startIcon={purchasing === 'custom' ? <CircularProgress size={20} color="inherit" /> : <ShoppingCart />}
                 sx={{ 
                   height: '56px',
@@ -628,6 +623,24 @@ const BuyCoins = ({ onSuccess }) => {
                         Save {pack.savings.toFixed(0)}% vs base
                       </Typography>
                     )}
+                    {(() => {
+                      const b = coinCheckoutFeeBreakdown(pack.finalPrice);
+                      return (
+                        <Typography
+                          variant="caption"
+                          component="div"
+                          sx={{ color: 'text.secondary', mt: 1, lineHeight: 1.5, px: 0.5 }}
+                        >
+                          + {COIN_PURCHASE_APP_FEE_PERCENT}% app fee ({pack.currencySymbol}
+                          {b.fee.toFixed(2)}) ·{' '}
+                          <Box component="span" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                            Total {pack.currencySymbol}
+                            {b.total.toFixed(2)}
+                          </Box>
+                          {' '}at payment
+                        </Typography>
+                      );
+                    })()}
                   </Box>
 
                   {/* Value */}
