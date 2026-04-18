@@ -849,6 +849,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       // Reset location address for new forms
       setLocationAddress('');
     }
+    /* Intentionally omit full `initialData` from deps: parent often passes a new object reference when
+     * `fields` refreshes, which would re-run this effect and wipe in-progress edits while the dialog stays open. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-hydrate when open, editMode, or edited record id/_id changes
   }, [open, editMode, initialData?.id, initialData?._id]);
 
   // Quick apply recommended delivery rates

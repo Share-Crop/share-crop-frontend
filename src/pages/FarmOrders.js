@@ -27,6 +27,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  TextField,
 } from '@mui/material';
 import {
   ShoppingCart,
@@ -47,6 +48,8 @@ import {
   Description,
   Close,
   Info,
+  HighlightOff,
+  Inventory2,
 } from '@mui/icons-material';
 import { Alert, AlertTitle } from '@mui/material';
 import StatCard from '../components/Common/StatCard';
@@ -90,6 +93,10 @@ const FarmOrders = () => {
   const [filter, setFilter] = useState('all');
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [rejectRefundOpen, setRejectRefundOpen] = useState(false);
+  const [rejectRefundContext, setRejectRefundContext] = useState({ requestId: null, fieldName: '' });
+  const [rejectFarmerNote, setRejectFarmerNote] = useState('');
+  const [refundActionLoading, setRefundActionLoading] = useState(false);
 
   const loadOrders = useCallback(async () => {
     if (!user?.id) {
@@ -170,6 +177,8 @@ const FarmOrders = () => {
         field_id: order.field_id,
         notes: order.notes ?? null,
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
+        pending_refund_request_id: order.pending_refund_request_id || null,
+        pending_refund_request_reason: order.pending_refund_request_reason || null,
       }));
 
       setOrders(formattedOrders);
@@ -220,6 +229,54 @@ const FarmOrders = () => {
     }
   };
 
+  const handleApproveRefund = async (requestId) => {
+    if (!requestId) return;
+    if (
+      !window.confirm(
+        'Approve this refund? The order will be cancelled and coins returned to the buyer. If the order was already active or completed, the coin amount will be deducted from your wallet first.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setError(null);
+      setRefundActionLoading(true);
+      await orderService.resolveRefundRequest(requestId, { action: 'approve' });
+      await loadOrders();
+    } catch (err) {
+      console.error('Approve refund error:', err);
+      setError(err.response?.data?.error || err.message || 'Could not approve refund');
+    } finally {
+      setRefundActionLoading(false);
+    }
+  };
+
+  const openRejectRefund = (requestId, fieldName) => {
+    setRejectRefundContext({ requestId, fieldName: fieldName || 'this field' });
+    setRejectFarmerNote('');
+    setRejectRefundOpen(true);
+  };
+
+  const submitRejectRefund = async () => {
+    const { requestId } = rejectRefundContext;
+    if (!requestId) return;
+    try {
+      setError(null);
+      setRefundActionLoading(true);
+      await orderService.resolveRefundRequest(requestId, {
+        action: 'reject',
+        farmer_response: rejectFarmerNote.trim() || undefined,
+      });
+      setRejectRefundOpen(false);
+      await loadOrders();
+    } catch (err) {
+      console.error('Reject refund error:', err);
+      setError(err.response?.data?.error || err.message || 'Could not decline refund request');
+    } finally {
+      setRefundActionLoading(false);
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed':
@@ -227,6 +284,8 @@ const FarmOrders = () => {
       case 'confirmed':
       case 'active':
         return 'primary';
+      case 'shipped':
+        return 'info';
       case 'pending':
         return 'warning';
       case 'cancelled':
@@ -384,11 +443,12 @@ const FarmOrders = () => {
 
   const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total_cost) || 0), 0);
   const activeOrders = orders.filter((o) =>
-    ['active', 'pending'].includes(o.status)
+    ['active', 'pending', 'shipped'].includes(o.status)
   ).length;
   const completedOrders = orders.filter((o) => o.status === 'completed').length;
   const completionRate =
     orders.length > 0 ? (completedOrders / orders.length) * 100 : 0;
+  const pendingRefundCount = orders.filter((o) => o.pending_refund_request_id).length;
 
   return (
     <Box
@@ -435,10 +495,23 @@ const FarmOrders = () => {
         >
           <AlertTitle sx={{ fontWeight: 700, color: '#0369a1' }}>Confirm Orders to Receive Payments</AlertTitle>
           When a buyer places an order, the coins are held in escrow. <strong>Change the status from "Pending" to "Active"</strong> to confirm the order and instantly receive the coins in your wallet.
+          <Box sx={{ mt: 1.5, color: '#0f172a' }}>
+            <strong>Pending deadline:</strong> If you do not accept a <em>Pending</em> order within <strong>7 days</strong> of when it was placed, it is <strong>automatically cancelled</strong> and the buyer&apos;s coins are refunded.
+          </Box>
           <Box sx={{ mt: 1, color: '#b91c1c' }}>
             <strong>Warning:</strong> If you cancel an <em>Active</em> or <em>Completed</em> order, the coins will be automatically deducted from your wallet and refunded to the buyer.
           </Box>
         </Alert>
+
+        {pendingRefundCount > 0 && (
+          <Alert severity="warning" sx={{ mb: 3, borderRadius: 2 }}>
+            <AlertTitle sx={{ fontWeight: 700 }}>Buyer refund requests</AlertTitle>
+            {pendingRefundCount === 1
+              ? 'One order has a pending refund request.'
+              : `${pendingRefundCount} orders have pending refund requests.`}{' '}
+            Use the green check to approve (cancel the order and refund coins) or the red icon to decline.
+          </Alert>
+        )}
 
         {/* Stats */}
         <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
@@ -496,6 +569,7 @@ const FarmOrders = () => {
               { key: 'all', label: 'All Orders', icon: <ShoppingCart /> },
               { key: 'pending', label: 'Pending', icon: <Schedule /> },
               { key: 'active', label: 'Active', icon: <LocalShipping /> },
+              { key: 'shipped', label: 'Shipped', icon: <Inventory2 /> },
               { key: 'completed', label: 'Completed', icon: <CheckCircle /> },
               { key: 'cancelled', label: 'Cancelled', icon: <ErrorIcon /> },
             ].map(({ key, label, icon }) => (
@@ -672,12 +746,14 @@ const FarmOrders = () => {
                                 fontWeight: 600,
                                 color: getStatusColor(order.status) === 'primary' ? '#1d4ed8' :
                                   getStatusColor(order.status) === 'success' ? '#059669' :
+                                    getStatusColor(order.status) === 'info' ? '#0369a1' :
                                     getStatusColor(order.status) === 'warning' ? '#d97706' : '#ef4444'
                               }
                             }}
                           >
                             <MenuItem value="pending" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#d97706' }}>Pending</MenuItem>
                             <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>Active</MenuItem>
+                            <MenuItem value="shipped" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#0369a1' }}>Shipped</MenuItem>
                             <MenuItem value="completed" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#059669' }}>Completed</MenuItem>
                             <MenuItem value="cancelled" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>Cancelled</MenuItem>
                           </Select>
@@ -724,6 +800,46 @@ const FarmOrders = () => {
                               <Visibility sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
+                          {order.pending_refund_request_id && (
+                            <>
+                              <Tooltip
+                                title={
+                                  order.pending_refund_request_reason
+                                    ? `Buyer message: ${order.pending_refund_request_reason}\n\nApprove: cancel order and refund coins.`
+                                    : 'Approve refund (cancel order, return coins to buyer)'
+                                }
+                              >
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    disabled={refundActionLoading || updatingStatus}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleApproveRefund(order.pending_refund_request_id);
+                                    }}
+                                    sx={{ color: '#059669', p: 0.5 }}
+                                  >
+                                    <CheckCircle sx={{ fontSize: 18 }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title="Decline refund request">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    disabled={refundActionLoading || updatingStatus}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openRejectRefund(order.pending_refund_request_id, order.field_name);
+                                    }}
+                                    sx={{ color: '#dc2626', p: 0.5 }}
+                                  >
+                                    <HighlightOff sx={{ fontSize: 18 }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </>
+                          )}
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -1121,6 +1237,36 @@ const FarmOrders = () => {
           </Button>
           <Button onClick={handleCloseReport} variant="contained" sx={{ borderRadius: 1.5, bgcolor: '#4caf50', color: '#ffffff', '&:hover': { bgcolor: '#059669' } }}>
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={rejectRefundOpen} onClose={() => !refundActionLoading && setRejectRefundOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Decline refund request</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The buyer keeps the current order status and their coins are not refunded. Optionally add a short note (shown to
+            the buyer).
+          </Typography>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            {rejectRefundContext.fieldName}
+          </Typography>
+          <TextField
+            label="Note to buyer (optional)"
+            fullWidth
+            multiline
+            minRows={2}
+            value={rejectFarmerNote}
+            onChange={(e) => setRejectFarmerNote(e.target.value)}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setRejectRefundOpen(false)} disabled={refundActionLoading}>
+            Back
+          </Button>
+          <Button color="error" variant="contained" onClick={submitRejectRefund} disabled={refundActionLoading}>
+            {refundActionLoading ? 'Saving…' : 'Decline request'}
           </Button>
         </DialogActions>
       </Dialog>

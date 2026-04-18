@@ -168,7 +168,8 @@ const BuyerDashboard = ({ user }) => {
                       label={order.status} 
                       color={
                         order.status === 'completed' ? 'success' :
-                        order.status === 'confirmed' ? 'primary' : 'default'
+                        order.status === 'shipped' ? 'info' :
+                        order.status === 'active' || order.status === 'confirmed' ? 'primary' : 'default'
                       }
                     />
                   </Box>

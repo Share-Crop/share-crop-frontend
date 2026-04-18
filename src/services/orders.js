@@ -22,7 +22,22 @@ export const orderService = {
   
   // Get specific order details
   getOrder: (id) => api.get(`/api/orders/${id}`),
-  
-  // Cancel order
-  cancelOrder: (id) => api.delete(`/api/orders/${id}`),
+
+  /** Buyer: list own refund requests (optional; buyer order rows also expose pending request id). */
+  getMyRefundRequests: () => api.get('/api/orders/refund-requests/mine'),
+
+  /** Farmer: pending refund requests on this farmer's fields */
+  getIncomingRefundRequests: () => api.get('/api/orders/refund-requests/incoming'),
+
+  /** Buyer asks farmer to refund (no direct cancel/delete). */
+  createRefundRequest: (orderId, payload = {}) =>
+    api.post(`/api/orders/${orderId}/refund-requests`, payload),
+
+  /** Farmer approves or rejects a refund request (`action`: approve | reject). */
+  resolveRefundRequest: (requestId, payload) =>
+    api.patch(`/api/orders/refund-requests/${requestId}`, payload),
+
+  /** @deprecated Orders cannot be deleted via API; use createRefundRequest. */
+  cancelOrder: () =>
+    Promise.reject(new Error('Order cancellation was removed; use request refund instead.')),
 };
