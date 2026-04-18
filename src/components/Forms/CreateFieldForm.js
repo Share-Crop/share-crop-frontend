@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -19,7 +19,9 @@ import {
   FormControlLabel,
   RadioGroup,
   Radio,
-  Checkbox
+  Checkbox,
+  Alert,
+  AlertTitle,
 } from '@mui/material';
 
 import {
@@ -51,6 +53,8 @@ import {
   usdPerProductionUnitSuffix,
   productionUnitLabel,
 } from '../../utils/fieldProductionUnits';
+import { fieldHasOngoingPurchase, normalizeOrdersArray } from '../../utils/fieldEditRestrictions';
+import { orderService } from '../../services/orders';
 
 /** Numeric inputs that must not go negative (field size, pricing, rent). */
 const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
@@ -61,6 +65,14 @@ const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
   'sellingPrice',
   'sellingAmount',
   'rent_price_per_month',
+]);
+
+/** Editable while purchases are open; all other `handleInputChange` keys stay blocked. */
+const ALLOWED_FIELD_EDITS_WHEN_COMMERCIAL_LOCKED = new Set([
+  'productName',
+  'description',
+  'shortDescription',
+  'galleryImages',
 ]);
 
 function clampNonNegativeNumericInput(value) {
@@ -128,19 +140,34 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
     transition: 'all 0.3s ease',
     fontSize: isMobile ? '14px' : '16px',
     height: isMobile ? '48px' : '56px',
-    '&:hover .MuiOutlinedInput-notchedOutline': {
+    '&:not(.Mui-disabled):hover .MuiOutlinedInput-notchedOutline': {
       borderColor: '#c8e6c9',
       boxShadow: isSuggested ? 'none' : '0 4px 12px rgba(76, 175, 80, 0.1)',
     },
-    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    '&.Mui-focused:not(.Mui-disabled) .MuiOutlinedInput-notchedOutline': {
       borderColor: isSuggested ? '#e2e8f0' : '#4caf50',
       borderWidth: isSuggested ? '1px' : '2px',
+    },
+    '&.Mui-disabled': {
+      backgroundColor: '#e8edf3 !important',
+      cursor: 'not-allowed',
+    },
+    '&.Mui-disabled .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#94a3b8 !important',
+      borderWidth: '1px',
+    },
+    '&.Mui-disabled:hover': {
+      backgroundColor: '#e8edf3 !important',
     },
   },
   '& .MuiInputBase-input': {
     fontStyle: isSuggested ? 'italic' : 'normal',
     color: isSuggested ? '#64748b' : 'inherit',
     cursor: isSuggested ? 'default' : 'text',
+  },
+  '& .MuiInputBase-input.Mui-disabled': {
+    WebkitTextFillColor: '#475569',
+    cursor: 'not-allowed',
   },
   '& .MuiInputLabel-root': {
     color: '#4a5568',
@@ -149,6 +176,9 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
     zIndex: 1,
     '&.Mui-focused': {
       color: isSuggested ? '#4a5568' : '#4caf50',
+    },
+    '&.Mui-disabled': {
+      color: '#64748b',
     },
   },
   '& .MuiOutlinedInput-notchedOutline': {
@@ -169,12 +199,20 @@ const StyledFormControl = styled(FormControl)(({ theme, isMobile }) => ({
     transition: 'all 0.3s ease',
     fontSize: isMobile ? '14px' : '16px',
     height: isMobile ? '48px' : '56px',
-    '&:hover .MuiOutlinedInput-notchedOutline': {
+    '&:not(.Mui-disabled):hover .MuiOutlinedInput-notchedOutline': {
       borderColor: '#c8e6c9',
     },
-    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    '&.Mui-focused:not(.Mui-disabled) .MuiOutlinedInput-notchedOutline': {
       borderColor: '#4caf50',
       borderWidth: '2px',
+    },
+    '&.Mui-disabled': {
+      backgroundColor: '#e8edf3 !important',
+      cursor: 'not-allowed',
+    },
+    '&.Mui-disabled .MuiOutlinedInput-notchedOutline': {
+      borderColor: '#94a3b8 !important',
+      borderWidth: '1px',
     },
   },
   '& .MuiInputLabel-root': {
@@ -185,6 +223,13 @@ const StyledFormControl = styled(FormControl)(({ theme, isMobile }) => ({
     '&.Mui-focused': {
       color: '#4caf50',
     },
+    '&.Mui-disabled': {
+      color: '#64748b',
+    },
+  },
+  '& .MuiSelect-select.Mui-disabled': {
+    WebkitTextFillColor: '#475569',
+    cursor: 'not-allowed',
   },
   '& .MuiOutlinedInput-notchedOutline': {
     border: '2px solid #e8f5e8',
@@ -299,6 +344,47 @@ const FormSection = styled(Paper)(({ theme }) => ({
   border: '1px solid #e8f5e8',
 }));
 
+/** Wrapper + descendant styles when commercial fields are read-only (pending orders). */
+const lockedCommercialWrapSx = {
+  position: 'relative',
+  borderRadius: 2,
+  border: '1px dashed #94a3b8',
+  bgcolor: 'rgba(15, 23, 42, 0.045)',
+  p: 1.5,
+  mb: 2,
+  '& .MuiOutlinedInput-root.Mui-disabled': {
+    backgroundColor: '#e2e8f0 !important',
+  },
+  '& .MuiInputBase-input.Mui-disabled': {
+    WebkitTextFillColor: '#475569',
+  },
+  '& .MuiInputLabel-root.Mui-disabled': {
+    color: '#64748b',
+  },
+  '& .MuiOutlinedInput-root.Mui-disabled .MuiOutlinedInput-notchedOutline': {
+    borderColor: '#94a3b8 !important',
+  },
+  '& .MuiSelect-icon.Mui-disabled': {
+    color: '#94a3b8',
+  },
+  '& .MuiIconButton-root.Mui-disabled': {
+    opacity: 0.4,
+  },
+  '& .MuiRadio-root.Mui-disabled': {
+    color: '#94a3b8',
+  },
+  '& .MuiFormControlLabel-label.Mui-disabled': {
+    color: '#64748b',
+  },
+  '& .MuiFormControlLabel-root.Mui-disabled': {
+    opacity: 0.85,
+  },
+  '& .MuiButton-root.Mui-disabled': {
+    borderColor: '#cbd5e1',
+    color: '#94a3b8',
+  },
+};
+
 // Farm icons mapping
 const farmIcons = [
   { value: 'agriculture', label: 'Agriculture', icon: <Agriculture sx={{ color: '#8bc34a' }} /> },
@@ -351,13 +437,54 @@ const isYmdBeforeLocalToday = (ymd) => {
   return ymd < getTodayYmdLocal();
 };
 
-const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialData = null, farmsList = [], fieldsList = [] }) => {
+const CreateFieldForm = ({
+  open,
+  onClose,
+  onSubmit,
+  editMode = false,
+  initialData = null,
+  farmsList = [],
+  fieldsList = [],
+  restrictCommercialEdits = false,
+  ordersList = [],
+}) => {
   // Debug logging
 
   // Mobile detection hook
   const isMobile = useIsMobile();
-
   const { user } = useAuth();
+
+  /** Parent may pass orders before they load; refresh when edit dialog opens so lock matches server. */
+  const [fetchedOrdersForLock, setFetchedOrdersForLock] = useState([]);
+  useEffect(() => {
+    if (!open || !editMode || !user?.id) {
+      setFetchedOrdersForLock([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+        const raw = ordersRes?.data;
+        const ord = Array.isArray(raw) ? raw : (raw?.orders ?? raw?.data ?? []);
+        if (!cancelled) setFetchedOrdersForLock(Array.isArray(ord) ? ord : []);
+      } catch {
+        if (!cancelled) setFetchedOrdersForLock([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editMode, user?.id]);
+
+  const ordersForCommercialLock = useMemo(
+    () => [...normalizeOrdersArray(ordersList), ...normalizeOrdersArray(fetchedOrdersForLock)],
+    [ordersList, fetchedOrdersForLock]
+  );
+
+  const lockCommercial =
+    Boolean(editMode && restrictCommercialEdits) ||
+    Boolean(editMode && initialData && fieldHasOngoingPurchase(initialData, ordersForCommercialLock));
   const navigate = useNavigate();
   const minSelectableDate = getTodayYmdLocal();
   /** Avoid repeated GET /api/farms/:id when parent props churn re-runs the area effect. */
@@ -856,6 +983,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Quick apply recommended delivery rates
   const applyRecommendedRates = () => {
+    if (editMode && lockCommercial) return;
     setFormData(prev => ({
       ...prev,
       deliveryCharges: [
@@ -867,6 +995,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
   };
 
   const handleInputChange = (field, value) => {
+    if (editMode && lockCommercial && !ALLOWED_FIELD_EDITS_WHEN_COMMERCIAL_LOCKED.has(field)) return;
     let processedValue = value;
     if (NON_NEGATIVE_NUMERIC_FIELDS.has(field)) {
       processedValue = clampNonNegativeNumericInput(processedValue);
@@ -916,6 +1045,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Handle harvest date changes
   const handleHarvestDateChange = (index, field, value) => {
+    if (editMode && lockCommercial) return;
     if (field === 'date' && value && isYmdBeforeLocalToday(value)) {
       setErrors(prev => ({
         ...prev,
@@ -940,6 +1070,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Add new harvest date
   const addHarvestDate = () => {
+    if (editMode && lockCommercial) return;
     setFormData(prev => ({
       ...prev,
       harvestDates: [...(prev.harvestDates || []), { date: '', label: '' }]
@@ -948,6 +1079,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Remove harvest date
   const removeHarvestDate = (index) => {
+    if (editMode && lockCommercial) return;
     const currentHarvestDates = formData.harvestDates || [];
     if (currentHarvestDates.length > 1) {
       setFormData(prev => ({
@@ -966,6 +1098,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     : '';
 
   const addDeliveryCharge = () => {
+    if (editMode && lockCommercial) return;
     setFormData(prev => ({
       ...prev,
       deliveryCharges: [...(prev.deliveryCharges || []), { upto: '', amount: '' }]
@@ -973,6 +1106,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
   };
 
   const removeDeliveryCharge = (index) => {
+    if (editMode && lockCommercial) return;
     setFormData(prev => ({
       ...prev,
       deliveryCharges: (prev.deliveryCharges || []).filter((_, i) => i !== index)
@@ -980,6 +1114,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
   };
 
   const updateDeliveryCharge = (index, field, value) => {
+    if (editMode && lockCommercial) return;
     setFormData(prev => {
       const updatedCharges = (prev.deliveryCharges || []).map((charge, i) => {
         if (i === index) {
@@ -1004,6 +1139,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   // Handle location selection from LocationPicker
   const handleLocationSelect = (locationData) => {
+    if (editMode && lockCommercial) return;
     // LocationPicker returns { coordinates: [lng, lat], address: string }
     const [lng, lat] = locationData.coordinates;
     setFormData(prev => ({
@@ -1018,6 +1154,13 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
 
   const validateForm = () => {
     const newErrors = {};
+
+    if (lockCommercial) {
+      if (!formData.productName.trim()) newErrors.productName = 'Product name is required';
+      if (!formData.description.trim()) newErrors.description = 'Description is required';
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
+    }
 
     if (!formData.productName.trim()) newErrors.productName = 'Product name is required';
     if (!formData.category || formData.category === 'Select Category') newErrors.category = 'Category is required';
@@ -1097,6 +1240,25 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+
+    if (lockCommercial) {
+      const submitData = {
+        restrictedFieldUpdate: true,
+        productName: formData.productName,
+        name: formData.productName,
+        description: formData.description,
+        short_description: formData.shortDescription || '',
+        shortDescription: formData.shortDescription || '',
+        gallery_image_urls: (formData.galleryImages || []).filter(Boolean).slice(0, 5),
+        galleryImages: (formData.galleryImages || []).filter(Boolean).slice(0, 5),
+      };
+      setTimeout(() => {
+        onSubmit(submitData);
+        setIsSubmitting(false);
+        handleClose();
+      }, 400);
+      return;
+    }
 
     // Get actual location using reverse geocoding, or use pre-filled location from farm
     let actualLocation = locationAddress || 'Unknown Location';
@@ -1268,7 +1430,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
       isMobile={isMobile}
     >
       <StyledDialogTitle isMobile={isMobile}>
-        {editMode ? 'Edit Field' : 'Create New Field'}
+        {editMode ? (lockCommercial ? 'Edit listing (limited)' : 'Edit Field') : 'Create New Field'}
         <IconButton
           onClick={handleClose}
           sx={{
@@ -1376,6 +1538,14 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
           // Render normal form if approved and has farms
           return (
             <Box sx={{ width: '100%' }}>
+              {lockCommercial && (
+                <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+                  <AlertTitle sx={{ fontWeight: 700 }}>Purchases in progress</AlertTitle>
+                  Buyers are linked to this field’s price, area, harvest dates, and location — including any
+                  <strong> pending </strong>
+                  order. You can still update the product name, descriptions, and gallery. Other fields stay read-only until every order is completed or cancelled and there is no committed area.
+                </Alert>
+              )}
               {/* Basic Information Section */}
               <FormSection>
                 <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Basic Information</SectionTitle>
@@ -1385,6 +1555,31 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                   gap: isMobile ? '16px' : '24px',
                   justifyContent: 'flex-start'
                 }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: isMobile ? '16px' : '24px',
+                      width: '100%',
+                      alignItems: 'flex-start',
+                      ...(lockCommercial ? { ...lockedCommercialWrapSx, mb: 2 } : {}),
+                    }}
+                  >
+                    {lockCommercial ? (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          width: '100%',
+                          mb: 0.5,
+                          color: '#475569',
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                        }}
+                      >
+                        Farm &amp; crop type — read-only while orders are open
+                      </Typography>
+                    ) : null}
                   {/* Farm Selection Dropdown */}
                   <StyledFormControl error={!!errors.farmId} isMobile={isMobile}>
                     <InputLabel sx={{ fontWeight: 500 }}>Select Farm</InputLabel>
@@ -1392,6 +1587,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       value={formData.farmId ?? ''}
                       onChange={(e) => handleInputChange('farmId', e.target.value)}
                       label="Select Farm"
+                      disabled={lockCommercial}
                       displayEmpty
                       renderValue={(selected) => {
                         if (!selected) {
@@ -1478,6 +1674,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         }
                       }}
                       label="Select Category"
+                      disabled={lockCommercial}
                     >
                       {categories && Array.isArray(categories) && categories
                         .filter(category => category != null)
@@ -1492,7 +1689,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                   {/* Sub Category Dropdown */}
                   <StyledFormControl
                     error={!!errors.subcategory}
-                    disabled={!formData.category || formData.category === 'Select Category'}
+                    disabled={lockCommercial || !formData.category || formData.category === 'Select Category'}
                     isMobile={isMobile}
                   >
                     <InputLabel sx={{ fontWeight: 500 }}>Select Sub Category</InputLabel>
@@ -1521,6 +1718,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       }
                     </Select>
                   </StyledFormControl>
+                  </Box>
 
                   {/* Product image (same resolver as map: admin overrides + public/icons) */}
                   <Box sx={{
@@ -1683,8 +1881,27 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
               </FormSection>
 
               {/* Field Details Section */}
-              <FormSection>
-                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Field Details</SectionTitle>
+              <Box sx={lockCommercial ? lockedCommercialWrapSx : undefined}>
+                <FormSection
+                  sx={
+                    lockCommercial
+                      ? {
+                          mb: 0,
+                          bgcolor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          boxShadow: 'none',
+                        }
+                      : undefined
+                  }
+                >
+                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem', borderBottomColor: lockCommercial ? '#cbd5e1' : undefined }}>
+                  Field Details
+                </SectionTitle>
+                  {lockCommercial ? (
+                    <Typography variant="caption" sx={{ display: 'block', mb: 1.5, mt: -0.5, color: '#64748b', fontWeight: 600 }}>
+                      Read-only while orders are open
+                    </Typography>
+                  ) : null}
                 <Grid container spacing={isMobile ? 2 : 3}>
                   {/* Field Size with Unit */}
                   {/* Field Size with Unit */}
@@ -1700,6 +1917,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         isMobile={isMobile}
                         type="number"
                         inputProps={{ min: 0, step: 'any' }}
+                        disabled={lockCommercial}
                       />
                       <StyledFormControl isMobile={isMobile}>
                         <InputLabel>Unit</InputLabel>
@@ -1707,7 +1925,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           value={formData.fieldSizeUnit}
                           onChange={(e) => handleInputChange('fieldSizeUnit', e.target.value)}
                           label="Unit"
-                          disabled={!!formData.farmId}
+                          disabled={lockCommercial || !!formData.farmId}
                         >
                           <MenuItem value="sqm">m²</MenuItem>
                           <MenuItem value="acres">acres</MenuItem>
@@ -1731,6 +1949,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           <InputAdornment position="end">
                             <IconButton
                               onClick={() => setLocationPickerOpen(true)}
+                              disabled={lockCommercial}
                               sx={{
                                 color: '#4CAF50',
                                 padding: isMobile ? '6px' : '8px',
@@ -1754,8 +1973,9 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           cursor: 'pointer'
                         }
                       }}
-                      onClick={() => setLocationPickerOpen(true)}
+                      onClick={() => { if (!lockCommercial) setLocationPickerOpen(true); }}
                       isMobile={isMobile}
+                      disabled={lockCommercial}
                     />
                   </Grid>
 
@@ -1784,6 +2004,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                               InputLabelProps={{ shrink: true }}
                               inputProps={{ min: minSelectableDate }}
                               isMobile={isMobile}
+                              disabled={lockCommercial}
                             />
 
                             {/* Label field with icons positioned at bottom right */}
@@ -1795,6 +2016,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 value={harvestDate?.label ?? ''}
                                 onChange={(e) => handleHarvestDateChange(index, 'label', e.target.value)}
                                 isMobile={isMobile}
+                                disabled={lockCommercial}
                               />
 
                               {/* Icons positioned at bottom right of label field */}
@@ -1810,6 +2032,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                   <IconButton
                                     onClick={addHarvestDate}
                                     size="small"
+                                    disabled={lockCommercial}
                                     sx={{
                                       color: '#4caf50',
                                       backgroundColor: '#e8f5e8',
@@ -1826,6 +2049,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                   <IconButton
                                     onClick={() => removeHarvestDate(index)}
                                     size="small"
+                                    disabled={lockCommercial}
                                     sx={{
                                       color: '#f44336',
                                       backgroundColor: '#ffebee',
@@ -1855,6 +2079,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 inputProps={{ min: minSelectableDate }}
                                 isMobile={isMobile}
                                 sx={{ width: '100%' }}
+                                disabled={lockCommercial}
                               />
                             </Grid>
                             <Grid item xs={12} md={5}>
@@ -1866,6 +2091,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 onChange={(e) => handleHarvestDateChange(index, 'label', e.target.value)}
                                 isMobile={isMobile}
                                 sx={{ width: '100%' }}
+                                disabled={lockCommercial}
                               />
                             </Grid>
                             <Grid item xs={12} md={2}>
@@ -1873,6 +2099,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 {index === (formData.harvestDates || []).length - 1 && (
                                   <IconButton
                                     onClick={addHarvestDate}
+                                    disabled={lockCommercial}
                                     sx={{
                                       color: '#4caf50',
                                       backgroundColor: '#e8f5e8',
@@ -1885,6 +2112,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                                 {(formData.harvestDates || []).length > 1 && (
                                   <IconButton
                                     onClick={() => removeHarvestDate(index)}
+                                    disabled={lockCommercial}
                                     sx={{
                                       color: '#f44336',
                                       backgroundColor: '#ffebee',
@@ -1916,6 +2144,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       row
                       value={formData.hasWebcam ? 'Yes' : 'No'}
                       onChange={(e) => handleInputChange('hasWebcam', e.target.value === 'Yes')}
+                      disabled={lockCommercial}
                       sx={{
                         gap: isMobile ? 1.5 : 3,
                         justifyContent: 'center',
@@ -1929,10 +2158,21 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           transition: 'all 0.2s ease',
                           minWidth: isMobile ? 'auto' : 'unset',
                           flex: isMobile ? '0 0 auto' : 'unset',
-                          '&:hover': {
-                            backgroundColor: '#e8f5e8',
-                            borderColor: '#4caf50'
-                          },
+                          ...(!lockCommercial
+                            ? {
+                                '&:hover': {
+                                  backgroundColor: '#e8f5e8',
+                                  borderColor: '#4caf50'
+                                },
+                              }
+                            : {
+                                borderColor: '#cbd5e1',
+                                backgroundColor: '#e8edf3',
+                                '&:hover': {
+                                  backgroundColor: '#e8edf3',
+                                  borderColor: '#cbd5e1',
+                                },
+                              }),
                           '& .MuiTypography-root': {
                             fontSize: isMobile ? '14px' : '1rem'
                           }
@@ -1953,16 +2193,37 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           error={!!errors.webcamUrl}
                           helperText={errors.webcamUrl || "Provide a direct streaming URL (e.g., YouTube Live link)"}
                           isMobile={isMobile}
+                          disabled={lockCommercial}
                         />
                       </Box>
                     )}
                   </Grid>
                 </Grid>
               </FormSection>
+              </Box>
 
               {/* Pricing Information Section */}
-              <FormSection>
-                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Pricing Information</SectionTitle>
+              <Box sx={lockCommercial ? lockedCommercialWrapSx : undefined}>
+                <FormSection
+                  sx={
+                    lockCommercial
+                      ? {
+                          mb: 0,
+                          bgcolor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          boxShadow: 'none',
+                        }
+                      : undefined
+                  }
+                >
+                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem', borderBottomColor: lockCommercial ? '#cbd5e1' : undefined }}>
+                  Pricing Information
+                </SectionTitle>
+                  {lockCommercial ? (
+                    <Typography variant="caption" sx={{ display: 'block', mb: 1.5, mt: -0.5, color: '#64748b', fontWeight: 600 }}>
+                      Read-only while orders are open
+                    </Typography>
+                  ) : null}
                 <Grid container spacing={3}>
                   {/* Total production row: most grid width; amount field grows more than unit */}
                   <Grid item xs={12} md={9}>
@@ -2004,6 +2265,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           },
                         }}
                         isMobile={isMobile}
+                        disabled={lockCommercial}
                       />
                       <StyledFormControl isMobile={isMobile}>
                         <InputLabel id="total-prod-unit-label" shrink>
@@ -2015,6 +2277,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           notched
                           value={normalizeTotalProductionUnit(formData.totalProductionUnit)}
                           onChange={(e) => handleInputChange('totalProductionUnit', e.target.value)}
+                          disabled={lockCommercial}
                         >
                           <MenuItem value="kg">kg</MenuItem>
                           <MenuItem value="L">L (liters)</MenuItem>
@@ -2089,6 +2352,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       inputProps={{ min: 0, step: 'any' }}
                       type="number"
                       isMobile={isMobile}
+                      disabled={lockCommercial}
                     />
                   </Grid>
 
@@ -2111,6 +2375,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       inputProps={{ min: 0, step: 'any' }}
                       type="number"
                       isMobile={isMobile}
+                      disabled={lockCommercial}
                     />
                   </Grid>
 
@@ -2158,6 +2423,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         inputProps={{ min: 0, step: 'any' }}
                         type="number"
                         isMobile={isMobile}
+                        disabled={lockCommercial}
                       />
                       <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
                         <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
@@ -2211,6 +2477,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         inputProps={{ min: 0, step: 'any' }}
                         type="number"
                         isMobile={isMobile}
+                        disabled={lockCommercial}
                       />
                       <Box sx={{ display: 'flex', minWidth: 'fit-content', flexDirection: 'column', alignItems: 'flex-start' }}>
                         <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', ml: 2 }}>potential TOTAL APP income</Typography>
@@ -2251,10 +2518,30 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                   </Grid>
                 </Grid>
               </FormSection>
+              </Box>
 
               {/* Shipping & Delivery Section */}
-              <FormSection>
-                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Shipping & Delivery</SectionTitle>
+              <Box sx={lockCommercial ? lockedCommercialWrapSx : undefined}>
+                <FormSection
+                  sx={
+                    lockCommercial
+                      ? {
+                          mb: 0,
+                          bgcolor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          boxShadow: 'none',
+                        }
+                      : undefined
+                  }
+                >
+                <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem', borderBottomColor: lockCommercial ? '#cbd5e1' : undefined }}>
+                  Shipping & Delivery
+                </SectionTitle>
+                  {lockCommercial ? (
+                    <Typography variant="caption" sx={{ display: 'block', mb: 1.5, mt: -0.5, color: '#64748b', fontWeight: 600 }}>
+                      Read-only while orders are open
+                    </Typography>
+                  ) : null}
                 <Grid container spacing={3}>
                   {/* Shipping Options */}
                   <Grid item xs={12}>
@@ -2265,6 +2552,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       row
                       value={formData.shippingOption}
                       onChange={(e) => handleInputChange('shippingOption', e.target.value)}
+                      disabled={lockCommercial}
                       sx={{
                         display: 'flex',
                         gap: 2,
@@ -2277,10 +2565,21 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           borderRadius: 2,
                           justifyContent: 'center',
                           transition: 'all 0.2s',
-                          '&:hover': {
-                            backgroundColor: '#f5f5f5',
-                            borderColor: '#4caf50'
-                          },
+                          ...(!lockCommercial
+                            ? {
+                                '&:hover': {
+                                  backgroundColor: '#f5f5f5',
+                                  borderColor: '#4caf50'
+                                },
+                              }
+                            : {
+                                backgroundColor: '#e8edf3',
+                                borderColor: '#cbd5e1',
+                                '&:hover': {
+                                  backgroundColor: '#e8edf3',
+                                  borderColor: '#cbd5e1',
+                                },
+                              }),
                           '& .MuiTypography-root': {
                             fontWeight: 500,
                             fontSize: isMobile ? '0.875rem' : '1rem'
@@ -2319,6 +2618,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       error={!!errors.deliveryTime}
                       helperText={errors.deliveryTime || 'Expected delivery date after harvest (today or future only)'}
                       isMobile={isMobile}
+                      disabled={lockCommercial}
                     />
                   </Grid>
 
@@ -2331,6 +2631,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                       row
                       value={formData.shippingScope}
                       onChange={(e) => handleInputChange('shippingScope', e.target.value)}
+                      disabled={lockCommercial}
                       sx={{
                         gap: 2,
                         mb: 2,
@@ -2341,10 +2642,21 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                           border: '2px solid #e2e8f0',
                           backgroundColor: '#f8fafc',
                           transition: 'all 0.2s ease',
-                          '&:hover': {
-                            backgroundColor: '#e8f5e8',
-                            borderColor: '#4caf50'
-                          },
+                          ...(!lockCommercial
+                            ? {
+                                '&:hover': {
+                                  backgroundColor: '#e8f5e8',
+                                  borderColor: '#4caf50'
+                                },
+                              }
+                            : {
+                                backgroundColor: '#e8edf3',
+                                borderColor: '#cbd5e1',
+                                '&:hover': {
+                                  backgroundColor: '#e8edf3',
+                                  borderColor: '#cbd5e1',
+                                },
+                              }),
                           '& .MuiTypography-root': {
                             fontWeight: 500,
                             fontSize: isMobile ? '0.875rem' : '1rem'
@@ -2412,6 +2724,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                             size="small"
                             type="number"
                             inputProps={{ min: 0, step: 'any' }}
+                            disabled={lockCommercial}
                           />
                           <StyledTextField
                             label="Amount ($)"
@@ -2422,9 +2735,10 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                             size="small"
                             type="number"
                             inputProps={{ min: 0, step: 'any' }}
+                            disabled={lockCommercial}
                           />
                           {(formData.deliveryCharges || []).length > 1 && (
-                            <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error">
+                            <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error" disabled={lockCommercial}>
                               <Remove fontSize="small" />
                             </IconButton>
                           )}
@@ -2445,6 +2759,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         startIcon={<Add />}
                         onClick={addDeliveryCharge}
                         size="small"
+                        disabled={lockCommercial}
                         sx={{ textTransform: 'none' }}
                       >
                         Add Charge Tier
@@ -2453,6 +2768,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                         variant="outlined"
                         size="small"
                         onClick={applyRecommendedRates}
+                        disabled={lockCommercial}
                         sx={{
                           textTransform: 'none',
                           borderColor: '#ffcc00',
@@ -2466,6 +2782,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                   </Grid>
                 </Grid>
               </FormSection>
+              </Box>
             </Box>
           );
         })()}
@@ -2509,7 +2826,7 @@ const CreateFieldForm = ({ open, onClose, onSubmit, editMode = false, initialDat
                 }
               }}
             >
-              {isSubmitting ? 'Creating...' : (editMode ? 'Update Field' : 'Create Field')}
+              {isSubmitting ? 'Creating...' : (editMode ? (lockCommercial ? 'Save listing details' : 'Update Field') : 'Create Field')}
             </StyledButton>
           </StyledDialogActions>
         )

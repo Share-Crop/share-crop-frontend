@@ -29,6 +29,7 @@ import WebcamPopup from '../Common/WebcamPopup';
 import { WEATHER_LEGEND_DATA } from './weatherLegendData';
 import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate, formatHarvestDate as sharedFormatHarvestDate, parseHarvestDate as sharedParseHarvestDate } from '../../utils/harvestProgress';
 import { displayProductionRateUnit } from '../../utils/fieldProductionUnits';
+import { fieldBlocksDeletion } from '../../utils/fieldEditRestrictions';
 
 const OWM_LAYERS = [
   { id: 'none', label: 'None', Icon: Block },
@@ -129,6 +130,7 @@ const EnhancedFarmMap = forwardRef(({
   farms: externalFarms,
   fields: externalFields,
   onEditField,
+  onDeleteField,
   filters: externalFilters,
   height = '100%',
   embedded = false,
@@ -5743,6 +5745,79 @@ const EnhancedFarmMap = forwardRef(({
                         backgroundColor: '#ef4444'
                       }} />
                     </div>
+                  </div>
+                );
+              })()}
+              {(() => {
+                const ownerId = selectedProduct.farmer_id || selectedProduct.owner_id || selectedProduct.created_by;
+                const isOwner = currentUser?.id && ownerId && String(ownerId) === String(currentUser.id);
+                if (!isOwner || userType !== 'farmer' || (!onEditField && !onDeleteField)) return null;
+                const btnBase = {
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1px solid #cbd5e1',
+                  background: '#fff',
+                  color: '#0f172a',
+                };
+                return (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                    {onEditField ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onEditField(selectedProduct);
+                        setSelectedProduct(null);
+                        setPopupPosition(null);
+                      }}
+                      style={btnBase}
+                    >
+                      Edit field form
+                    </button>
+                    ) : null}
+                    {onDeleteField ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          let orders = [];
+                          try {
+                            const res = await orderService.getFarmerOrdersWithFields(currentUser.id);
+                            orders = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+                            orders = Array.isArray(orders) ? orders : [];
+                          } catch {
+                            onNotification?.('Could not verify orders. Try again.', 'error');
+                            return;
+                          }
+                          if (fieldBlocksDeletion(selectedProduct, orders)) {
+                            onNotification?.(
+                              'Cannot delete: there is an ongoing purchase (including pending) or committed area. Complete or cancel orders first.',
+                              'error'
+                            );
+                            return;
+                          }
+                          const nm = selectedProduct.name || selectedProduct.product_name || 'this field';
+                          if (!window.confirm(`Delete "${nm}" permanently?`)) return;
+                          try {
+                            await onDeleteField(selectedProduct);
+                            setSelectedProduct(null);
+                            setPopupPosition(null);
+                          } catch {
+                            /* parent shows error */
+                          }
+                        }}
+                        style={{
+                          ...btnBase,
+                          borderColor: '#fecaca',
+                          color: '#b91c1c',
+                          background: '#fef2f2',
+                        }}
+                        title="Delete this field (only when fully cleared of orders)"
+                      >
+                        Delete field
+                      </button>
+                    ) : null}
                   </div>
                 );
               })()}

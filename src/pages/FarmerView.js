@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Routes, Route, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Box,
@@ -38,6 +38,8 @@ import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
 import fieldsService from '../services/fields';
+import { orderService } from '../services/orders';
+import { fieldBlocksDeletion, fieldHasOngoingPurchase } from '../utils/fieldEditRestrictions';
 
 const FarmerView = () => {
   const location = useLocation();
@@ -56,6 +58,8 @@ const FarmerView = () => {
   const [farmsList, setFarmsList] = useState([]);
   const [fields, setFields] = useState([]);
   const [filteredFields, setFilteredFields] = useState([]);
+  /** Farmer orders (incl. pending) for delete / restricted-edit rules */
+  const [farmerOrders, setFarmerOrders] = useState([]);
   const [mapFilters, setMapFilters] = useState({ categories: [], subcategories: [] });
   const [products, setProducts] = useState([]);
   const [createFarmOpen, setCreateFarmOpen] = useState(false);
@@ -80,6 +84,29 @@ const FarmerView = () => {
 
   // Debug logging for field data
 
+  const reloadMapFields = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const fieldsResponse = await fieldsService.getAllForMap();
+      const mappedFields = (fieldsResponse.data || [])
+        .filter((field) => field && field.id)
+        .map((field) => ({
+          ...field,
+          harvestDates: field.harvest_dates,
+          pricePerM2: field.price_per_m2,
+          fieldSize: field.field_size,
+          productionRate: field.production_rate,
+          location: field.location,
+          shippingScope: field.shipping_scope,
+        }));
+      setFields(mappedFields);
+      setFilteredFields(mappedFields);
+    } catch (error) {
+      console.error('Error loading fields:', error);
+      addNotification(`Error loading fields: ${error.response?.data || error.message}`, 'error');
+    }
+  }, [user?.id, addNotification]);
+
   useEffect(() => {
     const loadData = async () => {
       if (user) {
@@ -96,24 +123,17 @@ const FarmerView = () => {
             }));
           setFarmsList(mappedFarms);
 
-          // Load ALL fields for map display (not filtered by user)
-          const fieldsResponse = await fieldsService.getAllForMap();
+          try {
+            const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+            const ord = Array.isArray(ordersRes.data)
+              ? ordersRes.data
+              : (ordersRes.data?.orders || []);
+            setFarmerOrders(Array.isArray(ord) ? ord : []);
+          } catch {
+            setFarmerOrders([]);
+          }
 
-
-          // Map database field names to frontend expected names
-          const mappedFields = fieldsResponse.data
-            .filter(field => field && field.id) // Only include fields with valid id
-            .map(field => ({
-              ...field,
-              harvestDates: field.harvest_dates, // Map harvest_dates to harvestDates
-              pricePerM2: field.price_per_m2, // Map price_per_m2 to pricePerM2
-              fieldSize: field.field_size, // Map field_size to fieldSize
-              productionRate: field.production_rate, // Map production_rate to productionRate
-              location: field.location,
-              shippingScope: field.shipping_scope
-            }));
-          setFields(mappedFields);
-          setFilteredFields(mappedFields);
+          await reloadMapFields();
 
         } catch (error) {
           console.error('Error loading data:', error);
@@ -124,7 +144,7 @@ const FarmerView = () => {
     };
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]); // Only depend on user.id, not addNotification which changes on every render
+  }, [user?.id, reloadMapFields]); // reloadMapFields stable while user.id unchanged
 
   // Handle delayed zoom to newly created fields
   useEffect(() => {
@@ -242,6 +262,46 @@ const FarmerView = () => {
     setCreateFieldOpen(true);
   };
 
+  const handleDeleteField = async (field) => {
+    if (!field?.id || !user?.id) return;
+    let orders = farmerOrders;
+    try {
+      const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+      orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
+      orders = Array.isArray(orders) ? orders : [];
+    } catch {
+      orders = farmerOrders;
+    }
+    if (fieldBlocksDeletion(field, orders)) {
+      addNotification(
+        'This field cannot be deleted while there is an ongoing purchase (including pending orders) or sold area. Complete or cancel all orders first.',
+        'error'
+      );
+      return;
+    }
+    const label = field.name || field.product_name || 'this field';
+    if (!window.confirm(`Delete "${label}" permanently? This cannot be undone.`)) return;
+    try {
+      await fieldsService.remove(field.id);
+      await reloadMapFields();
+      try {
+        const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+        const ord = Array.isArray(ordersRes.data)
+          ? ordersRes.data
+          : (ordersRes.data?.orders || []);
+        setFarmerOrders(Array.isArray(ord) ? ord : []);
+      } catch {
+        /* ignore */
+      }
+      addNotification('Field deleted.', 'success');
+    } catch (error) {
+      console.error('Delete field failed:', error);
+      const msg = error.response?.data?.error || error.response?.data?.message || error.message || 'Could not delete field.';
+      addNotification(String(msg), 'error');
+      throw error;
+    }
+  };
+
   const handleFarmSubmit = async (formData) => {
     try {
       // Debug logging
@@ -324,6 +384,37 @@ const FarmerView = () => {
     let fieldToZoom = null;
     try {
       if (editingField) {
+        if (formData.restrictedFieldUpdate) {
+          const payload = {
+            name: formData.name || formData.productName,
+            description: formData.description,
+            short_description: formData.short_description || formData.shortDescription || '',
+            gallery_images: formData.gallery_image_urls || formData.galleryImages || [],
+          };
+          const response = await api.put(`/api/fields/${editingField.id}`, payload);
+          const mappedField = {
+            ...editingField,
+            ...response.data,
+            name: response.data.name ?? payload.name,
+            description: response.data.description ?? payload.description,
+            short_description: response.data.short_description ?? payload.short_description,
+            shortDescription: response.data.short_description ?? payload.short_description,
+            gallery_images: response.data.gallery_images ?? payload.gallery_images,
+            harvestDates: response.data.harvest_dates ?? editingField.harvest_dates,
+            pricePerM2: response.data.price_per_m2 ?? editingField.pricePerM2,
+            fieldSize: response.data.field_size ?? editingField.fieldSize,
+            productionRate: response.data.production_rate ?? editingField.productionRate,
+            location: response.data.location ?? editingField.location,
+            shippingScope: response.data.shipping_scope ?? editingField.shippingScope,
+          };
+          const mappedFieldWithSubcategory = {
+            ...mappedField,
+            subcategory: editingField.subcategory ?? mappedField.subcategory ?? null,
+          };
+          setFields((prev) => prev.map((f) => (f.id === editingField.id ? mappedFieldWithSubcategory : f)));
+          addNotification(`Listing details for "${payload.name}" were updated.`, 'success');
+          fieldToZoom = mappedFieldWithSubcategory;
+        } else {
         // Update existing field
         const updatedField = { ...editingField, ...formData, shipping_scope: formData.shippingScope };
         const response = await api.put(`/api/fields/${editingField.id}`, updatedField);
@@ -347,6 +438,7 @@ const FarmerView = () => {
         setFields(prevFields => prevFields.map(field => field.id === editingField.id ? mappedFieldWithSubcategory : field));
         addNotification(`Your field "${formData.productName}" has been updated successfully.`, 'success');
         fieldToZoom = mappedFieldWithSubcategory;
+        }
       } else {
         // Create a new field
         const longitude = parseFloat(formData.longitude);
@@ -484,6 +576,7 @@ const FarmerView = () => {
               fields={fields}
               products={products}
               onEditField={handleEditField}
+              onDeleteField={handleDeleteField}
               onFieldCreate={handleCreateField}
               filters={mapFilters}
             />
@@ -603,6 +696,8 @@ const FarmerView = () => {
         initialData={editingField}
         farmsList={farmsList}
         fieldsList={fields}
+        restrictCommercialEdits={Boolean(editingField && fieldHasOngoingPurchase(editingField, farmerOrders))}
+        ordersList={farmerOrders}
       />
 
       {/* Add Farm Form Dialog */}

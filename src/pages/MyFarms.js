@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -45,6 +45,7 @@ import {
   Download,
   Description,
   Edit as EditIcon,
+  DeleteOutline,
 } from '@mui/icons-material';
 import storageService from '../services/storage';
 import fieldsService from '../services/fields';
@@ -57,6 +58,11 @@ import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
 import { formatTotalProductionWithUnit } from '../utils/fieldProductionUnits';
+import {
+  buildFieldIdToFarmIdMap,
+  farmAllowsDelete,
+  fieldBlocksDeletion,
+} from '../utils/fieldEditRestrictions';
 
 const normalizeAreaUnit = (raw) => {
   const u = String(raw || '').trim().toLowerCase();
@@ -90,7 +96,11 @@ const MyFarms = () => {
   const [itemsPerPage] = useState(6);
   const [showAllFarms, setShowAllFarms] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  /** Raw farmer orders (incl. pending) for delete / farm-clear rules */
+  const [farmerOrdersList, setFarmerOrdersList] = useState([]);
   const { user } = useAuth();
+
+  const fieldIdToFarmIdMap = useMemo(() => buildFieldIdToFarmIdMap(myFields), [myFields]);
 
   // Currency symbols mapping
   const currencySymbols = {
@@ -113,6 +123,64 @@ const MyFarms = () => {
   const handleCloseFarmDetail = () => {
     setFarmDetailOpen(false);
     setSelectedFarm(null);
+  };
+
+  const handleDeleteFieldCard = async (field) => {
+    if (!field?.id) return;
+    let orders = farmerOrdersList;
+    try {
+      const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+      orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
+      orders = Array.isArray(orders) ? orders : [];
+    } catch {
+      /* keep cached */
+    }
+    if (fieldBlocksDeletion(field, orders)) {
+      window.alert(
+        'This field cannot be deleted while there is an ongoing purchase (including a pending, unconfirmed order) or committed area. Complete or cancel all orders first.'
+      );
+      return;
+    }
+    const label = field.name || 'this field';
+    if (!window.confirm(`Delete "${label}" permanently? This cannot be undone.`)) return;
+    try {
+      await fieldsService.remove(field.id);
+      await fetchFarms();
+    } catch (err) {
+      console.error(err);
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Could not delete field.';
+      window.alert(String(msg));
+    }
+  };
+
+  const handleDeleteFarm = async (farm) => {
+    if (!farm?.id) return;
+    let orders = farmerOrdersList;
+    try {
+      const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+      orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
+      orders = Array.isArray(orders) ? orders : [];
+    } catch {
+      /* keep cached */
+    }
+    if (!farmAllowsDelete(farm, orders, fieldIdToFarmIdMap)) {
+      window.alert(
+        'This farm cannot be deleted until it is fully cleared: remove all fields, and ensure there are no pending or active orders for those fields (only completed or cancelled orders are OK).'
+      );
+      return;
+    }
+    const label = farm.name || 'this farm';
+    if (!window.confirm(`Delete farm "${label}" permanently? This cannot be undone.`)) return;
+    try {
+      await farmsService.remove(farm.id);
+      setFarmDetailOpen(false);
+      setSelectedFarm(null);
+      await fetchFarms();
+    } catch (err) {
+      console.error(err);
+      const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Could not delete farm.';
+      window.alert(String(msg));
+    }
   };
 
   const handleAddFarmOpen = () => {
@@ -241,39 +309,39 @@ const MyFarms = () => {
       if (!user || !user.id) {
         setMyFarms([]);
         setMyFields([]);
+        setFarmerOrdersList([]);
         return;
       }
 
       const farmsResponse = await farmsService.getAll(user.id);
       const rawFarms = farmsResponse.data || [];
 
+      let rawFarmerOrders = [];
+      try {
+        const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
+        const ord = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
+        rawFarmerOrders = Array.isArray(ord) ? ord : [];
+      } catch {
+        rawFarmerOrders = [];
+      }
+      setFarmerOrdersList(rawFarmerOrders);
+
+      const occupiedByFieldId = new Map();
+      rawFarmerOrders.forEach((o) => {
+        const status = String(o?.status || '').toLowerCase();
+        if (status === 'cancelled') return;
+        const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
+        if (!fid) return;
+        const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
+        const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
+        if (!Number.isFinite(qty) || qty <= 0) return;
+        occupiedByFieldId.set(String(fid), (occupiedByFieldId.get(String(fid)) || 0) + qty);
+      });
+
       let transformedFields = [];
       // Fetch farmer-created fields if user is available
       if (user && user.id) {
         try {
-          // Aggregate occupied area across ALL buyers for each of my fields.
-          // This avoids relying on stale `available_area` and matches the map popup logic.
-          let occupiedByFieldId = new Map();
-          try {
-            const ordersRes = await orderService.getFarmerOrdersWithFields(user.id);
-            const orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.orders || []);
-            const map = new Map();
-            orders.forEach((o) => {
-              const status = String(o?.status || '').toLowerCase();
-              if (status === 'cancelled') return;
-              const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
-              if (!fid) return;
-              const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
-              const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
-              if (!Number.isFinite(qty) || qty <= 0) return;
-              map.set(String(fid), (map.get(String(fid)) || 0) + qty);
-            });
-            occupiedByFieldId = map;
-          } catch {
-            // Logical fallback: if orders aren't accessible, we can only derive occupancy from field payload.
-            occupiedByFieldId = new Map();
-          }
-
           const fieldsResponse = await fieldsService.getAll();
           // Filter fields created by the current farmer
           const farmerFields = fieldsResponse.data?.filter(field =>
@@ -731,14 +799,32 @@ const MyFarms = () => {
                         <span className="truncate">{farm.location}</span>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); openEditFarm(farm); }}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                      title="Edit farm"
-                    >
-                      <EditIcon sx={{ fontSize: 16 }} />
-                    </button>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openEditFarm(farm); }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                        title="Edit farm"
+                      >
+                        <EditIcon sx={{ fontSize: 16 }} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteFarm(farm);
+                        }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-100 bg-red-50 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        title={
+                          farmAllowsDelete(farm, farmerOrdersList, fieldIdToFarmIdMap)
+                            ? 'Delete farm'
+                            : 'Farm must have no fields and no pending/active orders'
+                        }
+                        disabled={!farmAllowsDelete(farm, farmerOrdersList, fieldIdToFarmIdMap)}
+                      >
+                        <DeleteOutline sx={{ fontSize: 16 }} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Status badge */}
@@ -948,6 +1034,19 @@ const MyFarms = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={() => selectedFarm && handleDeleteFarm(selectedFarm)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={
+                      selectedFarm && farmAllowsDelete(selectedFarm, farmerOrdersList, fieldIdToFarmIdMap)
+                        ? 'Delete farm'
+                        : 'Farm must have no fields and no pending/active orders'
+                    }
+                    disabled={!selectedFarm || !farmAllowsDelete(selectedFarm, farmerOrdersList, fieldIdToFarmIdMap)}
+                  >
+                    <DeleteOutline sx={{ fontSize: 18 }} />
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleCloseFarmDetail}
                     className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
                   >
@@ -1133,6 +1232,22 @@ const MyFarms = () => {
                                   <span className="text-xs text-slate-400">No income</span>
                                 )}
                               </div>
+                            </div>
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteFieldCard(field)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[0.65rem] font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                title={
+                                  fieldBlocksDeletion(field, farmerOrdersList)
+                                    ? 'Cannot delete while there is a pending/active order or committed area'
+                                    : 'Delete field'
+                                }
+                                disabled={fieldBlocksDeletion(field, farmerOrdersList)}
+                              >
+                                <DeleteOutline sx={{ fontSize: 14 }} />
+                                Delete field
+                              </button>
                             </div>
                           </div>
                         );
