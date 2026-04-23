@@ -70,284 +70,19 @@ import CreateFieldForm from '../components/Forms/CreateFieldForm';
 import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
-import { formatHarvestDate } from '../utils/harvestProgress';
+import { formatHarvestDate, getHarvestProgressInfo, hasUpcomingHarvestOnRecord } from '../utils/harvestProgress';
+import {
+  mapFieldFromApi,
+  fieldToFormInitialData,
+  mapRentalFromApi,
+  formatAreaFromM2,
+  toM2,
+  normalizeAreaUnit,
+} from '../utils/rentedFieldModels';
 
 const SEGMENT_ALL = 'all';
 const SEGMENT_OWNED = 'owned';
 const SEGMENT_RENTED = 'rented';
-
-const normalizeAreaUnit = (raw) => {
-  const u = String(raw || '').trim().toLowerCase();
-  if (!u) return 'm2';
-  if (u === 'm²' || u === 'm2' || u === 'sqm' || u === 'square meter' || u === 'square meters') return 'm2';
-  if (u === 'acre' || u === 'acres') return 'acre';
-  if (u === 'hectare' || u === 'hectares' || u === 'ha') return 'ha';
-  if (u === 'sqft' || u === 'ft2' || u === 'ft²' || u === 'square feet') return 'ft2';
-  return u;
-};
-
-const unitLabel = (unit) => {
-  const u = normalizeAreaUnit(unit);
-  if (u === 'm2') return 'm²';
-  if (u === 'acre') return 'acres';
-  if (u === 'ha') return 'ha';
-  if (u === 'ft2') return 'ft²';
-  return unit || 'm²';
-};
-
-const toM2 = (value, unit) => {
-  const v = typeof value === 'string' ? parseFloat(value) : (value ?? 0);
-  if (!Number.isFinite(v)) return 0;
-  const u = normalizeAreaUnit(unit);
-  if (u === 'acre') return v * 4046.8564224;
-  if (u === 'ha') return v * 10000;
-  if (u === 'ft2') return v * 0.092903;
-  return v; // m2 or unknown assumed m2
-};
-
-const formatAreaFromM2 = (m2, unit) => {
-  const v = Number(m2) || 0;
-  const u = normalizeAreaUnit(unit);
-  if (u === 'acre') return `${(v / 4046.8564224).toFixed(2)} acres`;
-  if (u === 'ha') return `${(v / 10000).toFixed(2)} ha`;
-  if (u === 'ft2') return `${Math.round(v / 0.092903).toLocaleString()} ft²`;
-  return `${Math.round(v).toLocaleString()} m²`;
-};
-
-// Map fields API response to the shape the UI expects
-function mapFieldFromApi(raw, currentUserId) {
-  // display unit = what user selected; canonical m² comes from *_m2 columns when present
-  const displayUnitRaw = raw.display_unit || raw.field_size_unit || raw.unit || raw.area_unit || raw.areaUnit || 'm²';
-  const displayUnit = normalizeAreaUnit(displayUnitRaw);
-
-  const totalAreaM2 = raw.total_area_m2 != null
-    ? Number(raw.total_area_m2) || 0
-    : toM2(
-      (typeof raw.total_area === 'string' ? parseFloat(raw.total_area) : (raw.total_area ?? raw.area_m2 ?? 0)),
-      displayUnit,
-    );
-
-  const availableAreaM2 = raw.available_area_m2 != null
-    ? Number(raw.available_area_m2) || 0
-    : toM2(
-      (typeof raw.available_area === 'string' ? parseFloat(raw.available_area) : (raw.available_area ?? 0)),
-      displayUnit,
-    );
-  const pricePerM2 = typeof raw.price_per_m2 === 'string' ? parseFloat(raw.price_per_m2) : (raw.price_per_m2 ?? 0);
-  const price = typeof raw.price === 'string' ? parseFloat(raw.price) : (raw.price ?? 0);
-  const totalProduction = typeof raw.total_production === 'string' ? parseFloat(raw.total_production) : (raw.total_production ?? 0);
-  const distributionPrice = typeof raw.distribution_price === 'string' ? parseFloat(raw.distribution_price) : (raw.distribution_price ?? 0);
-  const retailPrice = typeof raw.retail_price === 'string' ? parseFloat(raw.retail_price) : (raw.retail_price ?? 0);
-  const appFees = typeof raw.app_fees === 'string' ? parseFloat(raw.app_fees) : (raw.app_fees ?? 0);
-  const potentialIncome = typeof raw.potential_income === 'string' ? parseFloat(raw.potential_income) : (raw.potential_income ?? 0);
-  const quantity = typeof raw.quantity === 'string' ? parseFloat(raw.quantity) : (raw.quantity ?? 0);
-  const occupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
-  const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
-  const harvestDates = Array.isArray(raw.harvest_dates)
-    ? raw.harvest_dates.map((h) => (typeof h === 'object' && h?.date != null ? { date: h.date, label: h.label || '' } : { date: h, label: '' }))
-    : [];
-  const shippingOption = raw.shipping_option || '';
-  const shippingModes = shippingOption ? shippingOption.split(/[,/]/).map((s) => s.trim()).filter(Boolean) : [];
-  const availableForBuy = raw.available_for_buy !== false && raw.available_for_buy !== 'false';
-  const availableForRent = raw.available_for_rent === true || raw.available_for_rent === 'true';
-  const rentPricePerMonth = raw.rent_price_per_month != null && raw.rent_price_per_month !== '' ? parseFloat(raw.rent_price_per_month) : null;
-  
-  const isOwnField = currentUserId != null
-    ? raw.owner_id === currentUserId
-    : Boolean(raw.is_own_field);
-
-  return {
-    id: raw.id,
-    name: raw.name,
-    farmName: raw.farmer_name,
-    location: raw.location,
-    cropType: raw.category || raw.subcategory,
-    category: raw.category,
-    subcategory: raw.subcategory,
-    is_own_field: Boolean(isOwnField),
-    display_unit: displayUnit,
-    area_unit: displayUnit,
-    total_area: totalAreaM2,
-    area_m2: totalAreaM2,
-    available_area: availableAreaM2,
-    occupied_area: occupiedM2,
-    total_area_display: formatAreaFromM2(totalAreaM2, displayUnit),
-    available_area_display: formatAreaFromM2(availableAreaM2, displayUnit),
-    occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
-    area: formatAreaFromM2(occupiedM2, displayUnit),
-    price_per_m2: pricePerM2,
-    price: price,
-    total_production: totalProduction,
-    total_production_unit: raw.total_production_unit,
-    distribution_price: distributionPrice,
-    retail_price: retailPrice,
-    app_fees: appFees,
-    potential_income: potentialIncome,
-    quantity: quantity,
-    production_rate: raw.production_rate,
-    production_rate_unit: raw.production_rate_unit,
-    monthlyRent: availableForRent && rentPricePerMonth != null ? rentPricePerMonth : price,
-    status: raw.available !== false ? 'Active' : 'Inactive',
-    progress,
-    selected_harvests: harvestDates,
-    selected_harvest_date: harvestDates[0]?.date,
-    selected_harvest_label: harvestDates[0]?.label,
-    shipping_modes: shippingModes,
-    image_url: raw.image,
-    farmer_name: raw.farmer_name,
-    created_at: raw.created_at,
-    rentPeriod: totalAreaM2 > 0 ? 'Ongoing' : null,
-    available_for_buy: availableForBuy,
-    available_for_rent: availableForRent,
-    rent_price_per_month: rentPricePerMonth,
-    rent_duration_monthly: raw.rent_duration_monthly === true || raw.rent_duration_monthly === 'true',
-    rent_duration_quarterly: raw.rent_duration_quarterly === true || raw.rent_duration_quarterly === 'true',
-    rent_duration_yearly: raw.rent_duration_yearly === true || raw.rent_duration_yearly === 'true',
-  };
-}
-
-// Convert raw field from API to CreateFieldForm initialData shape
-function fieldToFormInitialData(raw) {
-  if (!raw) return null;
-  const coords = Array.isArray(raw.coordinates) ? raw.coordinates : [];
-  const lng = coords[0] != null ? Number(coords[0]) : '';
-  const lat = coords[1] != null ? Number(coords[1]) : '';
-  const harvestDates = Array.isArray(raw.harvest_dates)
-    ? raw.harvest_dates.map((h) => (typeof h === 'object' && h != null ? { date: h.date ?? '', label: h.label ?? '' } : { date: h ?? '', label: '' }))
-    : [{ date: '', label: '' }];
-  return {
-    ...raw,
-    name: raw.name ?? '',
-    productName: raw.name ?? '',
-    category: raw.category ?? '',
-    subcategory: raw.subcategory ?? '',
-    description: raw.description ?? '',
-    price: raw.price ?? raw.price_per_m2,
-    sellingPrice: raw.price ?? raw.price_per_m2 ?? '',
-    latitude: lat,
-    longitude: lng,
-    harvestDates: harvestDates.length ? harvestDates : [{ date: '', label: '' }],
-    shippingScope: raw.shipping_scope ?? 'Global',
-    shippingOption: raw.shipping_option ?? 'Both',
-    farmId: raw.farm_id ?? '',
-    fieldSize: raw.field_size ?? raw.area_m2 ?? raw.total_area ?? '',
-    productionRate: raw.production_rate ?? '',
-    available_for_rent: Boolean(raw.available_for_rent),
-    rent_price_per_month: raw.rent_price_per_month ?? '',
-    rent_duration_monthly: Boolean(raw.rent_duration_monthly),
-    rent_duration_quarterly: Boolean(raw.rent_duration_quarterly),
-    rent_duration_yearly: Boolean(raw.rent_duration_yearly),
-  };
-}
-
-// Map my-rentals API response (rented_fields + field details) to same shape as owned fields for the card
-function mapRentalFromApi(r, linkedField = null) {
-  const unit = normalizeAreaUnit(r.unit || r.area_unit || r.field_size_unit || 'm2');
-  const totalAreaRaw = typeof r.total_area === 'string' ? parseFloat(r.total_area) : (r.total_area ?? 0);
-  const availableAreaRaw = typeof r.available_area === 'string' ? parseFloat(r.available_area) : (r.available_area ?? 0);
-  const totalAreaM2 = toM2(totalAreaRaw, unit);
-  const availableAreaM2 = toM2(availableAreaRaw, r.available_area_unit || 'm2');
-  
-  // For rentals, user's rented/purchased amount
-  const areaRentedRaw = r.area_rented != null && r.area_rented !== '' ? parseFloat(r.area_rented) : 0;
-  const userQuantity = parseFloat(r.quantity) || areaRentedRaw || 0;
-  
-  // For rented fields: show user's rented amount as occupied
-  // For field's own occupied: use total - available
-  const fieldOccupiedM2 = Math.max(0, totalAreaM2 - availableAreaM2);
-  const occupiedM2 = userQuantity > 0 ? userQuantity : fieldOccupiedM2;
-  const progress = totalAreaM2 > 0 ? Math.min(100, Math.round((occupiedM2 / totalAreaM2) * 100)) : 0;
-  const status = (r.status || 'active').toLowerCase();
-  
-  // Get user's selected harvest date from order, or fall back to field's harvest dates
-  const userSelectedDate = r.selected_harvest_date;
-  const userSelectedLabel = r.selected_harvest_label || '';
-  
-  // Parse field's harvest dates (all available)
-  let fieldHarvestDates = [];
-  if (r.harvest_dates) {
-    if (Array.isArray(r.harvest_dates)) {
-      fieldHarvestDates = r.harvest_dates;
-    } else if (typeof r.harvest_dates === 'string') {
-      try {
-        fieldHarvestDates = JSON.parse(r.harvest_dates);
-      } catch (e) {
-        fieldHarvestDates = [{ date: r.harvest_dates, label: '' }];
-      }
-    }
-  }
-  
-  // If user selected a harvest date, show that. Otherwise show all available.
-  const harvestDates = userSelectedDate 
-    ? [{ date: userSelectedDate, label: userSelectedLabel }]
-    : fieldHarvestDates;
-  
-  const shippingOption = r.shipping_option || '';
-  const shippingModes = shippingOption ? shippingOption.split(/[,/]/).map((s) => s.trim()).filter(Boolean) : [];
-  
-  return {
-    id: `rental-${r.id}`,
-    _rentalId: r.id,
-    _fieldId: r.field_id,
-    is_own_field: false,
-    name: r.field_name || r.name || `Field ${r.field_id}`,
-    farmName: r.owner_name || r.farmer_name,
-    location: r.field_location || r.location,
-    cropType: r.category || r.subcategory || r.crop_type,
-    category: r.category || r.crop_type,
-    subcategory: r.subcategory,
-    area_unit: unit,
-    total_area: totalAreaM2,
-    area_m2: totalAreaM2,
-    available_area: availableAreaM2,
-    occupied_area: occupiedM2,
-    total_area_display: formatAreaFromM2(totalAreaM2, unit),
-    available_area_display: formatAreaFromM2(availableAreaM2, unit),
-    occupied_area_display: formatAreaFromM2(occupiedM2, unit),
-    area: formatAreaFromM2(occupiedM2, unit),
-    price_per_m2: parseFloat(r.price_per_m2) || 0,
-    price: parseFloat(r.price) || 0,
-    total_production: parseFloat(r.total_production) || 0,
-    total_production_unit: r.total_production_unit || linkedField?.total_production_unit,
-    distribution_price: parseFloat(r.distribution_price) || 0,
-    retail_price: parseFloat(r.retail_price) || 0,
-    app_fees: parseFloat(r.app_fees) || 0,
-    potential_income: parseFloat(r.potential_income) || 0,
-    quantity: userQuantity,
-    production_rate: r.production_rate,
-    production_rate_unit: r.production_rate_unit,
-    monthlyRent: parseFloat(r.price) || parseFloat(r.rent_price) || 0,
-    status: status === 'active' ? 'Active' : status === 'ended' ? 'Ended' : status === 'cancelled' ? 'Cancelled' : status,
-    progress,
-    selected_harvests: harvestDates,
-    selected_harvest_date: userSelectedDate,
-    selected_harvest_label: userSelectedLabel,
-    field_harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
-    harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
-    harvest_date:
-      userSelectedDate ||
-      linkedField?.harvest_date ||
-      linkedField?.harvestDate ||
-      null,
-    field_created_at:
-      r.field_created_at ||
-      r.fieldCreatedAt ||
-      linkedField?.created_at ||
-      linkedField?.createdAt ||
-      null,
-    created_at:
-      linkedField?.created_at ||
-      linkedField?.createdAt ||
-      r.created_at ||
-      r.createdAt ||
-      null,
-    shipping_modes: shippingModes,
-    farmer_name: r.owner_name || r.farmer_name,
-    rentPeriod: r.start_date && r.end_date ? `${r.start_date} – ${r.end_date}` : null,
-    rental_start_date: r.start_date,
-    rental_end_date: r.end_date,
-  };
-}
 
 const RentedFields = () => {
   const { user } = useAuth();
@@ -871,7 +606,10 @@ const RentedFields = () => {
   const handleFullFieldSubmit = async (formData) => {
     if (!editingFieldFull?.id) return;
     try {
-      await fieldsService.update(editingFieldFull.id, { ...editingFieldFull, ...formData, shipping_scope: formData.shippingScope });
+      const payload = { ...editingFieldFull, ...formData, shipping_scope: formData.shippingScope };
+      delete payload.deliveryTime;
+      delete payload.delivery_time;
+      await fieldsService.update(editingFieldFull.id, payload);
       await loadFields();
       setEditFieldOpen(false);
       setEditingFieldFull(null);
@@ -1485,8 +1223,13 @@ const RentedFields = () => {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); handleViewOnMap(field); }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:bg-emerald-50"
-                            title="View on map"
+                            disabled={!hasUpcomingHarvestOnRecord(field)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:border-emerald-500 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={
+                              hasUpcomingHarvestOnRecord(field)
+                                ? 'View on map'
+                                : 'Hidden from map — no upcoming harvest'
+                            }
                             aria-label="View on map"
                           >
                             <LocationOn sx={{ fontSize: 18 }} />
@@ -1504,6 +1247,14 @@ const RentedFields = () => {
                 {/* Expanded panel */}
                 {isExpanded && (
                   <div className="border-t border-slate-200 px-3 py-3">
+                    {field.is_own_field && getHarvestProgressInfo(field).isExpiredSeason && (
+                      <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-950">
+                        <div className="text-sm font-bold text-orange-900">Harvest window ended</div>
+                        <p className="mt-1.5 leading-relaxed text-orange-900/90">
+                          All scheduled harvest dates are in the past. This field is hidden from the map and from buyers until you add a new upcoming harvest. If any buyers still have crop to receive, complete delivery and orders as usual — past fields stay visible here and in order history.
+                        </p>
+                      </div>
+                    )}
                     {/* Pending Order Notice */}
                     {!field.is_own_field && (field.status === 'Pending' || field.status === 'pending') && (
                       <div className="mb-3 rounded-lg bg-yellow-50 p-3 border border-yellow-200">
@@ -1527,7 +1278,11 @@ const RentedFields = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                           <span className="text-[0.65rem] font-semibold text-amber-700 uppercase tracking-wide">
-                            {field.selected_harvest_date ? 'Your Selected Harvest' : 'Available Harvest Dates'}
+                            {field.is_own_field && getHarvestProgressInfo(field).isExpiredSeason
+                              ? 'Past harvest dates'
+                              : field.selected_harvest_date
+                                ? 'Your Selected Harvest'
+                                : 'Available Harvest Dates'}
                           </span>
                         </div>
                         <div className="text-sm font-bold text-amber-900">{harvestText}</div>

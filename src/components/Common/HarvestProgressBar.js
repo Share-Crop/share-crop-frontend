@@ -24,7 +24,7 @@ const HarvestProgressBar = ({
         <div style={{ color: '#0f172a', fontWeight: 700, fontSize: textSize, textAlign: 'right' }}>
           {info.hasHarvestDate ? `${info.progressPercent}%` : 'N/A'}
           <span style={{ color: '#64748b', fontWeight: 500, fontSize: metaSize }}>
-            {` • ${getHarvestDaysLeftLabel(info.daysLeft, daysShort)}`}
+            {` • ${getHarvestDaysLeftLabel(info.daysLeft, daysShort, { isExpiredSeason: info.isExpiredSeason })}`}
           </span>
         </div>
       </div>
@@ -41,9 +41,10 @@ const HarvestProgressBar = ({
         />
       </div>
 
-      {showDate && (
+      {showDate && info.harvestDate && (
         <div style={{ marginTop: '6px', fontSize: metaSize, color: '#64748b' }}>
-          Harvest date: <span style={{ fontWeight: 600, color: '#334155' }}>{formatHarvestDate(info.harvestDate)}</span>
+          {info.isExpiredSeason ? 'Last harvest: ' : 'Harvest date: '}
+          <span style={{ fontWeight: 600, color: '#334155' }}>{formatHarvestDate(info.harvestDate)}</span>
         </div>
       )}
     </div>

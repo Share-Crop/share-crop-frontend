@@ -107,6 +107,69 @@ function getBestDateFromList(items) {
   return bestFuture;
 }
 
+/** Collect every harvest date string from a field-like or order-like object. */
+export function collectHarvestDateStrings(item) {
+  if (!item || typeof item !== 'object') return [];
+  const strings = [];
+  const pushRaw = (raw) => {
+    if (raw == null || raw === '') return;
+    const s = String(raw).trim();
+    if (s) strings.push(s);
+  };
+  const fromList = (list) => {
+    for (const row of normalizeHarvestItems(list)) {
+      const raw = row && typeof row === 'object' ? (row.date ?? row.value ?? row.harvest_date) : row;
+      pushRaw(raw);
+    }
+  };
+  fromList(item.selected_harvests || item.selectedHarvests);
+  fromList(item.harvest_dates || item.harvestDates);
+  fromList(item.field_harvest_dates || item.fieldHarvestDates);
+  pushRaw(item.selected_harvest_date);
+  if (item.selectedHarvestDate && typeof item.selectedHarvestDate === 'object') {
+    pushRaw(item.selectedHarvestDate.date);
+  }
+  pushRaw(item.harvest_date || item.harvestDate);
+  pushRaw(item.field_harvest_date || item.fieldHarvestDate);
+  return [...new Set(strings)];
+}
+
+/**
+ * True if the record has no harvest schedule OR at least one harvest on today or in the future.
+ * False only when there is at least one parseable date and every date is strictly before today.
+ */
+export function hasUpcomingHarvestOnRecord(item) {
+  const unique = collectHarvestDateStrings(item);
+  if (unique.length === 0) return true;
+  const today = normalizeDay(new Date());
+  let anyValid = false;
+  for (const s of unique) {
+    const d = parseHarvestDate(s);
+    if (!d) continue;
+    anyValid = true;
+    if (normalizeDay(d).getTime() >= today.getTime()) return true;
+  }
+  if (!anyValid) return true;
+  return false;
+}
+
+function getMostRecentPastHarvestDay(item) {
+  const today = normalizeDay(new Date());
+  let best = null;
+  let bestTs = -Infinity;
+  for (const s of collectHarvestDateStrings(item)) {
+    const d = parseHarvestDate(s);
+    if (!d) continue;
+    const day = normalizeDay(d);
+    const ts = day.getTime();
+    if (ts < today.getTime() && ts > bestTs) {
+      bestTs = ts;
+      best = day;
+    }
+  }
+  return best;
+}
+
 export function resolveHarvestDate(item) {
   if (!item || typeof item !== 'object') return null;
 
@@ -134,6 +197,20 @@ export function resolveHarvestDate(item) {
 export function getHarvestProgressInfo(item) {
   const harvestDate = resolveHarvestDate(item);
   if (!harvestDate) {
+    if (!hasUpcomingHarvestOnRecord(item)) {
+      const pastDay = getMostRecentPastHarvestDay(item);
+      return {
+        harvestDate: pastDay,
+        progress: 1,
+        progressPercent: 100,
+        daysLeft: 0,
+        daysUntil: 0,
+        totalCycleDays: HARVEST_DEFAULT_CYCLE_DAYS,
+        daysElapsed: HARVEST_DEFAULT_CYCLE_DAYS,
+        hasHarvestDate: Boolean(pastDay),
+        isExpiredSeason: true,
+      };
+    }
     return {
       harvestDate: null,
       progress: 0,
@@ -143,6 +220,7 @@ export function getHarvestProgressInfo(item) {
       totalCycleDays: HARVEST_DEFAULT_CYCLE_DAYS,
       daysElapsed: 0,
       hasHarvestDate: false,
+      isExpiredSeason: false,
     };
   }
 
@@ -184,13 +262,17 @@ export function getHarvestProgressInfo(item) {
     totalCycleDays,
     daysElapsed,
     hasHarvestDate: true,
+    isExpiredSeason: false,
   };
 }
 
 export function getHarvestProgressColors(item) {
-  const { progress, hasHarvestDate } = getHarvestProgressInfo(item);
+  const { progress, hasHarvestDate, isExpiredSeason } = getHarvestProgressInfo(item);
   if (!hasHarvestDate) {
     return { track: '#e2e8f0', fill: 'linear-gradient(90deg, #cbd5e1, #94a3b8)', text: '#64748b' };
+  }
+  if (isExpiredSeason) {
+    return { track: '#ffedd5', fill: 'linear-gradient(90deg, #fb923c, #ea580c)', text: '#c2410c' };
   }
 
   const startHue = Math.min(110, Math.max(0, progress * 110));
@@ -202,9 +284,13 @@ export function getHarvestProgressColors(item) {
   };
 }
 
-export function getHarvestDaysLeftLabel(daysLeft, short = false) {
+export function getHarvestDaysLeftLabel(daysLeft, short = false, options = {}) {
+  if (options.isExpiredSeason) {
+    return short ? 'Passed' : 'Harvest passed — fulfill deliveries';
+  }
   if (typeof daysLeft !== 'number') return 'No harvest date';
-  if (daysLeft <= 0) return short ? 'Ready now' : 'Ready now';
+  if (daysLeft < 0) return short ? 'Passed' : 'Harvest passed';
+  if (daysLeft === 0) return short ? 'Due' : 'Due today';
   if (daysLeft === 1) return short ? '1d left' : '1 day left';
   return short ? `${daysLeft}d left` : `${daysLeft} days left`;
 }

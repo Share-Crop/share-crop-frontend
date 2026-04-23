@@ -6,6 +6,8 @@ import { DARK_MAP_STYLE } from '../../utils/mapConfig';
 import { getProductIcon } from '../../utils/productIcons';
 import { formatTotalProductionWithUnit } from '../../utils/fieldProductionUnits';
 import { buildCoincidentMarkerPositionMap, getProductLngLat } from '../../utils/spreadCoincidentMapMarkers';
+import { hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
+import { getEstimatedDeliveryLeadDays, formatShippingLeadAfterHarvest } from '../../utils/fieldEstimatedDelivery';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1Ijoic2hhcmVjcm9wIiwiYSI6ImNsdHh4eHh4eDAwMDEya249eHh4eHh4eHgifQ.demo';
@@ -26,6 +28,7 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
   // Filter fields based on selected filters
   const filteredFields = useMemo(() => {
     return fields.filter(field => {
+      if (!hasUpcomingHarvestOnRecord(field)) return false;
       if (filters.category && field.category !== filters.category) return false;
       if (filters.shippingOption) {
         const shipping = (field.shipping_option || '').toLowerCase();
@@ -323,6 +326,11 @@ const PublicMapView = ({ fields = [], isAuthenticated, user, onLoginRequired }) 
               size="small"
               sx={{ bgcolor: '#fff3e0', color: '#e65100' }}
             />
+            {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedField, null)) && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, fontWeight: 600 }}>
+                Est. delivery: {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedField, null))}
+              </Typography>
+            )}
           </Box>
 
           {/* Farmer */}

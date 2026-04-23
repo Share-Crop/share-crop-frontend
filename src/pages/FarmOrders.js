@@ -61,6 +61,7 @@ import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 import fieldsService from '../services/fields';
 import { canSelectShippedOrCompletedStatus, getOrderHarvestYmd } from '../utils/orderHarvestGate';
+import { getEstimatedDeliveryLeadDays, formatShippingLeadAfterHarvest } from '../utils/fieldEstimatedDelivery';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -132,8 +133,18 @@ const FarmOrders = () => {
         ownFields.map((field) => [String(field.id), field])
       );
 
-      const formattedOrders = apiOrders.map((order) => ({
-        ...(ownFieldById.get(String(order.field_id)) || {}),
+      const formattedOrders = apiOrders.map((order) => {
+        const mergedField = ownFieldById.get(String(order.field_id)) || {};
+        const rawLeadDays = mergedField.estimated_delivery_days ?? order.estimated_delivery_days;
+        const parsedLeadDays =
+          rawLeadDays != null && rawLeadDays !== ''
+            ? parseInt(String(rawLeadDays), 10)
+            : NaN;
+        const estimated_delivery_days =
+          Number.isFinite(parsedLeadDays) && parsedLeadDays >= 1 ? parsedLeadDays : null;
+
+        return {
+        ...mergedField,
         id: order.id,
         field_name: order.field_name || 'Unknown Field',
         buyer_name: order.buyer_name || 'Unknown Buyer',
@@ -160,6 +171,7 @@ const FarmOrders = () => {
         price_per_unit: Number(order.price_per_m2) || 0,
         location: order.location || 'Unknown',
         delivery_date: order.selected_harvest_date || null,
+        estimated_delivery_days,
         order_selected_harvest_date: order.selected_harvest_date || null,
         selected_harvest_date:
           ownFieldById.get(String(order.field_id))?.selected_harvest_date ||
@@ -196,7 +208,8 @@ const FarmOrders = () => {
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
-      }));
+      };
+      });
 
       setOrders(formattedOrders);
     } catch (err) {
@@ -1037,7 +1050,7 @@ const FarmOrders = () => {
                   {(selectedOrder.selected_harvest_label || selectedOrder.delivery_date) && (
                     <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #cbd5e1' }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
-                        Harvest / delivery target
+                        Harvest window
                       </Typography>
                       <Typography variant="body1" sx={{ fontWeight: 600, mt: 0.5 }}>
                         {[
@@ -1049,6 +1062,11 @@ const FarmOrders = () => {
                           .filter(Boolean)
                           .join(' · ')}
                       </Typography>
+                      {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedOrder, 2)) && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontWeight: 600 }}>
+                          Est. delivery: {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedOrder, 2))}
+                        </Typography>
+                      )}
                     </Box>
                   )}
                 </Paper>
@@ -1226,10 +1244,20 @@ const FarmOrders = () => {
                     {selectedOrder.delivery_date && (
                       <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
-                          Delivery / Harvest Date
+                          Harvest date (order)
                         </Typography>
                         <Typography variant="body1" sx={{ fontWeight: 500 }}>
                           {new Date(selectedOrder.delivery_date).toLocaleDateString()}
+                        </Typography>
+                      </Box>
+                    )}
+                    {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedOrder, 2)) && (
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
+                          Est. delivery lead
+                        </Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                          {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedOrder, 2))}
                         </Typography>
                       </Box>
                     )}

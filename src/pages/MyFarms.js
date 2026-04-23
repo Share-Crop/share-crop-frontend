@@ -63,6 +63,11 @@ import {
   farmAllowsDelete,
   fieldBlocksDeletion,
 } from '../utils/fieldEditRestrictions';
+import FarmerOwnedFieldsSection from '../components/Farmer/FarmerOwnedFieldsSection';
+import { Park as FarmIcon } from '@mui/icons-material';
+
+const MY_FARMS_TAB = 0;
+const MY_FIELDS_TAB = 1;
 
 const normalizeAreaUnit = (raw) => {
   const u = String(raw || '').trim().toLowerCase();
@@ -98,6 +103,7 @@ const MyFarms = () => {
   const [reportOpen, setReportOpen] = useState(false);
   /** Raw farmer orders (incl. pending) for delete / farm-clear rules */
   const [farmerOrdersList, setFarmerOrdersList] = useState([]);
+  const [pageTab, setPageTab] = useState(MY_FARMS_TAB);
   const { user } = useAuth();
 
   const fieldIdToFarmIdMap = useMemo(() => buildFieldIdToFarmIdMap(myFields), [myFields]);
@@ -707,41 +713,79 @@ const MyFarms = () => {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<Agriculture />}
-              onClick={handleAddFarmOpen}
-              sx={{
-                backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                color: '#2196F3',
-                border: '1px solid rgba(33, 150, 243, 0.3)',
-                '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.2)', transform: 'scale(1.05)' },
-                transition: 'all 0.2s ease-in-out',
-                borderRadius: 2,
-                px: 2,
-                py: 1
-              }}
-            >
-              Add New Farm
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<Assessment />}
-              onClick={handleReportClick}
-              sx={{
-                backgroundColor: '#4caf50',
-                color: '#ffffff',
-                '&:hover': { backgroundColor: '#059669' },
-                borderRadius: 2,
-                px: 2.5,
-                py: 1
-              }}
-            >
-              Farm Report
-            </Button>
+            {pageTab === MY_FARMS_TAB && (
+              <>
+                <Button
+                  variant="outlined"
+                  startIcon={<Agriculture />}
+                  onClick={handleAddFarmOpen}
+                  sx={{
+                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                    color: '#2196F3',
+                    border: '1px solid rgba(33, 150, 243, 0.3)',
+                    '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.2)', transform: 'scale(1.05)' },
+                    transition: 'all 0.2s ease-in-out',
+                    borderRadius: 2,
+                    px: 2,
+                    py: 1
+                  }}
+                >
+                  Add New Farm
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<Assessment />}
+                  onClick={handleReportClick}
+                  sx={{
+                    backgroundColor: '#4caf50',
+                    color: '#ffffff',
+                    '&:hover': { backgroundColor: '#059669' },
+                    borderRadius: 2,
+                    px: 2.5,
+                    py: 1
+                  }}
+                >
+                  Farm Report
+                </Button>
+              </>
+            )}
           </Box>
         </Stack>
 
+        {/* Page tabs: farms vs owned fields (same UX as Rented fields → My fields owned) */}
+        <div className="mb-4 flex gap-2 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setPageTab(MY_FARMS_TAB)}
+            className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+              pageTab === MY_FARMS_TAB
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <FarmIcon sx={{ fontSize: 16 }} />
+            <span>My farms</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPageTab(MY_FIELDS_TAB)}
+            className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+              pageTab === MY_FIELDS_TAB
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Agriculture sx={{ fontSize: 16 }} />
+            <span>My fields</span>
+          </button>
+        </div>
+
+        {pageTab === MY_FIELDS_TAB && (
+          <FarmerOwnedFieldsSection onFieldsChanged={fetchFarms} />
+        )}
+
+        {pageTab === MY_FARMS_TAB && (
+        <>
         {/* Stats Overview */}
         <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
           <StatCard
@@ -1416,6 +1460,8 @@ const MyFarms = () => {
             </Button>
           </DialogActions>
         </Dialog>
+        </>
+        )}
       </Box>
       <AddFarmForm
         open={addFarmOpen}

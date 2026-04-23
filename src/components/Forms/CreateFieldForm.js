@@ -22,6 +22,8 @@ import {
   Checkbox,
   Alert,
   AlertTitle,
+  Autocomplete,
+  Chip,
 } from '@mui/material';
 
 import {
@@ -54,7 +56,15 @@ import {
   productionUnitLabel,
 } from '../../utils/fieldProductionUnits';
 import { fieldHasOngoingPurchase, normalizeOrdersArray } from '../../utils/fieldEditRestrictions';
+import { inferQuantitySellPercentFromField, derivedSellQuantityFromPercent } from '../../utils/fieldSellPercent';
 import { orderService } from '../../services/orders';
+import { ISO2_COUNTRY_OPTIONS } from '../../data/isoCountryOptions';
+import {
+  deriveShippingScopeEnum,
+  normalizeIso2,
+  normalizeShippingDestinations,
+  shippingDestinationsSummary,
+} from '../../utils/shippingDestinations';
 
 /** Numeric inputs that must not go negative (field size, pricing, rent). */
 const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
@@ -437,6 +447,27 @@ const isYmdBeforeLocalToday = (ymd) => {
   return ymd < getTodayYmdLocal();
 };
 
+function buildShippingDestinationsFromUi(countryCodes, cityRows) {
+  const out = [];
+  const seen = new Set();
+  for (const code of countryCodes || []) {
+    const c = normalizeIso2(code);
+    if (!c || seen.has(`c:${c}`)) continue;
+    seen.add(`c:${c}`);
+    out.push({ type: 'country', countryCode: c });
+  }
+  for (const row of cityRows || []) {
+    const c = normalizeIso2(row?.countryCode);
+    const city = (row?.city || '').trim();
+    if (!c || !city) continue;
+    const k = `t:${c}:${city.toLowerCase()}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ type: 'city', countryCode: c, city: city.slice(0, 120) });
+  }
+  return out.slice(0, 50);
+}
+
 const CreateFieldForm = ({
   open,
   onClose,
@@ -506,7 +537,7 @@ const CreateFieldForm = ({
     retailPrice: '',
     suggestedPrice: '', // Calculated
     sellingPrice: '', // This is YOUR SHARECROP PRICE
-    sellingAmount: '', // How much to sell in app
+    sellingAmount: '', // % of total harvest to list for sale (Excel FIELD SETUP)
     potentialIncome: '', // Calculated
     virtualProductionRate: '',
     virtualCostPerUnit: '', // Calculated from distributionPrice
@@ -514,7 +545,7 @@ const CreateFieldForm = ({
     userAreaVirtualRentPrice: '', // Calculated from sellingPrice
     harvestDates: [{ date: '', label: '' }],
     shippingOption: 'Both',
-    deliveryTime: '',
+    estimatedDeliveryDays: '',
     deliveryCharges: [{ upto: '', amount: '' }],
     hasWebcam: false,
     webcamUrl: '',
@@ -529,6 +560,17 @@ const CreateFieldForm = ({
     rent_duration_yearly: false,
     totalProductionUnit: 'kg',
   });
+
+  /** ISO2 codes for whole-country delivery; use with `shippingCityRows` for city-specific rules. */
+  const [shippingCountryCodes, setShippingCountryCodes] = useState([]);
+  const [shippingCityRows, setShippingCityRows] = useState([{ countryCode: '', city: '' }]);
+  /** When true, show the country/city list editor (or stay open while editing an existing list). */
+  const [useSpecificDeliveryList, setUseSpecificDeliveryList] = useState(false);
+
+  const shippingDestinationsDraft = useMemo(
+    () => buildShippingDestinationsFromUi(shippingCountryCodes, shippingCityRows),
+    [shippingCountryCodes, shippingCityRows]
+  );
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -552,7 +594,7 @@ const CreateFieldForm = ({
     const distPrice = parseFloat(formData.distributionPrice) || 0;
     const retPrice = parseFloat(formData.retailPrice) || 0;
     const scPrice = parseFloat(formData.sellingPrice) || 0;
-    const amountToSell = parseFloat(formData.sellingAmount) || 0;
+    const amountToSell = derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount);
 
     // Production per Area should be in Kg / m2 based on normalized size
     const prodPerArea = normalizedSize > 0 ? (totalProd / normalizedSize) : 0;
@@ -874,7 +916,7 @@ const CreateFieldForm = ({
         fieldSizeUnit: normalizeAreaUnit(initialData.field_size_unit || initialData.fieldSizeUnit || initialData.unit || 'sqm'),
         productionRate: initialData.production_rate || initialData.productionRate || '',
         productionRateUnit: initialData.production_rate_unit || initialData.productionRateUnit || 'Kg',
-        sellingAmount: initialData.quantity || '',
+        sellingAmount: initialData.sellingAmount ?? inferQuantitySellPercentFromField(initialData),
         sellingPrice: initialData.price || '',
         totalProduction: initialData.total_production || initialData.totalProduction || '',
         distributionPrice: initialData.distribution_price || initialData.distributionPrice || '',
@@ -890,12 +932,12 @@ const CreateFieldForm = ({
         deliveryCharges: Array.isArray(initialData.delivery_charges) ? initialData.delivery_charges :
           Array.isArray(initialData.deliveryCharges) ? initialData.deliveryCharges :
             [{ upto: '', amount: '' }],
-        deliveryTime: formatDateForInput(
-          initialData.estimated_delivery_date ??
-            initialData.estimatedDeliveryDate ??
-            initialData.deliveryTime ??
-            initialData.delivery_time
-        ) || '',
+        estimatedDeliveryDays:
+          initialData.estimated_delivery_days != null && initialData.estimated_delivery_days !== ''
+            ? String(initialData.estimated_delivery_days)
+            : initialData.estimatedDeliveryDays != null && initialData.estimatedDeliveryDays !== ''
+              ? String(initialData.estimatedDeliveryDays)
+              : '',
         shippingScope: initialData.shipping_scope || 'Global',
         price_per_m2: initialData.price_per_m2 || initialData.pricePerM2 || 0,
         available_for_buy: initialData.available_for_buy ?? true,
@@ -943,6 +985,24 @@ const CreateFieldForm = ({
       if (initialData.latitude && initialData.longitude) {
         setLocationAddress(initialData.location || `${initialData.latitude}, ${initialData.longitude}`);
       }
+
+      const sd = normalizeShippingDestinations(
+        initialData.shipping_destinations ?? initialData.shippingDestinations
+      );
+      const countryCodes = [];
+      const seenCode = new Set();
+      for (const item of sd) {
+        if (item.type === 'country' && item.countryCode && !seenCode.has(item.countryCode)) {
+          seenCode.add(item.countryCode);
+          countryCodes.push(item.countryCode);
+        }
+      }
+      const cityRows = sd
+        .filter((item) => item.type === 'city' && item.countryCode && item.city)
+        .map((item) => ({ countryCode: item.countryCode, city: item.city }));
+      setShippingCountryCodes(countryCodes);
+      setShippingCityRows(cityRows.length > 0 ? cityRows : [{ countryCode: '', city: '' }]);
+      setUseSpecificDeliveryList(sd.length > 0);
     } else if (!editMode) {
       setFormData({
         selectedIcon: '',
@@ -964,7 +1024,7 @@ const CreateFieldForm = ({
         userAreaVirtualRentPrice: '',
         harvestDates: [{ date: '', label: '' }],
         shippingOption: 'Both',
-        deliveryTime: '',
+        estimatedDeliveryDays: '',
         deliveryCharges: [{ upto: '', amount: '' }],
         hasWebcam: false,
         webcamUrl: '',
@@ -975,6 +1035,9 @@ const CreateFieldForm = ({
       });
       // Reset location address for new forms
       setLocationAddress('');
+      setShippingCountryCodes([]);
+      setShippingCityRows([{ countryCode: '', city: '' }]);
+      setUseSpecificDeliveryList(false);
     }
     /* Intentionally omit full `initialData` from deps: parent often passes a new object reference when
      * `fields` refreshes, which would re-run this effect and wipe in-progress edits while the dialog stays open. */
@@ -1009,16 +1072,18 @@ const CreateFieldForm = ({
       }
     }
 
-    if (field === 'deliveryTime' && processedValue) {
-      const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(processedValue).trim())
-        ? String(processedValue).trim()
-        : formatDateForInput(processedValue);
-      if (ymd && isYmdBeforeLocalToday(ymd)) {
-        setErrors(prev => ({
-          ...prev,
-          deliveryTime: `Date cannot be in the past (minimum ${minSelectableDate})`
-        }));
-        return;
+    if (field === 'sellingAmount' && processedValue !== '' && processedValue != null) {
+      const n = parseFloat(processedValue);
+      if (!Number.isNaN(n) && n > 100) processedValue = '100';
+    }
+
+    if (field === 'estimatedDeliveryDays') {
+      const digits = String(processedValue ?? '').replace(/\D/g, '');
+      if (digits === '') {
+        processedValue = '';
+      } else {
+        const n = Math.min(366, parseInt(digits, 10));
+        processedValue = Number.isNaN(n) ? '' : String(n);
       }
     }
 
@@ -1178,8 +1243,14 @@ const CreateFieldForm = ({
     else if (parseFloat(formData.totalProduction) <= 0) newErrors.totalProduction = 'Total production must be greater than zero';
     if (!formData.distributionPrice) newErrors.distributionPrice = 'Distribution price is required';
     else if (parseFloat(formData.distributionPrice) < 0) newErrors.distributionPrice = 'Cannot be negative';
-    if (!formData.sellingAmount) newErrors.sellingAmount = 'How much product to sell is required';
-    else if (parseFloat(formData.sellingAmount) <= 0) newErrors.sellingAmount = 'Selling quantity must be greater than zero';
+    const sellPct = parseFloat(formData.sellingAmount);
+    if (!formData.sellingAmount || String(formData.sellingAmount).trim() === '') {
+      newErrors.sellingAmount = 'Percentage of harvest to sell is required';
+    } else if (Number.isNaN(sellPct) || sellPct <= 0) {
+      newErrors.sellingAmount = 'Enter a percentage greater than 0';
+    } else if (sellPct > 100) {
+      newErrors.sellingAmount = 'Percentage cannot exceed 100%';
+    }
     if (!formData.sellingPrice) newErrors.sellingPrice = 'Your sharecrop price is required';
     else if (parseFloat(formData.sellingPrice) < 0) newErrors.sellingPrice = 'Cannot be negative';
     if (!formData.retailPrice) newErrors.retailPrice = 'Retail price is required';
@@ -1206,12 +1277,12 @@ const CreateFieldForm = ({
       }
     }
 
-    if (formData.deliveryTime && String(formData.deliveryTime).trim() !== '') {
-      const dYmd = formatDateForInput(formData.deliveryTime);
-      if (!dYmd) {
-        newErrors.deliveryTime = 'Estimated delivery date is not valid';
-      } else if (isYmdBeforeLocalToday(dYmd)) {
-        newErrors.deliveryTime = `Delivery date cannot be in the past (use today (${getTodayYmdLocal()}) or a future date)`;
+    if (formData.estimatedDeliveryDays != null && String(formData.estimatedDeliveryDays).trim() !== '') {
+      const n = parseInt(String(formData.estimatedDeliveryDays).trim(), 10);
+      if (Number.isNaN(n) || n < 1) {
+        newErrors.estimatedDeliveryDays = 'Enter a whole number of days (1 or more)';
+      } else if (n > 366) {
+        newErrors.estimatedDeliveryDays = 'Use at most 366 days';
       }
     }
 
@@ -1229,6 +1300,17 @@ const CreateFieldForm = ({
       }
       if (!formData.rent_duration_monthly && !formData.rent_duration_quarterly && !formData.rent_duration_yearly) {
         newErrors.rent_duration = 'Select at least one rent duration (Monthly, Quarterly, or Yearly)';
+      }
+    }
+
+    const rows = shippingCityRows || [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const r = rows[i];
+      const cc = (r?.countryCode || '').toString().trim();
+      const ct = (r?.city || '').toString().trim();
+      if ((cc && !ct) || (!cc && ct)) {
+        newErrors.shippingCityRows = `City rule ${i + 1}: enter both country and city, or clear the row`;
+        break;
       }
     }
 
@@ -1293,6 +1375,19 @@ const CreateFieldForm = ({
       return validCharges.length > 0 ? JSON.stringify(validCharges) : null;
     };
 
+    const trimmedDeliveryDays =
+      formData.estimatedDeliveryDays != null ? String(formData.estimatedDeliveryDays).trim() : '';
+    const parsedDeliveryDaysForApi =
+      trimmedDeliveryDays === ''
+        ? null
+        : (() => {
+            const n = parseInt(trimmedDeliveryDays, 10);
+            return Number.isNaN(n) || n < 1 ? null : Math.min(n, 366);
+          })();
+
+    const shippingDestinationsForApi = buildShippingDestinationsFromUi(shippingCountryCodes, shippingCityRows);
+    const shippingScopeForApi = deriveShippingScopeEnum(shippingDestinationsForApi, formData.shippingScope);
+
     const submitData = {
       productName: formData.productName,
       name: formData.productName, // Snake case for backend
@@ -1323,7 +1418,9 @@ const CreateFieldForm = ({
       distributionPrice: formData.distributionPrice,
       distribution_price: formData.distributionPrice,
       sellingAmount: formData.sellingAmount,
-      quantity: formData.sellingAmount, // Map to quantity
+      quantitySellPercent: parseFloat(formData.sellingAmount) || 0,
+      quantity_sell_percent: parseFloat(formData.sellingAmount) || 0,
+      quantity: derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount),
       retailPrice: parseFloat(formData.retailPrice),
       virtualProductionRate: formData.productionPerArea,
       virtualCostPerUnit: formData.virtualCostPerUnit,
@@ -1334,15 +1431,18 @@ const CreateFieldForm = ({
       harvest_dates: (formData.harvestDates || []).filter(date => date.date && date.date.trim() !== ''), // Snake case
       shippingOption: formData.shippingOption,
       shipping_option: formData.shippingOption, // Snake case
-      deliveryTime: formData.deliveryTime,
+      estimatedDeliveryDays: parsedDeliveryDaysForApi,
+      estimated_delivery_days: parsedDeliveryDaysForApi,
       deliveryCharges: getDeliveryChargeValue(formData.deliveryCharges), // Convert to numeric value
       delivery_charges: getDeliveryChargeValue(formData.deliveryCharges), // Snake case
       hasWebcam: formData.hasWebcam,
       has_webcam: formData.hasWebcam, // Snake case
       webcam_url: formData.hasWebcam ? formData.webcamUrl : '',
       webcamUrl: formData.hasWebcam ? formData.webcamUrl : '',
-      shippingScope: formData.shippingScope,
-      shipping_scope: formData.shippingScope, // Snake case
+      shippingScope: shippingScopeForApi,
+      shipping_scope: shippingScopeForApi,
+      shipping_destinations: shippingDestinationsForApi,
+      shippingDestinations: shippingDestinationsForApi,
       farmId: formData.farmId,
       farm_id: formData.farmId, // Snake case
       // Add these default values for popup compatibility:
@@ -1399,8 +1499,7 @@ const CreateFieldForm = ({
       userAreaVirtualRentPrice: '',
       harvestDates: [{ date: '', label: '' }],
       shippingOption: 'Both',
-      deliveryTime: '',
-      deliveryTimeUnit: 'Days',
+      estimatedDeliveryDays: '',
       deliveryCharges: [{ upto: '', amount: '' }],
       hasWebcam: false,
       webcamUrl: '',
@@ -1416,10 +1515,23 @@ const CreateFieldForm = ({
       rent_duration_yearly: false,
       totalProductionUnit: 'kg',
     });
+    setShippingCountryCodes([]);
+    setShippingCityRows([{ countryCode: '', city: '' }]);
+    setUseSpecificDeliveryList(false);
     setErrors({});
     setIsSubmitting(false);
     onClose();
   };
+
+  const offersHomeDelivery = formData.shippingOption !== 'Pickup';
+  const hasDestinationRules = shippingDestinationsDraft.length > 0;
+  const showDestinationEditor = hasDestinationRules || useSpecificDeliveryList;
+  const deliveryAreaIntro =
+    !showDestinationEditor
+      ? 'Choose one simple rule, or switch to a list if you ship to several countries or only certain cities.'
+      : hasDestinationRules
+        ? 'Checkout only allows addresses that match your list below.'
+        : 'Use a simple rule, or name exact countries/cities. Until you add places to the list, the simple rule applies.';
 
   return (
     <StyledDialog
@@ -2457,24 +2569,27 @@ const CreateFieldForm = ({
                     </Box>
                   </Grid>
 
-                  {/* Selling Amount */}
+                  {/* % of harvest to sell (Excel FIELD SETUP) */}
                   <Grid item xs={12} md={12}>
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap', mt: 1 }}>
                       <StyledTextField
                         fullWidth={isMobile}
-                        label="Selling Quantity in App"
-                        placeholder="e.g. 10.00"
+                        label="% of harvest to sell in the app"
+                        placeholder="e.g. 80"
                         value={formData.sellingAmount}
                         onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
                         error={!!errors.sellingAmount}
-                        helperText={errors.sellingAmount}
+                        helperText={
+                          errors.sellingAmount
+                            || `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
+                        }
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
                           endAdornment: (
-                            <InputAdornment position="end">{productionUnitLabel(formData.totalProductionUnit)}</InputAdornment>
+                            <InputAdornment position="end">%</InputAdornment>
                           ),
                         }}
-                        inputProps={{ min: 0, step: 'any' }}
+                        inputProps={{ min: 0, max: 100, step: 'any' }}
                         type="number"
                         isMobile={isMobile}
                         disabled={lockCommercial}
@@ -2545,8 +2660,8 @@ const CreateFieldForm = ({
                 <Grid container spacing={3}>
                   {/* Shipping Options */}
                   <Grid item xs={12}>
-                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, fontSize: isMobile ? '14px' : '0.875rem' }}>
-                      Shipping Options
+                    <Typography variant="body2" sx={{ mb: 1.5, color: 'text.secondary', maxWidth: 560 }}>
+                      Can buyers get this harvest sent to them, pick it up at the farm, or both?
                     </Typography>
                     <RadioGroup
                       row
@@ -2603,78 +2718,319 @@ const CreateFieldForm = ({
                         label="Both"
                       />
                     </RadioGroup>
+                    {formData.shippingOption === 'Pickup' ? (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: 'text.secondary' }}>
+                        Delivery timing and delivery-area settings are hidden because you chose pickup only.
+                      </Typography>
+                    ) : null}
                   </Grid>
 
-                  {/* Delivery Date */}
+                  {/* Estimated delivery — only when home delivery is offered */}
+                  {offersHomeDelivery ? (
                   <Grid item xs={12} md={6}>
                     <StyledTextField
                       fullWidth
-                      type="date"
-                      label="Estimated Delivery Date"
-                      value={formatDateForInput(formData.deliveryTime)}
-                      onChange={(e) => handleInputChange('deliveryTime', e.target.value)}
+                      type="text"
+                      inputMode="numeric"
+                      label="Typical delivery time (days)"
+                      placeholder="e.g. 5"
+                      value={formData.estimatedDeliveryDays}
+                      onChange={(e) => handleInputChange('estimatedDeliveryDays', e.target.value)}
                       InputLabelProps={{ shrink: true }}
-                      inputProps={{ min: minSelectableDate }}
-                      error={!!errors.deliveryTime}
-                      helperText={errors.deliveryTime || 'Expected delivery date after harvest (today or future only)'}
+                      error={!!errors.estimatedDeliveryDays}
+                      helperText={errors.estimatedDeliveryDays || 'Optional. Whole days from harvest to the buyer (1–366).'}
                       isMobile={isMobile}
                       disabled={lockCommercial}
                     />
                   </Grid>
+                  ) : null}
 
-                  {/* Shipping Scope */}
+                  {/* Where delivery is allowed — only when home delivery is offered */}
+                  {offersHomeDelivery ? (
                   <Grid item xs={12}>
-                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, color: '#2d3748' }}>
-                      Shipping Scope
+                    <Typography variant="subtitle1" sx={{ mb: 0.5, fontWeight: 600, color: '#2d3748' }}>
+                      Where home delivery is allowed
                     </Typography>
-                    <RadioGroup
-                      row
-                      value={formData.shippingScope}
-                      onChange={(e) => handleInputChange('shippingScope', e.target.value)}
-                      disabled={lockCommercial}
-                      sx={{
-                        gap: 2,
-                        mb: 2,
-                        '& .MuiFormControlLabel-root': {
-                          margin: 0,
-                          padding: '10px 20px',
-                          borderRadius: '12px',
-                          border: '2px solid #e2e8f0',
-                          backgroundColor: '#f8fafc',
-                          transition: 'all 0.2s ease',
-                          ...(!lockCommercial
-                            ? {
-                                '&:hover': {
-                                  backgroundColor: '#e8f5e8',
-                                  borderColor: '#4caf50'
-                                },
-                              }
-                            : {
-                                backgroundColor: '#e8edf3',
-                                borderColor: '#cbd5e1',
-                                '&:hover': {
-                                  backgroundColor: '#e8edf3',
-                                  borderColor: '#cbd5e1',
-                                },
-                              }),
-                          '& .MuiTypography-root': {
-                            fontWeight: 500,
-                            fontSize: isMobile ? '0.875rem' : '1rem'
-                          }
-                        }
-                      }}
-                    >
-                      <FormControlLabel value="Global" control={<Radio sx={{ color: '#4caf50' }} />} label="Global" />
-                      <FormControlLabel value="Country" control={<Radio sx={{ color: '#4caf50' }} />} label="Country" />
-                      <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="City" />
-                    </RadioGroup>
+                    <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary', maxWidth: 640 }}>
+                      {deliveryAreaIntro}
+                    </Typography>
 
-                    {formData.shippingScope === 'Global' && (
-                       <Typography variant="caption" sx={{ display: 'block', mt: 2, color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
-                         🌍 <strong>International Delivery:</strong> To be calculated based on destination and actual weight at checkout.
-                       </Typography>
+                    {!showDestinationEditor ? (
+                      <Box>
+                        <RadioGroup
+                          row
+                          value={formData.shippingScope}
+                          onChange={(e) => handleInputChange('shippingScope', e.target.value)}
+                          disabled={lockCommercial}
+                          sx={{
+                            gap: 2,
+                            mb: 2,
+                            '& .MuiFormControlLabel-root': {
+                              margin: 0,
+                              padding: '10px 20px',
+                              borderRadius: '12px',
+                              border: '2px solid #e2e8f0',
+                              backgroundColor: '#f8fafc',
+                              transition: 'all 0.2s ease',
+                              ...(!lockCommercial
+                                ? {
+                                    '&:hover': {
+                                      backgroundColor: '#e8f5e8',
+                                      borderColor: '#4caf50'
+                                    },
+                                  }
+                                : {
+                                    backgroundColor: '#e8edf3',
+                                    borderColor: '#cbd5e1',
+                                    '&:hover': {
+                                      backgroundColor: '#e8edf3',
+                                      borderColor: '#cbd5e1',
+                                    },
+                                  }),
+                              '& .MuiTypography-root': {
+                                fontWeight: 500,
+                                fontSize: isMobile ? '0.875rem' : '1rem'
+                              }
+                            }
+                          }}
+                        >
+                          <FormControlLabel value="Global" control={<Radio sx={{ color: '#4caf50' }} />} label="Worldwide" />
+                          <FormControlLabel value="Country" control={<Radio sx={{ color: '#4caf50' }} />} label="My country only" />
+                          <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="My city only" />
+                        </RadioGroup>
+                        {formData.shippingScope === 'Global' ? (
+                          <Typography variant="caption" sx={{ display: 'block', mb: 2, color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
+                            Rates at checkout depend on destination and weight.
+                          </Typography>
+                        ) : null}
+                        {!lockCommercial ? (
+                          <Button
+                            variant="text"
+                            size="small"
+                            onClick={() => setUseSpecificDeliveryList(true)}
+                            sx={{ textTransform: 'none', p: 0, justifyContent: 'flex-start' }}
+                          >
+                            I ship to a custom list of countries or cities…
+                          </Button>
+                        ) : null}
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 2 }}>
+                          {!lockCommercial && !hasDestinationRules ? (
+                            <Button
+                              variant="text"
+                              size="small"
+                              onClick={() => setUseSpecificDeliveryList(false)}
+                              sx={{ textTransform: 'none' }}
+                            >
+                              ← Back to simple rule
+                            </Button>
+                          ) : null}
+                          {!lockCommercial && hasDestinationRules ? (
+                            <Button
+                              variant="text"
+                              size="small"
+                              color="secondary"
+                              onClick={() => {
+                                setShippingCountryCodes([]);
+                                setShippingCityRows([{ countryCode: '', city: '' }]);
+                                setUseSpecificDeliveryList(false);
+                              }}
+                              sx={{ textTransform: 'none' }}
+                            >
+                              Clear list & use simple rule
+                            </Button>
+                          ) : null}
+                        </Box>
+
+                        <Autocomplete
+                          multiple
+                          disableCloseOnSelect
+                          options={ISO2_COUNTRY_OPTIONS}
+                          getOptionLabel={(o) => `${o.name} (${o.code})`}
+                          isOptionEqualToValue={(a, b) => a.code === b.code}
+                          value={ISO2_COUNTRY_OPTIONS.filter((o) => shippingCountryCodes.includes(o.code))}
+                          onChange={(_, newVal) => {
+                            if (lockCommercial) return;
+                            setShippingCountryCodes(newVal.map((o) => o.code));
+                          }}
+                          disabled={lockCommercial}
+                          sx={{ width: '100%', mb: 2 }}
+                          renderTags={(value, getTagProps) =>
+                            value.map((option, index) => (
+                              <Chip
+                                {...getTagProps({ index })}
+                                key={option.code}
+                                label={option.name}
+                                size="small"
+                                title={`${option.name} (${option.code})`}
+                              />
+                            ))
+                          }
+                          renderInput={(params) => (
+                            <StyledTextField
+                              {...params}
+                              label="Whole countries you deliver to"
+                              placeholder="Type to search"
+                              isMobile={isMobile}
+                              sx={{ width: '100%', minWidth: 0 }}
+                            />
+                          )}
+                        />
+
+                        <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
+                          Or only certain cities (same country in both boxes):
+                        </Typography>
+                        {(shippingCityRows || []).map((row, index) => (
+                          <Box
+                            key={index}
+                            sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1, alignItems: 'flex-start', width: '100%' }}
+                          >
+                            <Autocomplete
+                              sx={{ flex: '1 1 200px', minWidth: 0, maxWidth: isMobile ? '100%' : 360 }}
+                              options={ISO2_COUNTRY_OPTIONS}
+                              getOptionLabel={(o) => `${o.name} (${o.code})`}
+                              isOptionEqualToValue={(a, b) => a.code === b.code}
+                              value={ISO2_COUNTRY_OPTIONS.find((o) => o.code === row.countryCode) || null}
+                              onChange={(_, v) => {
+                                if (lockCommercial) return;
+                                setShippingCityRows((prev) => {
+                                  const next = [...prev];
+                                  next[index] = { ...next[index], countryCode: v?.code || '' };
+                                  return next;
+                                });
+                              }}
+                              disabled={lockCommercial}
+                              renderInput={(params) => (
+                                <StyledTextField
+                                  {...params}
+                                  label="Country for this row"
+                                  isMobile={isMobile}
+                                  sx={{ width: '100%', minWidth: 0 }}
+                                />
+                              )}
+                            />
+                            <StyledTextField
+                              sx={{ flex: '2 1 220px', minWidth: 0, width: isMobile ? '100%' : 'auto' }}
+                              label="City name"
+                              value={row.city}
+                              onChange={(e) => {
+                                if (lockCommercial) return;
+                                const v = e.target.value;
+                                setShippingCityRows((prev) => {
+                                  const next = [...prev];
+                                  next[index] = { ...next[index], city: v };
+                                  return next;
+                                });
+                              }}
+                              disabled={lockCommercial}
+                              isMobile={isMobile}
+                            />
+                            {!lockCommercial && shippingCityRows.length > 1 ? (
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() =>
+                                  setShippingCityRows((prev) =>
+                                    prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)
+                                  )
+                                }
+                                aria-label="Remove this city row"
+                                sx={{ mt: 0.5 }}
+                              >
+                                <Remove fontSize="small" />
+                              </IconButton>
+                            ) : null}
+                          </Box>
+                        ))}
+                        {!lockCommercial ? (
+                          <Button
+                            size="small"
+                            startIcon={<Add />}
+                            onClick={() => setShippingCityRows((prev) => [...prev, { countryCode: '', city: '' }])}
+                            sx={{ mt: 0.5, mb: 1, textTransform: 'none' }}
+                          >
+                            Add another city
+                          </Button>
+                        ) : null}
+                        {errors.shippingCityRows ? (
+                          <Typography color="error" variant="caption" sx={{ display: 'block', mb: 1 }}>
+                            {errors.shippingCityRows}
+                          </Typography>
+                        ) : null}
+
+                        {!hasDestinationRules ? (
+                          <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: '#2d3748' }}>
+                              Simple rule (until you add countries or cities above)
+                            </Typography>
+                            <RadioGroup
+                              row
+                              value={formData.shippingScope}
+                              onChange={(e) => handleInputChange('shippingScope', e.target.value)}
+                              disabled={lockCommercial}
+                              sx={{
+                                gap: 2,
+                                mb: formData.shippingScope === 'Global' ? 1 : 0,
+                                '& .MuiFormControlLabel-root': {
+                                  margin: 0,
+                                  padding: '10px 20px',
+                                  borderRadius: '12px',
+                                  border: '2px solid #e2e8f0',
+                                  backgroundColor: '#f8fafc',
+                                  transition: 'all 0.2s ease',
+                                  ...(!lockCommercial
+                                    ? {
+                                        '&:hover': {
+                                          backgroundColor: '#e8f5e8',
+                                          borderColor: '#4caf50'
+                                        },
+                                      }
+                                    : {
+                                        backgroundColor: '#e8edf3',
+                                        borderColor: '#cbd5e1',
+                                        '&:hover': {
+                                          backgroundColor: '#e8edf3',
+                                          borderColor: '#cbd5e1',
+                                        },
+                                      }),
+                                  '& .MuiTypography-root': {
+                                    fontWeight: 500,
+                                    fontSize: isMobile ? '0.875rem' : '1rem'
+                                  }
+                                }
+                              }}
+                            >
+                              <FormControlLabel value="Global" control={<Radio sx={{ color: '#4caf50' }} />} label="Worldwide" />
+                              <FormControlLabel value="Country" control={<Radio sx={{ color: '#4caf50' }} />} label="My country only" />
+                              <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="My city only" />
+                            </RadioGroup>
+                            {formData.shippingScope === 'Global' ? (
+                              <Typography variant="caption" sx={{ display: 'block', color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
+                                Rates at checkout depend on destination and weight.
+                              </Typography>
+                            ) : null}
+                          </Box>
+                        ) : (
+                          <Box
+                            sx={{
+                              mt: 2,
+                              p: 1.5,
+                              borderRadius: 1,
+                              bgcolor: 'rgba(76, 175, 80, 0.08)',
+                              border: '1px solid rgba(76, 175, 80, 0.35)',
+                            }}
+                          >
+                            <Typography variant="body2" sx={{ color: '#1b5e20' }}>
+                              <strong>Delivering to:</strong> {shippingDestinationsSummary(shippingDestinationsDraft)}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
                     )}
                   </Grid>
+                  ) : null}
 
                   {/* Delivery Charges */}
                   <Grid item xs={12} md={6}>

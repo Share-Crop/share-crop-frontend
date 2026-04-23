@@ -127,6 +127,7 @@ const AddFieldForm = ({ onFieldAdded, onClose, farms }) => {
 
     try {
       const fieldData = {
+        shipping_destinations: [],
         name: formData.name,
         crop: formData.crop,
         price: parseFloat(formData.price),

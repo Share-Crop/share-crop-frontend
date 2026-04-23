@@ -27,7 +27,13 @@ import './FarmMap.css';
 import weatherService from '../../services/weather';
 import WebcamPopup from '../Common/WebcamPopup';
 import { WEATHER_LEGEND_DATA } from './weatherLegendData';
-import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate, formatHarvestDate as sharedFormatHarvestDate, parseHarvestDate as sharedParseHarvestDate } from '../../utils/harvestProgress';
+import { getHarvestProgressInfo as sharedGetHarvestProgressInfo, resolveHarvestDate as sharedResolveHarvestDate, formatHarvestDate as sharedFormatHarvestDate, parseHarvestDate as sharedParseHarvestDate, hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
+import { getEstimatedDeliveryLeadDays, formatShippingLeadAfterHarvest } from '../../utils/fieldEstimatedDelivery';
+import {
+  deliveryMatchesShippingDestinations,
+  normalizeShippingDestinations,
+  shippingDestinationsSummary,
+} from '../../utils/shippingDestinations';
 import { displayProductionRateUnit } from '../../utils/fieldProductionUnits';
 import { fieldBlocksDeletion } from '../../utils/fieldEditRestrictions';
 
@@ -439,9 +445,9 @@ const EnhancedFarmMap = forwardRef(({
     const hDate = new Date(dateRaw);
     hDate.setHours(0, 0, 0, 0);
 
-    // Delivery is typically 2 days after harvest if not specified
+    const leadDays = getEstimatedDeliveryLeadDays(field, 2);
     const dDate = new Date(hDate);
-    dDate.setDate(dDate.getDate() + 2);
+    dDate.setDate(dDate.getDate() + leadDays);
 
     if (now < hDate) {
       return { label: 'Growing', color: '#10b981', icon: '🌱', expired: false };
@@ -1185,17 +1191,12 @@ const EnhancedFarmMap = forwardRef(({
         const canon = canonicalizeCategory(rawKey);
         if (canon.key !== item.id) return false;
 
-        const harvestDates = p.harvest_dates || p.harvestDates || [];
-        const dateRaw = harvestDates.length > 0 ? harvestDates[0].date : (p.harvest_date || p.harvestDate);
-        if (!dateRaw) return true; // Keep if no date
-
-        const hDate = new Date(dateRaw);
-        const dDate = new Date(hDate);
-        dDate.setDate(dDate.getDate() + 2);
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-
-        return now <= dDate; // True if still active or delivering
+        const fieldId = p.field_id ?? p.fieldId ?? p.id;
+        const fieldRow = Array.isArray(farms) && fieldId != null
+          ? farms.find(f => String(f.id) === String(fieldId))
+          : null;
+        const merged = fieldRow ? { ...fieldRow, ...p } : p;
+        return hasUpcomingHarvestOnRecord(merged);
       });
 
       return Number.isFinite(purchasedArea) && purchasedArea > 0 && hasActiveField;
@@ -1230,25 +1231,34 @@ const EnhancedFarmMap = forwardRef(({
           formatted_address: f.place_name,
           context: f.context || [],
         })) : [];
+        const destList = normalizeShippingDestinations(
+          selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations
+        );
         const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
         const scope = String(scopeRaw || '').toLowerCase();
-        if (orderForSomeoneElse && scope !== 'global' && selectedProduct) {
-          const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-          const p = extractCityCountry(locStr);
-          if (scope === 'city' && p.city) {
-            const cityLower = p.city.toLowerCase();
-            results = results.filter(r => {
-              const place = (r.context || []).find(c => typeof c.id === 'string' && c.id.startsWith('place'));
-              const txt = (place?.text || '').toLowerCase();
-              return txt === cityLower;
-            });
-          } else if (scope === 'country' && p.country) {
-            const countryLower = p.country.toLowerCase();
-            results = results.filter(r => {
-              const country = (r.context || []).find(c => typeof c.id === 'string' && c.id.startsWith('country'));
-              const txt = (country?.text || '').toLowerCase();
-              return txt === countryLower;
-            });
+        if (orderForSomeoneElse && selectedProduct) {
+          if (destList.length > 0) {
+            results = results.filter((r) =>
+              deliveryMatchesShippingDestinations(destList, r.formatted_address || '', false)
+            );
+          } else if (scope !== 'global') {
+            const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+            const p = extractCityCountry(locStr);
+            if (scope === 'city' && p.city) {
+              const cityLower = p.city.toLowerCase();
+              results = results.filter((r) => {
+                const place = (r.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('place'));
+                const txt = (place?.text || '').toLowerCase();
+                return txt === cityLower;
+              });
+            } else if (scope === 'country' && p.country) {
+              const countryLower = p.country.toLowerCase();
+              results = results.filter((r) => {
+                const country = (r.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('country'));
+                const txt = (country?.text || '').toLowerCase();
+                return txt === countryLower;
+              });
+            }
           }
         }
         setAddressSuggestions(results);
@@ -1260,25 +1270,34 @@ const EnhancedFarmMap = forwardRef(({
           formatted_address: it.display_name || q,
           address: it.address || {},
         })) : [];
+        const destList = normalizeShippingDestinations(
+          selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations
+        );
         const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
         const scope = String(scopeRaw || '').toLowerCase();
-        if (orderForSomeoneElse && scope !== 'global' && selectedProduct) {
-          const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-          const p = extractCityCountry(locStr);
-          if (scope === 'city' && p.city) {
-            const cityLower = p.city.toLowerCase();
-            results = results.filter(r => {
-              const adr = r.address || {};
-              const txt = (adr.city || adr.town || adr.village || '').toLowerCase();
-              return txt === cityLower;
-            });
-          } else if (scope === 'country' && p.country) {
-            const countryLower = p.country.toLowerCase();
-            results = results.filter(r => {
-              const adr = r.address || {};
-              const txt = (adr.country || '').toLowerCase();
-              return txt === countryLower;
-            });
+        if (orderForSomeoneElse && selectedProduct) {
+          if (destList.length > 0) {
+            results = results.filter((r) =>
+              deliveryMatchesShippingDestinations(destList, r.formatted_address || '', false)
+            );
+          } else if (scope !== 'global') {
+            const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+            const p = extractCityCountry(locStr);
+            if (scope === 'city' && p.city) {
+              const cityLower = p.city.toLowerCase();
+              results = results.filter((r) => {
+                const adr = r.address || {};
+                const txt = (adr.city || adr.town || adr.village || '').toLowerCase();
+                return txt === cityLower;
+              });
+            } else if (scope === 'country' && p.country) {
+              const countryLower = p.country.toLowerCase();
+              results = results.filter((r) => {
+                const adr = r.address || {};
+                const txt = (adr.country || '').toLowerCase();
+                return txt === countryLower;
+              });
+            }
           }
         }
         setAddressSuggestions(results);
@@ -1468,13 +1487,17 @@ const EnhancedFarmMap = forwardRef(({
 
   const isDeliveryAllowed = useCallback((prod) => {
     if (!prod) return false;
+    if (orderForSomeoneElse) return true;
+    const destRaw = prod.shipping_destinations ?? prod.shippingDestinations;
+    const userLocStr = userLocationName || (currentUser?.location || user?.location || '');
+    const explicit = deliveryMatchesShippingDestinations(destRaw, userLocStr, false);
+    if (explicit !== null) return explicit;
+
     const scopeRaw = prod.shipping_scope || prod.shippingScope || 'Global';
     const scope = String(scopeRaw || '').toLowerCase();
     if (scope === 'global') return true;
     const prodLocStr = productLocations.get(prod.id) || prod.location || '';
     const p = extractCityCountry(prodLocStr);
-    if (orderForSomeoneElse) return true;
-    const userLocStr = userLocationName || (currentUser?.location || user?.location || '');
     const u = extractCityCountry(userLocStr);
     if (scope === 'country') return Boolean(p.country && u.country && p.country === u.country);
     if (scope === 'city') return Boolean(p.city && u.city && p.city === u.city);
@@ -1814,7 +1837,9 @@ const EnhancedFarmMap = forwardRef(({
 
     if (externalFields != null) {
       const normalizedExternal = externalFields.map(normalizeField);
-      const filteredExternal = normalizedExternal.filter(f => !shouldFilterOutByOccupiedArea(f));
+      const filteredExternal = normalizedExternal.filter(
+        (f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f)
+      );
       setFarms(normalizedExternal);
       setFilteredFarms(filteredExternal);
       setSelectedIcons(new Set());
@@ -1846,7 +1871,9 @@ const EnhancedFarmMap = forwardRef(({
 
           // Set fields directly (purchase status managed via API)
           allFields.forEach(f => { if (f.isPurchased) stablePurchasedIdsRef.current.add(f.id); });
-          const filteredFields = allFields.filter(f => !shouldFilterOutByOccupiedArea(f));
+          const filteredFields = allFields.filter(
+            (f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f)
+          );
           setFarms(allFields);
           setFilteredFarms(filteredFields);
 
@@ -1880,7 +1907,9 @@ const EnhancedFarmMap = forwardRef(({
           try {
             const response = await mockProductService.getProducts();
             const products = (response.data.products || []).map(normalizeField);
-            const filteredProducts = products.filter(f => !shouldFilterOutByOccupiedArea(f));
+            const filteredProducts = products.filter(
+              (f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f)
+            );
             setFarms(products);
             setFilteredFarms(filteredProducts);
             if (onFarmsLoad) {
@@ -1953,9 +1982,11 @@ const EnhancedFarmMap = forwardRef(({
     let next;
     if (!searchQuery || searchQuery.trim() === '') {
       if (farms.length === 0 && lastNonEmptyFarmsRef.current.length > 0) {
-        next = lastNonEmptyFarmsRef.current.filter(f => !shouldFilterOutByOccupiedArea(f));
+        next = lastNonEmptyFarmsRef.current.filter(
+          (f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f)
+        );
       } else {
-        next = farms.filter(f => !shouldFilterOutByOccupiedArea(f));
+        next = farms.filter((f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f));
       }
       if (selectedIcons && selectedIcons.size > 0) {
         next = next.filter(f => {
@@ -1968,6 +1999,7 @@ const EnhancedFarmMap = forwardRef(({
       const searchTerm = searchQuery.toLowerCase();
       next = farms.filter(farm => {
         if (shouldFilterOutByOccupiedArea(farm)) return false;
+        if (!hasUpcomingHarvestOnRecord(farm)) return false;
         return (
           farm.name?.toLowerCase().includes(searchTerm) ||
           farm.category?.toLowerCase().includes(searchTerm) ||
@@ -2007,22 +2039,16 @@ const EnhancedFarmMap = forwardRef(({
         if (shouldFilterOutByOccupiedArea(f)) return false;
 
         const isOwnField = f.owner_id === currentUser?.id || f.is_own_field === true;
-        
-        // Check if field is fully occupied
+
+        // Check if field is fully occupied (non-owners cannot buy more)
         const totalArea = parseFloat(f.total_area || f.total_area_m2 || f.field_size || 0);
         const availableArea = parseFloat(f.available_area || f.available_area_m2 || 0);
         const isFullyOccupied = totalArea > 0 && availableArea <= 0;
-        
-        // Check harvest dates
-        const harvestDates = f.harvest_dates || f.harvestDates || [];
-        const hasFutureDate = helpers.hasFutureHarvestDate(harvestDates);
-        
-        // Public: Hide if no future harvest dates OR fully occupied
-        // Owner: Can see their fields even if expired/fully occupied
-        if (!isOwnField) {
-          if (!hasFutureDate) return false;
-          if (isFullyOccupied) return false;
-        }
+
+        // Hide from map when every scheduled harvest is in the past (including owner — manage in My fields)
+        if (!hasUpcomingHarvestOnRecord(f)) return false;
+
+        if (!isOwnField && isFullyOccupied) return false;
 
         return true;
       });
@@ -2092,6 +2118,7 @@ const EnhancedFarmMap = forwardRef(({
     const subKeys = new Set(subs.map(toKey));
     filtered = farms.filter(f => {
       if (shouldFilterOutByOccupiedArea(f)) return false;
+      if (!hasUpcomingHarvestOnRecord(f)) return false;
       const cat = toKey(f.category);
       const sub = toKey(f.subcategory || f.product_name || f.productName);
       const catMatch = catKeys.size > 0 ? (catKeys.has(cat) || [...catKeys].some(k => cat.includes(k) || sub.includes(k))) : true;
@@ -3845,6 +3872,18 @@ const EnhancedFarmMap = forwardRef(({
                       </div>
                     </div>
 
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '4px' : '5px', marginTop: isMobile ? '4px' : '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px' }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5S5.17 15.5 6 15.5s1.5.67 1.5 1.5S6.83 18.5 6 18.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" /></svg>
+                        </span>
+                        <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>Est. delivery</div>
+                      </div>
+                      <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px', textAlign: 'right', marginLeft: '10px' }}>
+                        {formatShippingLeadAfterHarvest(getEstimatedDeliveryLeadDays(selectedProduct, 2)) || 'Not specified'}
+                      </div>
+                    </div>
+
                     <div style={{ marginTop: isMobile ? '4px' : '5px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
                         <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>Harvest progress</div>
@@ -4798,7 +4837,7 @@ const EnhancedFarmMap = forwardRef(({
                 };
                 const bucketHelp = {
                   current: 'Deliveries that should be happening today or very soon.',
-                  upcoming: 'Confirmed deliveries scheduled for future dates.',
+                  upcoming: 'Orders with an upcoming harvest window; shipping lead is shown in days after harvest.',
                   past: 'Deliveries that are already completed or cancelled.',
                 };
 
@@ -4915,15 +4954,17 @@ const EnhancedFarmMap = forwardRef(({
                               const crop = o.crop_type || o.field_name;
                               const dateRaw = o.selected_harvest_date || o.created_at || d.harvestDate;
                               const label = o.selected_harvest_label;
+                              const shippingLeadDays = getEstimatedDeliveryLeadDays(o, 2);
+                              const shippingLeadText = formatShippingLeadAfterHarvest(shippingLeadDays);
 
-                              let dateDisplay = '';
+                              let harvestDateDisplay = '';
                               let daysLeft = null;
                               if (dateRaw) {
                                 try {
                                   const parsed = new Date(dateRaw);
                                   // eslint-disable-next-line no-restricted-globals
                                   if (!isNaN(parsed)) {
-                                    dateDisplay = parsed.toLocaleDateString(undefined, {
+                                    harvestDateDisplay = parsed.toLocaleDateString(undefined, {
                                       year: 'numeric',
                                       month: 'short',
                                       day: 'numeric',
@@ -4937,10 +4978,10 @@ const EnhancedFarmMap = forwardRef(({
                                       daysLeft = diffDays;
                                     }
                                   } else {
-                                    dateDisplay = String(dateRaw);
+                                    harvestDateDisplay = String(dateRaw);
                                   }
                                 } catch {
-                                  dateDisplay = String(dateRaw);
+                                  harvestDateDisplay = String(dateRaw);
                                 }
                               }
 
@@ -5013,25 +5054,34 @@ const EnhancedFarmMap = forwardRef(({
                                       )}
                                     </Box>
 
-                                    {(dateDisplay || label || daysLeft !== null) && (
-                                      <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        {dateDisplay && (
-                                          <Typography variant="body2" color="text.secondary">
-                                            {dateDisplay}
-                                          </Typography>
+                                    {(harvestDateDisplay || label || daysLeft !== null || shippingLeadText) && (
+                                      <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5 }}>
+                                        {(harvestDateDisplay || label || daysLeft !== null) && (
+                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                            {harvestDateDisplay && (
+                                              <Typography variant="body2" color="text.secondary">
+                                                Harvest: {harvestDateDisplay}
+                                              </Typography>
+                                            )}
+                                            {label && (
+                                              <Typography variant="body2" color="text.secondary">
+                                                • {label}
+                                              </Typography>
+                                            )}
+                                            {daysLeft !== null && daysLeft >= 0 && (
+                                              <Chip
+                                                size="small"
+                                                label={daysLeft === 0 ? 'Harvest today' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} to harvest`}
+                                                color={daysLeft === 0 ? 'success' : daysLeft <= 7 ? 'warning' : 'default'}
+                                                sx={{ height: 20, fontSize: '0.65rem' }}
+                                              />
+                                            )}
+                                          </Box>
                                         )}
-                                        {label && (
-                                          <Typography variant="body2" color="text.secondary">
-                                            • {label}
+                                        {shippingLeadText && (
+                                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                            Est. delivery: {shippingLeadText}
                                           </Typography>
-                                        )}
-                                        {daysLeft !== null && daysLeft >= 0 && (
-                                          <Chip
-                                            size="small"
-                                            label={daysLeft === 0 ? 'Today!' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
-                                            color={daysLeft === 0 ? 'success' : daysLeft <= 7 ? 'warning' : 'default'}
-                                            sx={{ height: 20, fontSize: '0.65rem' }}
-                                          />
                                         )}
                                       </Box>
                                     )}
@@ -5185,7 +5235,7 @@ const EnhancedFarmMap = forwardRef(({
       {/* Product Summary Bar */}
       <ProductSummaryBar
         purchasedProducts={purchasedProducts}
-        visibleFarms={filteredFarms}
+        visibleFarms={farms}
         onProductClick={handleSummaryProductClick}
         summaryRef={summaryBarRef}
         onIconPositionsUpdate={setIconTargets}
@@ -5931,48 +5981,28 @@ const EnhancedFarmMap = forwardRef(({
                           })()}
                         </div>
 
-                        {/* Delivery Date Section */}
+                        {/* Estimated shipping lead (days after harvest), not a calendar delivery date */}
                         <div style={{ flex: 1, fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
                           {(() => {
-                            const formatDate = (date) => {
-                              if (!date) return null;
-                              try {
-                                const parsedDate = new Date(date);
-                                if (isNaN(parsedDate.getTime())) return null;
-                                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                                return `${parsedDate.getDate()} ${months[parsedDate.getMonth()]} ${parsedDate.getFullYear()}`;
-                              } catch (e) { return null; }
-                            };
-
-                            // Use the selected harvest date for delivery calculation
                             const harvestDates = selectedProduct.harvest_dates || selectedProduct.harvestDates || [];
                             const futureDates = helpers.getFutureHarvestDates(harvestDates);
-                            // Use selected harvest date if available, otherwise first future date
                             const dateRaw = selectedHarvestDate?.date || (futureDates.length > 0 ? futureDates[0].date : (selectedProduct.harvest_date || selectedProduct.harvestDate));
+                            const hasHarvest = Boolean(dateRaw && sharedParseHarvestDate(dateRaw));
+                            const lead = getEstimatedDeliveryLeadDays(selectedProduct, 2);
+                            const label = formatShippingLeadAfterHarvest(lead);
 
-                            if (!dateRaw) return (
-                              <div>
-                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
-                                <div style={{ fontSize: '10px', padding: '8px 10px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '10px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
-                              </div>
-                            );
-
-                            const hDate = sharedParseHarvestDate(dateRaw);
-                            if (!hDate || isNaN(hDate.getTime())) {
+                            if (!hasHarvest) {
                               return (
                                 <div>
-                                  <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
-                                  <div style={{ fontSize: '10px', padding: '8px 10px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '10px', textAlign: 'center', fontWeight: 700 }}>N/A</div>
+                                  <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Est. delivery</div>
+                                  <div style={{ fontSize: '10px', padding: '8px 10px', backgroundColor: '#f1f5f9', color: '#94a3b8', borderRadius: '10px', textAlign: 'center', fontWeight: 700 }}>Set harvest first</div>
                                 </div>
                               );
                             }
-                            const dDate = new Date(hDate);
-                            dDate.setDate(dDate.getDate() + 2);
-                            const formattedDDate = formatDate(dDate);
 
                             return (
                               <div>
-                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Delivery</div>
+                                <div style={{ marginBottom: '4px', fontWeight: '600', color: '#475569' }}>🚚 Est. delivery</div>
                                 <div
                                   style={{
                                     fontSize: '10px',
@@ -5985,8 +6015,9 @@ const EnhancedFarmMap = forwardRef(({
                                     fontWeight: 700,
                                     boxShadow: '0 2px 4px rgba(245, 158, 11, 0.2)'
                                   }}
+                                  title="Typical time from harvest until shipment reaches the buyer"
                                 >
-                                  {formattedDDate}
+                                  {label}
                                 </div>
                               </div>
                             );
@@ -6193,6 +6224,10 @@ const EnhancedFarmMap = forwardRef(({
                                   Delivery is unavailable at your location.
                                   <div style={{ marginTop: isMobile ? '4px' : '6px', color: '#ef4444', fontWeight: 600, textAlign: 'left', fontSize: isMobile ? '9px' : '11px' }}>
                                     {(() => {
+                                      const sum = shippingDestinationsSummary(
+                                        selectedProduct.shipping_destinations ?? selectedProduct.shippingDestinations
+                                      );
+                                      if (sum) return `Ships to: ${sum}`;
                                       const scopeRaw = selectedProduct.shipping_scope || selectedProduct.shippingScope || 'Global';
                                       const scope = String(scopeRaw || '').toLowerCase();
                                       const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
@@ -6717,18 +6752,25 @@ const EnhancedFarmMap = forwardRef(({
                           type="button"
                           disabled={savingDeliveryAddress}
                           onClick={async () => {
-                            const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
-                            const scope = String(scopeRaw || '').toLowerCase();
+                            const syntheticLoc = `${newDeliveryAddress.city || ''}, ${newDeliveryAddress.country || ''}`.trim();
+                            const destRaw = selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations;
+                            const explicit = deliveryMatchesShippingDestinations(destRaw, syntheticLoc, false);
                             let valid = true;
-                            if (scope !== 'global') {
-                              const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-                              const p = extractCityCountry(locStr);
-                              if (scope === 'city') {
-                                const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
-                                valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
-                              } else if (scope === 'country') {
-                                const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
-                                valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+                            if (explicit !== null) {
+                              valid = explicit;
+                            } else {
+                              const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
+                              const scope = String(scopeRaw || '').toLowerCase();
+                              if (scope !== 'global') {
+                                const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+                                const p = extractCityCountry(locStr);
+                                if (scope === 'city') {
+                                  const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
+                                  valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
+                                } else if (scope === 'country') {
+                                  const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
+                                  valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+                                }
                               }
                             }
                             if (!valid) { setAddressError('Address is outside the delivery region.'); return; }

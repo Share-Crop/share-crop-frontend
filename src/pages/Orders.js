@@ -166,6 +166,12 @@ const Orders = () => {
           [],
         payment_status: order.status === 'completed' ? 'paid' : 'pending',
         mode_of_shipping: order.mode_of_shipping || 'delivery',
+        estimated_delivery_days: (() => {
+          const raw = linkedField.estimated_delivery_days ?? order.estimated_delivery_days;
+          if (raw == null || raw === '') return null;
+          const n = parseInt(String(raw), 10);
+          return Number.isFinite(n) && n >= 1 ? Math.min(n, 366) : null;
+        })(),
         field_id: order.field_id,
         notes: order.notes || '',
         pending_refund_request_id: order.pending_refund_request_id || null,

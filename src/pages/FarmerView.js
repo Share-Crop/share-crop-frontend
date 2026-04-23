@@ -40,6 +40,7 @@ import { userDocumentsService } from '../services/userDocuments';
 import fieldsService from '../services/fields';
 import { orderService } from '../services/orders';
 import { fieldBlocksDeletion, fieldHasOngoingPurchase } from '../utils/fieldEditRestrictions';
+import { fieldToFormInitialData } from '../utils/rentedFieldModels';
 
 const FarmerView = () => {
   const location = useLocation();
@@ -415,8 +416,10 @@ const FarmerView = () => {
           addNotification(`Listing details for "${payload.name}" were updated.`, 'success');
           fieldToZoom = mappedFieldWithSubcategory;
         } else {
-        // Update existing field
+        // Update existing field (strip legacy delivery date keys; delivery is `estimated_delivery_days` from the form)
         const updatedField = { ...editingField, ...formData, shipping_scope: formData.shippingScope };
+        delete updatedField.deliveryTime;
+        delete updatedField.delivery_time;
         const response = await api.put(`/api/fields/${editingField.id}`, updatedField);
 
         // Map the response data to frontend format
@@ -469,7 +472,9 @@ const FarmerView = () => {
           subcategory: formData.subcategory || null,
           price: formData.price != null ? formData.price : parseFloat(formData.sellingPrice) || 0,
           price_per_m2: formData.price_per_m2 != null ? formData.price_per_m2 : parseFloat(formData.userAreaVirtualRentPrice) || 0,
-          quantity: parseFloat(formData.sellingAmount ?? formData.quantity) || 0,
+          quantity: parseFloat(formData.quantity) || 0,
+          quantity_sell_percent: formData.quantity_sell_percent ?? formData.quantitySellPercent,
+          quantitySellPercent: formData.quantitySellPercent ?? formData.quantity_sell_percent,
           unit: formData.fieldSizeUnit || formData.unit,
           field_size: formData.field_size ?? formData.fieldSize,
           field_size_unit: formData.field_size_unit ?? formData.fieldSizeUnit,
@@ -693,7 +698,7 @@ const FarmerView = () => {
         }}
         onSubmit={handleFieldSubmit}
         editMode={!!editingField}
-        initialData={editingField}
+        initialData={editingField ? fieldToFormInitialData(editingField) : null}
         farmsList={farmsList}
         fieldsList={fields}
         restrictCommercialEdits={Boolean(editingField && fieldHasOngoingPurchase(editingField, farmerOrders))}

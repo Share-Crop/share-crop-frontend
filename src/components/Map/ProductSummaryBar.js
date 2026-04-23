@@ -1,9 +1,17 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
-import { getHarvestProgressInfo, getHarvestDaysLeftLabel } from '../../utils/harvestProgress';
+import { getHarvestProgressInfo, getHarvestDaysLeftLabel, hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
 
-const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIconPositionsUpdate, activeKeys, onResetFilters }) => {
+const ProductSummaryBar = ({
+  purchasedProducts,
+  visibleFarms = [],
+  onProductClick,
+  summaryRef,
+  onIconPositionsUpdate,
+  activeKeys,
+  onResetFilters,
+}) => {
 
   const currentProducts = React.useMemo(() => {
     const toKey = (raw) => {
@@ -30,9 +38,14 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
 
     const map = new Map();
     (purchasedProducts || []).forEach(p => {
+      const fieldId = p.field_id ?? p.fieldId ?? p.id;
+      const fieldRow = (visibleFarms || []).find((f) => String(f.id) === String(fieldId));
+      const harvestSource = fieldRow ? { ...fieldRow, ...p } : p;
+      if (!hasUpcomingHarvestOnRecord(harvestSource)) return;
+
       const k = toKey(p.subcategory || p.category || p.category_key || p.id);
       const prev = map.get(k);
-      const harvestInfo = getHarvestProgressInfo(p);
+      const harvestInfo = getHarvestProgressInfo(harvestSource);
       const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
       const productionRate = typeof p.production_rate === 'string' ? parseFloat(p.production_rate) : (p.production_rate || 0);
       const totalKg = purchasedArea * productionRate;
@@ -86,7 +99,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
       const purchasedArea = typeof product.purchased_area === 'string' ? parseFloat(product.purchased_area) : (product.purchased_area || 0);
       return Number.isFinite(purchasedArea) && purchasedArea > 0;
     });
-  }, [purchasedProducts]);
+  }, [purchasedProducts, visibleFarms]);
 
   React.useEffect(() => {
     if (!summaryRef?.current) return;
@@ -103,7 +116,7 @@ const ProductSummaryBar = ({ purchasedProducts, onProductClick, summaryRef, onIc
     if (onIconPositionsUpdate) onIconPositionsUpdate(positions);
   }, [summaryRef, currentProducts, onIconPositionsUpdate]);
 
-  if (!purchasedProducts || purchasedProducts.length === 0) {
+  if (!purchasedProducts || purchasedProducts.length === 0 || !currentProducts || currentProducts.length === 0) {
     return null;
   }
 

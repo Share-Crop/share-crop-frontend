@@ -6,6 +6,7 @@ import EnhancedHeader from '../components/Layout/EnhancedHeader';
 import NotificationSystem from '../components/Notification/NotificationSystem';
 import useNotifications from '../hooks/useNotifications';
 import fieldsService from '../services/fields';
+import { hasUpcomingHarvestOnRecord } from '../utils/harvestProgress';
 
 const BrowseFields = () => {
   const { isAuthenticated, user, logout } = useAuth();
@@ -35,7 +36,7 @@ const BrowseFields = () => {
       const response = await fieldsService.getPublicFields();
       const raw = response.data || [];
       const mappedFields = raw
-        .filter((field) => field && field.id)
+        .filter((field) => field && field.id && hasUpcomingHarvestOnRecord(field))
         .map((field) => ({
           ...field,
           harvestDates: field.harvest_dates ?? field.harvestDates,
