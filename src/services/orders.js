@@ -17,8 +17,8 @@ export const orderService = {
   // Get orders for farmer with full field/buyer details (same shape as buyer endpoint)
   getFarmerOrdersWithFields: (farmerId) => api.get(`/api/orders/farmer/${farmerId}`),
   
-  // Update order status
-  updateOrderStatus: (id, status) => api.put(`/api/orders/${id}/status`, { status }),
+  // Update order status (e.g. declared_harvest when setting completed)
+  updateOrderStatus: (id, status, extra = {}) => api.put(`/api/orders/${id}/status`, { status, ...extra }),
   
   // Get specific order details
   getOrder: (id) => api.get(`/api/orders/${id}`),

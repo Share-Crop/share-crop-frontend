@@ -99,6 +99,21 @@ const isDeliveryMode = (order) => {
   return m === 'delivery' || m.includes('delivery');
 };
 
+/** One line + optional label for the orders table */
+const harvestDateDisplay = (order) => {
+  const ymd = getOrderHarvestYmd(order);
+  if (ymd) {
+    const d = new Date(String(ymd).includes('T') ? ymd : `${String(ymd).slice(0, 10)}T12:00:00`);
+    const dateText = !Number.isNaN(d.getTime()) ? d.toLocaleDateString() : String(ymd).slice(0, 10);
+    return { dateText, label: (order?.selected_harvest_label || '').trim() || null };
+  }
+  const onlyLabel = (order?.selected_harvest_label || '').trim();
+  if (onlyLabel) {
+    return { dateText: onlyLabel, label: null };
+  }
+  return { dateText: null, label: null };
+};
+
 const FarmOrders = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -114,6 +129,12 @@ const FarmOrders = () => {
   const [rejectRefundContext, setRejectRefundContext] = useState({ requestId: null, fieldName: '' });
   const [rejectFarmerNote, setRejectFarmerNote] = useState('');
   const [refundActionLoading, setRefundActionLoading] = useState(false);
+  const [harvestCompleteOpen, setHarvestCompleteOpen] = useState(false);
+  const [harvestOrder, setHarvestOrder] = useState(null);
+  const [harvestAmount, setHarvestAmount] = useState('');
+  const [harvestUnit, setHarvestUnit] = useState('kg');
+  const [harvestNote, setHarvestNote] = useState('');
+  const [harvestFormError, setHarvestFormError] = useState(null);
 
   const loadOrders = useCallback(async () => {
     if (!user?.id) {
@@ -203,8 +224,11 @@ const FarmOrders = () => {
           [],
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
+        farm_id: order.farm_id || mergedField.farm_id || mergedField.farmId || null,
         notes: order.notes ?? null,
         selected_harvest_label: order.selected_harvest_label || null,
+        total_production_unit:
+          mergedField.total_production_unit || mergedField.total_productionUnit || 'kg',
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
@@ -241,23 +265,64 @@ const FarmOrders = () => {
     }
   };
 
-  const handleStatusChange = async (orderId, newStatus) => {
-    if (!orderId || !newStatus) return;
-    try {
+  const doStatusUpdate = useCallback(
+    async (orderId, newStatus, extra = {}) => {
+      if (!orderId || !newStatus) return false;
       setError(null);
       setUpdatingStatus(true);
-      await orderService.updateOrderStatus(orderId, newStatus);
-      setOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
-      );
-      if (selectedOrder?.id === orderId) {
-        setSelectedOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
+      try {
+        await orderService.updateOrderStatus(orderId, newStatus, extra);
+        setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o)));
+        if (selectedOrder?.id === orderId) {
+          setSelectedOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
+        }
+        return true;
+      } catch (err) {
+        console.error('Update order status error:', err);
+        setError(err.response?.data?.error || err.message || 'Could not update order status');
+        return false;
+      } finally {
+        setUpdatingStatus(false);
       }
-    } catch (err) {
-      console.error('Update order status error:', err);
-      setError(err.response?.data?.error || err.message || 'Could not update order status');
-    } finally {
-      setUpdatingStatus(false);
+    },
+    [selectedOrder?.id]
+  );
+
+  const handleStatusChange = async (order, newStatus) => {
+    if (!order?.id || !newStatus) return;
+    if (newStatus === 'completed' && String(user?.user_type || '') !== 'admin') {
+      setHarvestOrder(order);
+      setHarvestAmount('');
+      setHarvestUnit(
+        (order.total_production_unit && String(order.total_production_unit).trim()) || 'kg'
+      );
+      setHarvestNote('');
+      setHarvestFormError(null);
+      setHarvestCompleteOpen(true);
+      return;
+    }
+    await doStatusUpdate(order.id, newStatus, {});
+  };
+
+  const submitHarvestComplete = async () => {
+    if (!harvestOrder?.id) return;
+    const n = parseFloat(String(harvestAmount).replace(/,/g, ''));
+    if (Number.isNaN(n) || n <= 0) {
+      setHarvestFormError('Enter a positive number for the total amount you actually harvested (for this field).');
+      return;
+    }
+    const unit = (harvestUnit || 'kg').trim() || 'kg';
+    setHarvestFormError(null);
+    const ok = await doStatusUpdate(harvestOrder.id, 'completed', {
+      declared_harvest: {
+        amount: n,
+        unit,
+        notes: harvestNote?.trim() || undefined,
+      },
+    });
+    if (ok) {
+      setHarvestCompleteOpen(false);
+      setHarvestOrder(null);
     }
   };
 
@@ -680,11 +745,12 @@ const FarmOrders = () => {
 
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Field / Product</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Buyer</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Harvest date</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Deliver to</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Area</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Revenue</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Order date</TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -732,6 +798,34 @@ const FarmOrders = () => {
                           </Typography>
                         )}
                       </TableCell>
+                      <TableCell sx={{ py: 1.5, maxWidth: 160 }}>
+                        {(() => {
+                          const { dateText, label } = harvestDateDisplay(order);
+                          if (!dateText) {
+                            return (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                                —
+                              </Typography>
+                            );
+                          }
+                          return (
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                                {dateText}
+                              </Typography>
+                              {label ? (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ fontSize: '0.7rem', display: 'block' }}
+                                >
+                                  {label}
+                                </Typography>
+                              ) : null}
+                            </Box>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell sx={{ py: 1.5, maxWidth: 200 }}>
                         {order.delivery_address ? (
                           <Tooltip title={order.delivery_address}>
@@ -774,7 +868,7 @@ const FarmOrders = () => {
                             <FormControl size="small" fullWidth>
                               <Select
                                 value={order.status}
-                                onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                                onChange={(e) => handleStatusChange(order, e.target.value)}
                                 disabled={updatingStatus || order.status === 'cancelled'}
                                 sx={{
                                   borderRadius: 1.5,
@@ -1434,6 +1528,85 @@ const FarmOrders = () => {
           </Button>
           <Button color="error" variant="contained" onClick={submitRejectRefund} disabled={refundActionLoading}>
             {refundActionLoading ? 'Saving…' : 'Decline request'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={harvestCompleteOpen}
+        onClose={() => {
+          if (!updatingStatus) {
+            setHarvestCompleteOpen(false);
+            setHarvestOrder(null);
+            setHarvestFormError(null);
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>How much did you harvest?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            For <strong>{harvestOrder?.field_name || 'this field'}</strong>, enter the <strong>actual total</strong> you
+            harvested this season. This is stored as your harvest record for the field (more in a good year, less in a
+            bad year).
+          </Typography>
+          {harvestFormError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setHarvestFormError(null)}>
+              {harvestFormError}
+            </Alert>
+          )}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+            <TextField
+              label="Amount harvested"
+              value={harvestAmount}
+              onChange={(e) => setHarvestAmount(e.target.value)}
+              type="text"
+              inputMode="decimal"
+              fullWidth
+              required
+              autoFocus
+            />
+            <TextField
+              label="Unit"
+              value={harvestUnit}
+              onChange={(e) => setHarvestUnit(e.target.value)}
+              select
+              fullWidth
+            >
+              {['kg', 'lb', 'g', 't', 'units', 'L', 'bushels'].map((u) => (
+                <MenuItem key={u} value={u}>
+                  {u}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+          <TextField
+            label="Note (optional)"
+            value={harvestNote}
+            onChange={(e) => setHarvestNote(e.target.value)}
+            fullWidth
+            multiline
+            minRows={2}
+            placeholder="E.g. variety, weather, or how the crop was shared between buyers"
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => {
+              if (!updatingStatus) {
+                setHarvestCompleteOpen(false);
+                setHarvestOrder(null);
+                setHarvestFormError(null);
+              }
+            }}
+            disabled={updatingStatus}
+          >
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={submitHarvestComplete} disabled={updatingStatus} sx={{ bgcolor: '#059669' }}>
+            {updatingStatus ? 'Saving…' : 'Save & mark completed'}
           </Button>
         </DialogActions>
       </Dialog>

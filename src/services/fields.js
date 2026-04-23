@@ -25,6 +25,8 @@ const fieldsService = {
   /** Get public fields - no authentication required */
   getPublicFields: () => publicApi.get('/api/fields/public'),
   getById: (id) => api.get(`/api/fields/${id}`),
+  /** Farmer: declared harvest history for a field (after marking orders completed). */
+  getHarvestDeclarations: (fieldId) => api.get(`/api/fields/${fieldId}/harvest-declarations`),
   create: (data) => api.post('/api/fields', data),
   update: (id, data) => api.put(`/api/fields/${id}`, data),
   remove: (id) => api.delete(`/api/fields/${id}`),
