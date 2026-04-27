@@ -1,4 +1,4 @@
-﻿/** ISO 3166-1 alpha-2 + English short name (generated). */
+/** ISO 3166-1 alpha-2 + English short name (generated). */
 export const ISO2_COUNTRY_OPTIONS = [
   { code: 'AF', name: "Afghanistan" },
   { code: 'AX', name: '\u00c5land Islands' },
