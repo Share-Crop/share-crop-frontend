@@ -27,7 +27,7 @@ import {
   Verified,
 } from '@mui/icons-material';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
-import coinService from '../services/coinService';
+import coinService, { MAX_CUSTOM_COINS_PURCHASE } from '../services/coinService';
 
 /** Must match backend coin purchase fee in `routes/coins.js`. */
 const COIN_PURCHASE_APP_FEE_PERCENT = 5;
@@ -108,11 +108,9 @@ const BuyCoins = ({ onSuccess }) => {
     purchaseInProgressRef.current = true;
     setPurchasing(packId);
     try {
-      const pack = packs.find((p) => p.id === packId);
       const { url } = await coinService.createPurchaseIntent(packId, {
         successUrl,
         cancelUrl,
-        pack: pack ? { name: `${pack.coins} Coins`, coins: pack.coins, usd: pack.usd } : undefined,
       });
       if (url) {
         window.location.href = url;
@@ -129,8 +127,13 @@ const BuyCoins = ({ onSuccess }) => {
 
   const handleCustomBuy = async () => {
     if (purchaseInProgressRef.current) return;
-    if (!customCoins || parseInt(customCoins) < 1) {
-      setError('Please enter a valid number of coins');
+    const n = Number(customCoins);
+    if (!customCoins || !Number.isInteger(n) || n < 1) {
+      setError('Please enter a whole number of coins (1 or more)');
+      return;
+    }
+    if (n > MAX_CUSTOM_COINS_PURCHASE) {
+      setError(`For purchases over ${MAX_CUSTOM_COINS_PURCHASE.toLocaleString()} coins, please contact support.`);
       return;
     }
     setError(null);
@@ -140,7 +143,7 @@ const BuyCoins = ({ onSuccess }) => {
       const { url } = await coinService.createPurchaseIntent(null, {
         successUrl,
         cancelUrl,
-        customCoins: parseInt(customCoins),
+        customCoins: n,
         currency: 'USD',
       });
       if (url) {
@@ -392,7 +395,7 @@ const BuyCoins = ({ onSuccess }) => {
                 type="number"
                 value={customCoins}
                 onChange={(e) => setCustomCoins(e.target.value)}
-                inputProps={{ min: 1 }}
+                inputProps={{ min: 1, max: MAX_CUSTOM_COINS_PURCHASE }}
                 placeholder="e.g., 500"
                 helperText={currencyRates.find((r) => r.currency === selectedCurrency)
                   ? (() => {
@@ -484,7 +487,13 @@ const BuyCoins = ({ onSuccess }) => {
                 variant="contained"
                 size="large"
                 onClick={handleCustomBuy}
-                disabled={purchasing !== null || !customCoins || parseInt(customCoins) < 1}
+                disabled={
+                  purchasing !== null ||
+                  !customCoins ||
+                  !Number.isInteger(Number(customCoins)) ||
+                  Number(customCoins) < 1 ||
+                  Number(customCoins) > MAX_CUSTOM_COINS_PURCHASE
+                }
                 startIcon={purchasing === 'custom' ? <CircularProgress size={20} color="inherit" /> : <ShoppingCart />}
                 sx={{ 
                   height: '56px',

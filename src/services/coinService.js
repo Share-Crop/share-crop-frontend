@@ -3,6 +3,41 @@ import api from './api';
 /** Fallback when API is unavailable or omits balance — new accounts should start at 0 */
 const DEFAULT_COINS = 0;
 
+/** Server must derive line items and amounts from `pack_id` / `custom_coins` — never from display fields. */
+export const MAX_CUSTOM_COINS_PURCHASE = 1_000_000;
+
+/**
+ * Stripe Checkout success/cancel URLs must stay on this origin so they cannot be pointed at a third party
+ * if this module is ever called with untrusted opts (e.g. from devtools).
+ */
+function assertCheckoutReturnUrls(successUrl, cancelUrl) {
+  if (successUrl == null && cancelUrl == null) {
+    return;
+  }
+  if (typeof window === 'undefined' || !successUrl || !cancelUrl) {
+    throw new Error('Checkout requires both success and cancel return URLs');
+  }
+  const allowedOrigin = window.location.origin;
+  for (const raw of [successUrl, cancelUrl]) {
+    let u;
+    try {
+      u = new URL(raw);
+    } catch {
+      throw new Error('Invalid checkout return URL');
+    }
+    if (u.origin !== allowedOrigin) {
+      throw new Error('Checkout return URLs must use the same origin as this app');
+    }
+    const local = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    if (!local && u.protocol !== 'https:') {
+      throw new Error('Checkout return URLs must use HTTPS');
+    }
+    if (local && u.protocol !== 'http:' && u.protocol !== 'https:') {
+      throw new Error('Invalid checkout return URL');
+    }
+  }
+}
+
 class CoinService {
   /**
    * Get coins for a specific user
@@ -51,29 +86,6 @@ class CoinService {
   }
 
   /**
-   * Set coins for a specific user
-   * @param {string} userId - User ID
-   * @param {number} coins - New coin balance
-   * @returns {Promise<number>} - Updated coin balance
-   */
-  async setUserCoins(userId, coins) {
-    if (!userId || typeof coins !== 'number') {
-      console.error('Invalid parameters for setUserCoins');
-      return DEFAULT_COINS;
-    }
-
-    try {
-      const response = await api.put(`/api/coins/${userId}`, {
-        coins: Math.max(0, coins)
-      });
-      return response.data.coins;
-    } catch (error) {
-      console.error('Error setting user coins:', error);
-      return DEFAULT_COINS;
-    }
-  }
-
-  /**
    * Deduct coins from a user's balance
    * @param {string} userId - User ID
    * @param {number} amount - Amount to deduct
@@ -101,27 +113,6 @@ class CoinService {
         throw error;
       }
       return null;
-    }
-  }
-
-  /**
-   * Add coins to a user's balance
-   * @param {string} userId - User ID
-   * @param {number} amount - Amount to add
-   * @returns {Promise<number>} - Updated coin balance
-   */
-  async addCoins(userId, amount) {
-    if (!userId || typeof amount !== 'number' || amount <= 0) {
-      console.error('Invalid parameters for addCoins');
-      return DEFAULT_COINS;
-    }
-
-    try {
-      const response = await api.post(`/api/coins/${userId}/add`, { amount });
-      return response.data.coins;
-    } catch (error) {
-      console.error('Error adding coins:', error);
-      return DEFAULT_COINS;
     }
   }
 
@@ -160,23 +151,12 @@ class CoinService {
   }
 
   /**
-   * Get coin packs for purchase
+   * Get coin packs for purchase (authoritative pricing lives on the server — no client fallback).
    * @returns {Promise<{ packs: Array<{ id, coins, usdCents, usd }> }>}
    */
   async getCoinPacks() {
-    try {
-      const response = await api.get('/api/coins/packs');
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching coin packs:', error);
-      return {
-        packs: [
-          { id: 'pack_small', coins: 100, usdCents: 999, usd: '9.99' },
-          { id: 'pack_medium', coins: 500, usdCents: 4499, usd: '44.99' },
-          { id: 'pack_large', coins: 1200, usdCents: 9999, usd: '99.99' },
-        ],
-      };
-    }
+    const response = await api.get('/api/coins/packs');
+    return response.data;
   }
 
   /**
@@ -194,46 +174,36 @@ class CoinService {
   }
 
   /**
-   * Create a purchase intent (redirects to Stripe Checkout)
+   * Create a purchase intent (redirects to Stripe Checkout).
+   * Only sends fields the API should trust: pack id or custom coin count + currency, and same-origin return URLs.
+   * Line item names and amounts must be resolved on the server from `pack_id` / validated `custom_coins`.
    * @param {string|null} packId - Pack id from getCoinPacks(), or null for custom coins
-   * @param {{ successUrl?: string, cancelUrl?: string, pack?: { name?: string, coins?: number, usd?: string }, customCoins?: number, currency?: string }} opts - Optional return URLs, pack details, or custom coin purchase
+   * @param {{ successUrl?: string, cancelUrl?: string, customCoins?: number, currency?: string }} opts
    * @returns {Promise<{ url: string }>} - Redirect to url
    */
   async createPurchaseIntent(packId, opts = {}) {
     const body = {};
     if (packId) {
       body.pack_id = packId;
-    } else if (opts.customCoins) {
-      body.custom_coins = opts.customCoins;
+    } else if (opts.customCoins != null) {
+      const n = Number(opts.customCoins);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_CUSTOM_COINS_PURCHASE) {
+        throw new Error(`Coin amount must be a whole number between 1 and ${MAX_CUSTOM_COINS_PURCHASE.toLocaleString()}`);
+      }
+      body.custom_coins = n;
       body.currency = opts.currency || 'USD';
     } else {
       throw new Error('Either packId or customCoins must be provided');
     }
-    
-    if (opts.successUrl) body.success_url = opts.successUrl;
-    if (opts.cancelUrl) body.cancel_url = opts.cancelUrl;
-    // Send pack details so backend can show product name and breakdown on Stripe Checkout page
-    if (opts.pack) {
-      if (opts.pack.name != null) body.pack_name = opts.pack.name;
-      if (opts.pack.coins != null) body.pack_coins = opts.pack.coins;
-      if (opts.pack.usd != null) body.pack_usd = opts.pack.usd;
+
+    if (opts.successUrl != null || opts.cancelUrl != null) {
+      assertCheckoutReturnUrls(opts.successUrl, opts.cancelUrl);
+      body.success_url = opts.successUrl;
+      body.cancel_url = opts.cancelUrl;
     }
+
     const response = await api.post('/api/coins/purchase-intent', body);
     return response.data;
-  }
-
-  /**
-   * Get all users' coin data (for debugging/admin purposes)
-   * @returns {object} - Placeholder for admin functionality
-   */
-  getAllCoinsData() {
-    return {};
-  }
-
-  /**
-   * Clear all coin data (for testing/reset purposes)
-   */
-  clearAllCoins() {
   }
 }
 
