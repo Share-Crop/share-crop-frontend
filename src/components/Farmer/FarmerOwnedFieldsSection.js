@@ -53,6 +53,12 @@ import {
   formatAreaFromM2,
 } from '../../utils/rentedFieldModels';
 import FarmerOwnedFieldDetailModal from './FarmerOwnedFieldDetailModal';
+import FieldHarvestControls from './FieldHarvestControls';
+import {
+  FIELD_OCCUPYING_ORDER_STATUSES,
+  orderQuantityM2,
+  normalizeOrderFieldId,
+} from '../../utils/farmerOrderOccupancy';
 
 const currencySymbols = {
   USD: '$',
@@ -87,6 +93,7 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
   const [editFieldOpen, setEditFieldOpen] = useState(false);
   const [editingFieldFull, setEditingFieldFull] = useState(null);
   const [farmsListForEdit, setFarmsListForEdit] = useState([]);
+  const [farmerOrdersList, setFarmerOrdersList] = useState([]);
 
   const loadFields = useCallback(async () => {
     try {
@@ -119,11 +126,11 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
         orders.forEach((o) => {
           const status = String(o?.status || '').toLowerCase();
           if (status === 'cancelled') return;
-          const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
+          if (!FIELD_OCCUPYING_ORDER_STATUSES.includes(status)) return;
+          const fid = normalizeOrderFieldId(o);
           if (!fid) return;
-          const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
-          const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
-          if (!Number.isFinite(qty) || qty <= 0) return;
+          const qty = orderQuantityM2(o);
+          if (qty <= 0) return;
 
           const key = String(fid);
           const buyerName = o?.buyer_name ?? o?.buyerName ?? o?.buyer?.name ?? 'Unknown buyer';
@@ -146,7 +153,10 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
           finalMap.set(k, { totalOccupiedM2: v.totalOccupiedM2, buyers });
         });
 
-        if (!cancelled) setOwnedFieldOrderBreakdownById(finalMap);
+        if (!cancelled) {
+          setFarmerOrdersList(Array.isArray(orders) ? orders : []);
+          setOwnedFieldOrderBreakdownById(finalMap);
+        }
       } catch {
         if (!cancelled) setOwnedFieldOrderBreakdownById(new Map());
       }
@@ -471,7 +481,7 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
             My fields (owned)
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-            Same view as Rented fields — your owned fields, orders occupancy, edit, map, and reports.
+            Create or edit field setup (prices, dates, photos). For <strong>Mark harvested / Mark shipped</strong>, use the main tab <strong>Harvest & ship fields</strong> — fields are listed there under each farm.
           </Typography>
         </Box>
         <Button
@@ -759,7 +769,6 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                     </div>
                   )}
 
-                  <>
                     <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Total Area</span>
@@ -819,7 +828,20 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                         <div className="h-full rounded-full" style={{ width: `${field.progress}%`, backgroundColor: progressColor }} />
                       </div>
                     </div>
-                  </>
+
+                    <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50/80 p-3">
+                      <div className="mb-1 text-xs font-semibold text-amber-900">Harvest workflow</div>
+                      <FieldHarvestControls
+                        prominent
+                        field={{
+                          id: field.id,
+                          name: field.name,
+                          operational_status: field.operational_status,
+                        }}
+                        farmerOrders={farmerOrdersList}
+                        onFieldUpdated={loadFields}
+                      />
+                    </div>
 
                   <div className="mt-3 flex justify-end">
                     <button

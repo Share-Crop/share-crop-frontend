@@ -8,6 +8,9 @@ export const orderService = {
 
   // Get orders for buyer
   getBuyerOrders: () => api.get('/api/orders/my-orders'),
+
+  /** Buyer: actual harvest allocations (+/- vs estimate) for resource bar */
+  getMyHarvestAllocations: () => api.get('/api/orders/my-harvest-allocations'),
   
   // Get orders for buyer with field details
   getBuyerOrdersWithFields: (buyerId) => api.get(`/api/orders/buyer/${buyerId}`),

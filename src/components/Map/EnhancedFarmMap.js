@@ -203,6 +203,7 @@ const EnhancedFarmMap = forwardRef(({
   const hasInitialFlyRef = useRef(false);
   const stablePurchasedIdsRef = useRef(new Set());
   const [purchasedProducts, setPurchasedProducts] = useState([]);
+  const [harvestAllocations, setHarvestAllocations] = useState([]);
   const [bursts, setBursts] = useState([]);
   const summaryBarRef = useRef(null);
   const [iconTargets, setIconTargets] = useState({});
@@ -825,6 +826,25 @@ const EnhancedFarmMap = forwardRef(({
   }, [fetchSavedDeliveryAddress]);
 
   useEffect(() => {
+    if (!currentUser?.id || userType === 'farmer') {
+      setHarvestAllocations([]);
+      return;
+    }
+    let cancelled = false;
+    orderService
+      .getMyHarvestAllocations()
+      .then((res) => {
+        if (!cancelled) setHarvestAllocations(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setHarvestAllocations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id, userType, refreshTrigger]);
+
+  useEffect(() => {
     if (showDeliveryModal) fetchDeliveryList();
   }, [showDeliveryModal, fetchDeliveryList]);
 
@@ -1137,6 +1157,16 @@ const EnhancedFarmMap = forwardRef(({
   }, []);
   // Resource bar: only user's purchased/rented; values = total yield (kg) so user can avoid buying too much or not enough
   const purchasedSummary = React.useMemo(() => {
+    const allocByField = new Map();
+    (harvestAllocations || []).forEach((a) => {
+      const fid = String(a.field_id);
+      const prev = allocByField.get(fid) || { actual: 0, estimated: 0, delta: 0 };
+      allocByField.set(fid, {
+        actual: prev.actual + (Number(a.actual_kg) || 0),
+        estimated: prev.estimated + (Number(a.estimated_kg) || 0),
+        delta: prev.delta + (Number(a.delta_kg) || 0),
+      });
+    });
     const orders = new Map();
     purchasedProducts.forEach(p => {
       const rawKey = p.subcategory || p.category || p.category_key || p.id;
@@ -1169,16 +1199,31 @@ const EnhancedFarmMap = forwardRef(({
       const hTs = hDateRaw ? new Date(hDateRaw).getTime() : null;
       const cRaw = p.created_at || p.createdAt || p.start_date || p.startDate;
       const cTs = cRaw ? new Date(cRaw).getTime() : Date.now() - (90*24*60*60*1000);
-      const prev = orders.get(k) || { id: k, category: canon.name, purchased_area: 0, total_kg: 0, fieldIds: [], harvest_ts: null, created_ts: null };
+      const fidKey = fieldId != null ? String(fieldId) : '';
+      const alloc = fidKey ? allocByField.get(fidKey) : null;
+      const kgForField = alloc && alloc.actual > 0 ? alloc.actual : userKg;
+      const prev = orders.get(k) || {
+        id: k,
+        category: canon.name,
+        purchased_area: 0,
+        total_kg: 0,
+        delta_kg: 0,
+        has_actual_harvest: false,
+        fieldIds: [],
+        harvest_ts: null,
+        created_ts: null,
+      };
       const newFieldIds = prev.fieldIds.includes(fieldId) ? prev.fieldIds : [...prev.fieldIds, fieldId];
       orders.set(k, {
         id: k,
         category: prev.category,
         purchased_area: prev.purchased_area + pa,
-        total_kg: prev.total_kg + userKg,
+        total_kg: prev.total_kg + kgForField,
+        delta_kg: (prev.delta_kg || 0) + (alloc ? alloc.delta : 0),
+        has_actual_harvest: prev.has_actual_harvest || Boolean(alloc && alloc.actual > 0),
         fieldIds: newFieldIds,
         harvest_ts: hTs ? (prev.harvest_ts ? Math.min(prev.harvest_ts, hTs) : hTs) : prev.harvest_ts,
-        created_ts: cTs ? (prev.created_ts ? Math.max(prev.created_ts, cTs) : cTs) : prev.created_ts
+        created_ts: cTs ? (prev.created_ts ? Math.max(prev.created_ts, cTs) : cTs) : prev.created_ts,
       });
     });
     return Array.from(orders.values()).filter(item => {
@@ -1201,7 +1246,7 @@ const EnhancedFarmMap = forwardRef(({
 
       return Number.isFinite(purchasedArea) && purchasedArea > 0 && hasActiveField;
     });
-  }, [purchasedProducts, farms, canonicalizeCategory]);
+  }, [purchasedProducts, farms, canonicalizeCategory, harvestAllocations]);
   // const getCenterFromCoords = useCallback((coordinates) => {
   //   if (!coordinates || coordinates.length === 0) return [viewState.longitude, viewState.latitude];
   //   const lngs = coordinates.map(c => c[0]);
@@ -2838,7 +2883,7 @@ const EnhancedFarmMap = forwardRef(({
             field_id: product.id,
             quantity: quantity,
             total_price: totalCostInDollars,
-            status: 'pending',
+            status: 'active',
             mode_of_shipping: selectedShipping || 'Delivery',
             selected_harvest_date: selectedHarvestDate ? selectedHarvestDate.date : null,
             selected_harvest_label: selectedHarvestDate ? selectedHarvestDate.label : null

@@ -27,6 +27,9 @@ const fieldsService = {
   getById: (id) => api.get(`/api/fields/${id}`),
   /** Farmer: declared harvest history for a field (after marking orders completed). */
   getHarvestDeclarations: (fieldId) => api.get(`/api/fields/${fieldId}/harvest-declarations`),
+  getHarvestEvents: (fieldId) => api.get(`/api/fields/${fieldId}/harvest-events`),
+  completeHarvest: (fieldId, body) => api.post(`/api/fields/${fieldId}/complete-harvest`, body),
+  markShipped: (fieldId) => api.post(`/api/fields/${fieldId}/mark-shipped`),
   create: (data) => api.post('/api/fields', data),
   update: (id, data) => api.put(`/api/fields/${id}`, data),
   remove: (id) => api.delete(`/api/fields/${id}`),

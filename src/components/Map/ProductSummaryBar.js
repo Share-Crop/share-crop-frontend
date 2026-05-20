@@ -56,12 +56,20 @@ const ProductSummaryBar = ({
         categoryKey: k,
         purchased_area: 0,
         total_kg: 0,
+        delta_kg: 0,
+        has_actual_harvest: false,
         days_left: null,
         progress_percent: 0
       };
       const merged = prev || base;
+      const kgAdd =
+        typeof p.total_kg === 'number' && Number.isFinite(p.total_kg) && p.total_kg > 0
+          ? p.total_kg
+          : totalKg;
       merged.purchased_area = (merged.purchased_area || 0) + purchasedArea;
-      merged.total_kg = (merged.total_kg || 0) + totalKg;
+      merged.total_kg = (merged.total_kg || 0) + kgAdd;
+      merged.delta_kg = (merged.delta_kg || 0) + (p.delta_kg || 0);
+      merged.has_actual_harvest = merged.has_actual_harvest || Boolean(p.has_actual_harvest);
       if (typeof harvestInfo.daysLeft === 'number') {
         if (merged.days_left === null || harvestInfo.daysLeft < merged.days_left) {
           merged.days_left = harvestInfo.daysLeft;
@@ -86,6 +94,8 @@ const ProductSummaryBar = ({
           ...prev,
           purchased_area: (prev.purchased_area || 0) + (prod.purchased_area || 0),
           total_kg: (prev.total_kg || 0) + (prod.total_kg || 0),
+          delta_kg: (prev.delta_kg || 0) + (prod.delta_kg || 0),
+          has_actual_harvest: prev.has_actual_harvest || prod.has_actual_harvest,
           days_left: (prev.days_left !== null && prod.days_left !== null) 
             ? Math.min(prev.days_left, prod.days_left) 
             : (prev.days_left !== null ? prev.days_left : prod.days_left),
@@ -211,7 +221,22 @@ const ProductSummaryBar = ({
                 lineHeight: '1'
               }}>
                 {formatKg(totalKg)}
+                {product.has_actual_harvest ? ' ✓' : ''}
               </div>
+              {product.has_actual_harvest && typeof product.delta_kg === 'number' && (
+                <div
+                  style={{
+                    fontSize: '7px',
+                    fontWeight: 600,
+                    color: product.delta_kg >= 0 ? '#86efac' : '#fca5a5',
+                    textAlign: 'center',
+                    marginBottom: '2px',
+                  }}
+                >
+                  {product.delta_kg >= 0 ? '+' : ''}
+                  {product.delta_kg.toFixed(1)} vs est.
+                </div>
+              )}
               <div style={{
                 fontSize: '7px',
                 color: 'rgba(255,255,255,0.85)',

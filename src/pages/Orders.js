@@ -550,9 +550,9 @@ const Orders = () => {
             </Stack>
 
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              <strong>Awaiting Approval</strong> means your order has been placed and the field owner is reviewing it. Once they accept, the status will change to <strong>Active</strong>.{' '}
-              <span style={{ color: '#b91c1c', fontWeight: 600 }}>
-                If the owner rejects a pending order, your coins are refunded automatically — you do not request a refund yourself. If the farmer never accepts, the order is <strong>automatically cancelled after 7 days</strong> and your coins are refunded. After the order is <strong>Active</strong> or <strong>Completed</strong>, you may use <strong>Request refund</strong>; the farmer must approve before coins are returned.
+              Orders are <strong>confirmed automatically</strong> when you rent — payment is deducted and the farmer is paid right away. After harvest, your <strong>actual share (kg)</strong> appears on the map resource bar with <strong>+/- vs estimate</strong>.{' '}
+              <span style={{ color: '#0f172a', fontWeight: 500 }}>
+                Use <strong>Request refund</strong> on <strong>Active</strong>, <strong>Shipped</strong>, or <strong>Completed</strong> orders; the farmer must approve before coins are returned.
               </span>
             </Typography>
           </Box>

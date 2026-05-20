@@ -590,14 +590,16 @@ const FarmOrders = () => {
             boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
           }}
         >
-          <AlertTitle sx={{ fontWeight: 700, color: '#0369a1' }}>Confirm Orders to Receive Payments</AlertTitle>
-          When a buyer places an order, the coins are held in escrow. <strong>Change the status from "Pending" to "Active"</strong> to confirm the order and instantly receive the coins in your wallet.
+          <AlertTitle sx={{ fontWeight: 700, color: '#0369a1' }}>Orders & field harvest</AlertTitle>
+          New rentals are <strong>confirmed automatically</strong> — payment is credited when the buyer places the order. Use <strong>My Farms</strong> on each field to declare total harvest (split across renters) and mark the field as shipped.
           <Box sx={{ mt: 1.5, color: '#0f172a' }}>
-            <strong>Shipped / Completed:</strong> You can choose these only <strong>on or after the order&apos;s harvest date</strong> (the date the buyer selected). Until then they stay disabled in the status menu.
+            <strong>Per-order status:</strong> Shipped / Completed on or after the buyer&apos;s harvest date. Prefer declaring harvest on the field in My Farms so all renters get their share at once.
           </Box>
+          {/* Legacy pending acceptance (disabled when AUTO_ACCEPT_ORDERS is on):
           <Box sx={{ mt: 1.5, color: '#0f172a' }}>
-            <strong>Pending deadline:</strong> If you do not accept a <em>Pending</em> order within <strong>7 days</strong> of when it was placed, it is <strong>automatically cancelled</strong> and the buyer&apos;s coins are refunded.
+            Pending → Active to confirm and receive coins; 7-day auto-cancel if not accepted.
           </Box>
+          */}
           <Box sx={{ mt: 1, color: '#b91c1c' }}>
             <strong>Warning:</strong> If you cancel an <em>Active</em> or <em>Completed</em> order, the coins will be automatically deducted from your wallet and refunded to the buyer.
           </Box>
@@ -885,7 +887,7 @@ const FarmOrders = () => {
                                   }
                                 }}
                               >
-                                <MenuItem value="pending" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#d97706' }}>Pending</MenuItem>
+                                {/* <MenuItem value="pending">Pending (legacy — new orders auto-confirm)</MenuItem> */}
                                 <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>Active</MenuItem>
                                 {(() => {
                                   const harvestOk = canSelectShippedOrCompletedStatus(order);

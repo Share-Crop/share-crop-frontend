@@ -596,7 +596,7 @@ const EnhancedHeader = forwardRef(({
         items: [
           ...(isFarmer
             ? [
-                { text: 'My Farms', icon: <Agriculture />, path: '/farmer/my-farms' },
+                { text: 'My Farms & Fields', icon: <Agriculture />, path: '/farmer/my-farms' },
                 { text: 'Rented out Fields', icon: <Receipt />, path: '/farmer/farm-orders' },
                 { text: 'License Info', icon: <Nature />, path: '/farmer/license-info' },
               ]
@@ -652,7 +652,7 @@ const EnhancedHeader = forwardRef(({
   };
 
   const menuSections = isPublicBrowseGuest ? getPublicBrowseMenuConfig() : getMenuConfig(userType);
-  const farmerProminentItems = new Set(['My Farms', 'Farm Orders', 'Rented out Fields', 'License Info', 'Transaction']);
+  const farmerProminentItems = new Set(['My Farms & Fields', 'Farm Orders', 'Rented out Fields', 'License Info', 'Transaction']);
   const isFarmerProminent = (text) => userType === 'farmer' && farmerProminentItems.has(text);
 
   const appBarRef = useRef(null);

@@ -1360,7 +1360,7 @@ const CreateFieldForm = ({
       }
     }
 
-    // Convert deliveryCharges array to JSON array for database storage
+    // Delivery charge tiers for backend JSON/JSONB columns (send as array, not string)
     const getDeliveryChargeValue = (deliveryCharges) => {
       if (!deliveryCharges || !Array.isArray(deliveryCharges) || deliveryCharges.length === 0) {
         return null;
@@ -1372,7 +1372,7 @@ const CreateFieldForm = ({
           upto: c.upto ? parseFloat(c.upto) : null,
           amount: parseFloat(c.amount) || 0
         }));
-      return validCharges.length > 0 ? JSON.stringify(validCharges) : null;
+      return validCharges.length > 0 ? validCharges : null;
     };
 
     const trimmedDeliveryDays =

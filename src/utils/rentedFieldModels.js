@@ -135,6 +135,8 @@ export function mapFieldFromApi(raw, currentUserId) {
       return Number.isFinite(n) && n >= 1 ? Math.min(n, 366) : null;
     })(),
     shipping_destinations: raw.shipping_destinations ?? raw.shippingDestinations ?? [],
+    operational_status: raw.operational_status || 'growing',
+    farm_id: raw.farm_id,
   };
 }
 

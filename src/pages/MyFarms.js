@@ -64,6 +64,9 @@ import {
   fieldBlocksDeletion,
 } from '../utils/fieldEditRestrictions';
 import FarmerOwnedFieldsSection from '../components/Farmer/FarmerOwnedFieldsSection';
+import FieldHarvestControls from '../components/Farmer/FieldHarvestControls';
+import FarmHarvestDashboard from '../components/Farmer/FarmHarvestDashboard';
+import { FIELD_OCCUPYING_ORDER_STATUSES, orderQuantityM2, normalizeOrderFieldId } from '../utils/farmerOrderOccupancy';
 import { Park as FarmIcon } from '@mui/icons-material';
 
 const MY_FARMS_TAB = 0;
@@ -336,12 +339,12 @@ const MyFarms = () => {
       rawFarmerOrders.forEach((o) => {
         const status = String(o?.status || '').toLowerCase();
         if (status === 'cancelled') return;
-        const fid = o?.field_id ?? o?.fieldId ?? o?.field?.id;
+        if (!FIELD_OCCUPYING_ORDER_STATUSES.includes(status)) return;
+        const fid = normalizeOrderFieldId(o);
         if (!fid) return;
-        const qtyRaw = o?.quantity ?? o?.area_rented ?? o?.area ?? 0;
-        const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
-        if (!Number.isFinite(qty) || qty <= 0) return;
-        occupiedByFieldId.set(String(fid), (occupiedByFieldId.get(String(fid)) || 0) + qty);
+        const qty = orderQuantityM2(o);
+        if (qty <= 0) return;
+        occupiedByFieldId.set(fid, (occupiedByFieldId.get(fid) || 0) + qty);
       });
 
       let transformedFields = [];
@@ -399,6 +402,7 @@ const MyFarms = () => {
               price: field.price,
               price_per_m2: field.price_per_m2,
               production_rate: field.production_rate,
+              operational_status: field.operational_status || 'growing',
               isFarmerCreated: true
             };
           });
@@ -709,7 +713,9 @@ const MyFarms = () => {
               My Farms
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-              Monitor and manage your agricultural farm properties with real-time insights
+              {pageTab === MY_FARMS_TAB
+                ? 'Mark harvest and shipping per field — fields are listed under each farm below'
+                : 'Add new fields, edit prices, harvest dates, and photos'}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -752,31 +758,41 @@ const MyFarms = () => {
           </Box>
         </Stack>
 
-        {/* Page tabs: farms vs owned fields (same UX as Rented fields → My fields owned) */}
-        <div className="mb-4 flex gap-2 overflow-x-auto">
+        {/* Main navigation — large tabs so harvest vs create/edit is obvious */}
+        <div className="mb-6 grid gap-3 sm:grid-cols-2">
           <button
             type="button"
             onClick={() => setPageTab(MY_FARMS_TAB)}
-            className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+            className={`rounded-2xl border-2 p-4 text-left transition-all ${
               pageTab === MY_FARMS_TAB
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'border-emerald-500 bg-emerald-50 shadow-md'
+                : 'border-slate-200 bg-white hover:border-slate-300'
             }`}
           >
-            <FarmIcon sx={{ fontSize: 16 }} />
-            <span>My farms</span>
+            <div className="mb-1 flex items-center gap-2">
+              <Agriculture sx={{ fontSize: 22, color: pageTab === MY_FARMS_TAB ? '#059669' : '#64748b' }} />
+              <span className="text-sm font-bold text-slate-900">Harvest & ship fields</span>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-600">
+              See every field under your farms. <strong>Mark harvested</strong> (total kg) and <strong>Mark shipped</strong> — no need to open View details.
+            </p>
           </button>
           <button
             type="button"
             onClick={() => setPageTab(MY_FIELDS_TAB)}
-            className={`flex items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold whitespace-nowrap transition-colors ${
+            className={`rounded-2xl border-2 p-4 text-left transition-all ${
               pageTab === MY_FIELDS_TAB
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'border-emerald-500 bg-emerald-50 shadow-md'
+                : 'border-slate-200 bg-white hover:border-slate-300'
             }`}
           >
-            <Agriculture sx={{ fontSize: 16 }} />
-            <span>My fields</span>
+            <div className="mb-1 flex items-center gap-2">
+              <FarmIcon sx={{ fontSize: 22, color: pageTab === MY_FIELDS_TAB ? '#059669' : '#64748b' }} />
+              <span className="text-sm font-bold text-slate-900">Create & edit fields</span>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-600">
+              Add fields to a farm, set m², prices, harvest dates, and photos. After saving, use <strong>Harvest & ship</strong> for daily workflow.
+            </p>
           </button>
         </div>
 
@@ -786,7 +802,19 @@ const MyFarms = () => {
 
         {pageTab === MY_FARMS_TAB && (
         <>
-        {/* Stats Overview */}
+        <FarmHarvestDashboard
+          farms={displayFarms}
+          fields={myFields}
+          farmerOrders={farmerOrdersList}
+          onRefresh={fetchFarms}
+          onOpenFarmDetail={handleFarmClick}
+        />
+
+        <details className="mb-4 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
+            Farm overview cards (optional)
+          </summary>
+          <div className="border-t border-slate-100 p-3">
         <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
           <StatCard
             icon={<Agriculture sx={{ fontSize: 20 }} />}
@@ -1046,6 +1074,8 @@ const MyFarms = () => {
             )}
           </Box>
         )}
+          </div>
+        </details>
 
         {/* Farm Detail Modal - Tailwind overlay */}
         {farmDetailOpen && selectedFarm && (
@@ -1277,6 +1307,28 @@ const MyFarms = () => {
                                 )}
                               </div>
                             </div>
+                            <FieldHarvestControls
+                              field={field}
+                              farmerOrders={farmerOrdersList}
+                              onFieldUpdated={async () => {
+                                try {
+                                  const fieldsRes = await fieldsService.getAll();
+                                  const raw = fieldsRes.data || [];
+                                  setMyFields((prev) =>
+                                    prev.map((f) => {
+                                      const updated = raw.find((r) => String(r.id) === String(f.id));
+                                      if (!updated) return f;
+                                      return {
+                                        ...f,
+                                        operational_status: updated.operational_status || f.operational_status,
+                                      };
+                                    })
+                                  );
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                            />
                             <div className="mt-2 flex justify-end">
                               <button
                                 type="button"

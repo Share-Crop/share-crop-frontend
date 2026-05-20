@@ -447,6 +447,20 @@ const FarmerView = () => {
         const longitude = parseFloat(formData.longitude);
         const latitude = parseFloat(formData.latitude);
 
+        const coerceJsonArray = (v) => {
+          if (v == null) return v;
+          if (Array.isArray(v)) return v;
+          if (typeof v === 'string') {
+            try {
+              const parsed = JSON.parse(v);
+              return Array.isArray(parsed) ? parsed : v;
+            } catch {
+              return v;
+            }
+          }
+          return v;
+        };
+
         let actualLocation = 'Unknown Location';
         try {
           if (!isNaN(latitude) && !isNaN(longitude)) {
@@ -482,10 +496,11 @@ const FarmerView = () => {
           production_rate_unit: formData.production_rate_unit ?? formData.productionRateUnit,
           harvest_dates: formData.harvest_dates ?? formData.harvestDates ?? [],
           shipping_option: formData.shipping_option ?? formData.shippingOption,
-          delivery_charges: formData.delivery_charges ?? formData.deliveryCharges,
+          delivery_charges: coerceJsonArray(formData.delivery_charges ?? formData.deliveryCharges),
           has_webcam: formData.has_webcam ?? formData.hasWebcam,
           available_for_rent: Boolean(formData.available_for_rent),
           available_for_buy: formData.available_for_buy !== false,
+          shipping_destinations: coerceJsonArray(formData.shipping_destinations ?? formData.shippingDestinations),
         };
 
         const response = await api.post('/api/fields', newField);
