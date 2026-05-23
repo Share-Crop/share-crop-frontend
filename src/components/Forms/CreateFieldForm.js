@@ -518,7 +518,7 @@ const CreateFieldForm = ({
     Boolean(editMode && initialData && fieldHasOngoingPurchase(initialData, ordersForCommercialLock));
   const navigate = useNavigate();
   const minSelectableDate = getTodayYmdLocal();
-  /** Avoid repeated GET /api/farms/:id when parent props churn re-runs the area effect. */
+  /** Avoid repeated GET /api/farms/:id when parent props churn re-runs the farm defaults effect. */
   const farmDetailCacheRef = useRef(new Map());
 
   const [formData, setFormData] = useState({
@@ -577,9 +577,6 @@ const CreateFieldForm = ({
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
 
-  // Selected farm info for area validation
-  const [selectedFarmArea, setSelectedFarmArea] = useState({ total: 0, occupied: 0, remaining: 0, unit: 'sqm' });
-
   // Calculation logic for pricing and production
   useEffect(() => {
     const totalProd = parseFloat(formData.totalProduction) || 0;
@@ -635,9 +632,9 @@ const CreateFieldForm = ({
     }
   }, [open]);
 
-  // Calculate remaining area whenever farm selection or fields change
+  // Load farm defaults when a farm is selected (harvest dates, location, etc.) — field size is independent of farm area.
   useEffect(() => {
-    const calculateArea = async () => {
+    const loadFarmDefaults = async () => {
       if (formData.farmId) {
         const farmIdStr = String(formData.farmId);
         let farm = farmsList.find(f => String(f.id || f._id) === farmIdStr);
@@ -658,49 +655,9 @@ const CreateFieldForm = ({
         }
 
         if (farm) {
-          const farmIdSource = String(farm.id || farm._id || '');
-          const totalArea = parseFloat(farm.area_value || farm.areaValue) || 0;
-          const farmUnit = normalizeAreaUnit(farm.area_unit || farm.areaUnit || 'sqm');
-
-          // Use fields from parent only. Avoid calling /api/fields/all here (it was firing on every
-          // effect run when the list was empty and fighting the map + form).
-          const allFields = fieldsList || [];
-
-          const farmFields = allFields.filter(field => {
-            const fieldFarmId = String(field.farm_id || field.farmId || '').trim().toLowerCase();
-            const farmIdTarget = farmIdSource.trim().toLowerCase();
-            const isSameFarm = fieldFarmId === farmIdTarget;
-
-            const ci = initialData || {};
-            const currentFieldId = String(ci.id || ci._id || '').trim().toLowerCase();
-            const thisFieldId = String(field.id || field._id || '').trim().toLowerCase();
-
-            const isNotCurrentField = !editMode || (thisFieldId !== currentFieldId && currentFieldId !== '');
-
-            return isSameFarm && isNotCurrentField;
-          });
-
-          const occupied = farmFields.reduce((sum, f) => {
-            const sizeStr = f.field_size || f.fieldSize || f.area_m2 || '0';
-            const size = parseFloat(sizeStr) || 0;
-            return sum + size;
-          }, 0);
-
-          setSelectedFarmArea({
-            total: totalArea,
-            occupied: occupied,
-            remaining: Math.max(0, totalArea - occupied),
-            unit: farmUnit
-          });
-
           setFormData(prev => {
             const updates = {};
-            
-            // Auto-fill fieldSizeUnit from farm (only in create mode)
-            if (!editMode && prev.fieldSizeUnit !== farmUnit) {
-              updates.fieldSizeUnit = farmUnit;
-            }
-            
+
             // Auto-fill harvest dates from farm (only in create mode, if empty)
             if (!editMode && (!prev.harvestDates || prev.harvestDates.length === 0 || !prev.harvestDates[0]?.date)) {
               const farmHarvestDates = [];
@@ -772,14 +729,12 @@ const CreateFieldForm = ({
             setLocationAddress(farm.location);
           }
         }
-      } else {
-        setSelectedFarmArea({ total: 0, occupied: 0, remaining: 0, unit: 'sqm' });
       }
     };
 
-    calculateArea();
+    loadFarmDefaults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.farmId, farmsList, fieldsList, editMode]);
+  }, [formData.farmId, farmsList, editMode]);
 
   // State for license check and upload
   const [checkingLicense, setCheckingLicense] = useState(true);
@@ -1064,14 +1019,6 @@ const CreateFieldForm = ({
       processedValue = clampNonNegativeNumericInput(processedValue);
     }
 
-    // Preventive validation for field size - cap at available remaining area
-    if (field === 'fieldSize' && formData.farmId) {
-      const numValue = parseFloat(value);
-      if (!isNaN(numValue) && numValue > selectedFarmArea.remaining) {
-        processedValue = selectedFarmArea.remaining.toString();
-      }
-    }
-
     if (field === 'sellingAmount' && processedValue !== '' && processedValue != null) {
       const n = parseFloat(processedValue);
       if (!Number.isNaN(n) && n > 100) processedValue = '100';
@@ -1235,8 +1182,6 @@ const CreateFieldForm = ({
       newErrors.fieldSize = 'Field size is required';
     } else if (parseFloat(formData.fieldSize) <= 0) {
       newErrors.fieldSize = 'Field size must be a positive number';
-    } else if (parseFloat(formData.fieldSize) > selectedFarmArea.remaining) {
-      newErrors.fieldSize = `Not enough area left in farm (${selectedFarmArea.remaining.toFixed(2)} ${selectedFarmArea.unit} available)`;
     }
 
     if (!formData.totalProduction) newErrors.totalProduction = 'Total production is required';
@@ -1764,11 +1709,6 @@ const CreateFieldForm = ({
                         {errors.farmId}
                       </Typography>
                     )}
-                    {formData.farmId && (
-                      <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: selectedFarmArea.remaining > 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
-                        Remaining Area: {selectedFarmArea.remaining.toFixed(2)} {selectedFarmArea.unit === 'sqm' ? 'm²' : selectedFarmArea.unit}
-                      </Typography>
-                    )}
                   </StyledFormControl>
 
                   {/* Category Dropdown */}
@@ -2025,7 +1965,7 @@ const CreateFieldForm = ({
                         value={formData.fieldSize}
                         onChange={(e) => handleInputChange('fieldSize', e.target.value)}
                         error={!!errors.fieldSize}
-                        helperText={errors.fieldSize || (formData.farmId ? `Max ${selectedFarmArea.remaining.toFixed(2)} ${selectedFarmArea.unit === 'sqm' ? 'm²' : selectedFarmArea.unit} available` : '')}
+                        helperText={errors.fieldSize || ''}
                         isMobile={isMobile}
                         type="number"
                         inputProps={{ min: 0, step: 'any' }}
@@ -2037,7 +1977,7 @@ const CreateFieldForm = ({
                           value={formData.fieldSizeUnit}
                           onChange={(e) => handleInputChange('fieldSizeUnit', e.target.value)}
                           label="Unit"
-                          disabled={lockCommercial || !!formData.farmId}
+                          disabled={lockCommercial}
                         >
                           <MenuItem value="sqm">m²</MenuItem>
                           <MenuItem value="acres">acres</MenuItem>
