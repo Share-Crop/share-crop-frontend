@@ -34,7 +34,7 @@ import {
   normalizeShippingDestinations,
   shippingDestinationsSummary,
 } from '../../utils/shippingDestinations';
-import { displayProductionRateUnit } from '../../utils/fieldProductionUnits';
+import { displayProductionRateUnit, productionKgForRentedM2 } from '../../utils/fieldProductionUnits';
 import { fieldBlocksDeletion } from '../../utils/fieldEditRestrictions';
 
 const OWM_LAYERS = [
@@ -1180,20 +1180,11 @@ const EnhancedFarmMap = forwardRef(({
         ? farms.find(f => String(f.id) === String(fieldId))
         : null;
       const rateRaw = field?.production_rate ?? field?.productionRate;
-      const rate = typeof rateRaw === 'string' ? parseFloat(rateRaw) : (rateRaw ?? 0);
-      const totalAreaRaw = field?.total_area ?? field?.field_size;
-      const totalArea = typeof totalAreaRaw === 'string' ? parseFloat(totalAreaRaw) : (totalAreaRaw ?? 0);
-      const unit = (field?.production_rate_unit ?? field?.productionRateUnit ?? 'Kg').toString().toLowerCase();
-      const isPerM2 = /m\s*2|m²|per\s*m|per\s*unit/.test(unit);
+      const rateUnit = field?.production_rate_unit ?? field?.productionRateUnit ?? '';
+      const fieldSizeUnit = field?.field_size_unit ?? field?.display_unit ?? field?.unit ?? 'sqm';
       let userKg = 0;
-      if (Number.isFinite(rate) && rate >= 0) {
-        if (isPerM2) {
-          userKg = Number.isFinite(pa) ? pa * rate : 0;
-        } else {
-          userKg = (Number.isFinite(totalArea) && totalArea > 0 && Number.isFinite(pa))
-            ? (pa / totalArea) * rate
-            : 0;
-        }
+      if (Number.isFinite(pa) && pa > 0) {
+        userKg = productionKgForRentedM2(rateRaw, rateUnit, fieldSizeUnit, pa);
       }
       const hDateRaw = p.harvest_date || p.harvestDate || (p.harvest_dates && p.harvest_dates[0]?.date);
       const hTs = hDateRaw ? new Date(hDateRaw).getTime() : null;

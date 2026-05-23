@@ -51,12 +51,15 @@ import { getProductIcon, getProductImageUrlForStorage } from '../../utils/produc
 import { FIELD_CATEGORY_DATA as categoryData } from '../../utils/fieldCategoryData';
 import {
   normalizeTotalProductionUnit,
-  perAreaUnitSuffix,
+  perAreaUnitSuffixWithFieldArea,
+  pricePerFieldAreaUnitSuffix,
+  pricePerM2FromFieldAreaPrice,
   usdPerProductionUnitSuffix,
   productionUnitLabel,
 } from '../../utils/fieldProductionUnits';
 import { fieldHasOngoingPurchase, normalizeOrdersArray } from '../../utils/fieldEditRestrictions';
 import { inferQuantitySellPercentFromField, derivedSellQuantityFromPercent } from '../../utils/fieldSellPercent';
+import { toM2 } from '../../utils/rentedFieldModels';
 import { orderService } from '../../services/orders';
 import { ISO2_COUNTRY_OPTIONS } from '../../data/isoCountryOptions';
 import {
@@ -589,28 +592,24 @@ const CreateFieldForm = ({
   const [galleryUploading, setGalleryUploading] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
 
-  // Calculation logic for pricing and production
+  const fieldAreaUnit = normalizeAreaUnit(formData.fieldSizeUnit);
+  const productionPerAreaSuffix = perAreaUnitSuffixWithFieldArea(formData.totalProductionUnit, fieldAreaUnit);
+  const pricePerAreaSuffix = pricePerFieldAreaUnitSuffix(fieldAreaUnit);
+
+  // Pricing/production math uses the field size number in the unit selected above (sq. ft, m², etc.)
   useEffect(() => {
     const totalProd = parseFloat(formData.totalProduction) || 0;
     const rawSize = parseFloat(formData.fieldSize) || 0;
-    
-    // Normalize size to m2 for standardized backend storage and logic
-    const unit = formData.fieldSizeUnit || 'sqm';
-    let normalizedSize = rawSize;
-    if (unit === 'acres') normalizedSize = rawSize * 4046.86;
-    else if (unit === 'hectares') normalizedSize = rawSize * 10000;
-    else if (unit === 'sqft') normalizedSize = rawSize * 0.092903;
     
     const distPrice = parseFloat(formData.distributionPrice) || 0;
     const retPrice = parseFloat(formData.retailPrice) || 0;
     const scPrice = parseFloat(formData.sellingPrice) || 0;
     const amountToSell = derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount);
 
-    // Production per Area should be in Kg / m2 based on normalized size
-    const prodPerArea = normalizedSize > 0 ? (totalProd / normalizedSize) : 0;
+    const prodPerArea = rawSize > 0 ? (totalProd / rawSize) : 0;
     const suggested = (distPrice + retPrice) / 2;
-    const distPriceM2 = distPrice * prodPerArea;
-    const scPriceM2 = scPrice * prodPerArea;
+    const distPricePerFieldUnit = distPrice * prodPerArea;
+    const scPricePerFieldUnit = scPrice * prodPerArea;
     const potential = amountToSell * scPrice;
     const fees = potential * 0.05;
 
@@ -619,8 +618,8 @@ const CreateFieldForm = ({
       if (
         prev.productionPerArea === prodPerArea.toFixed(3) &&
         prev.suggestedPrice === suggested.toFixed(2) &&
-        prev.virtualCostPerUnit === distPriceM2.toFixed(3) &&
-        prev.userAreaVirtualRentPrice === scPriceM2.toFixed(3) &&
+        prev.virtualCostPerUnit === distPricePerFieldUnit.toFixed(3) &&
+        prev.userAreaVirtualRentPrice === scPricePerFieldUnit.toFixed(3) &&
         prev.potentialIncome === potential.toFixed(2) &&
         prev.appFees === fees.toFixed(2)
       ) {
@@ -631,8 +630,8 @@ const CreateFieldForm = ({
         ...prev,
         productionPerArea: prodPerArea.toFixed(3),
         suggestedPrice: suggested.toFixed(2),
-        virtualCostPerUnit: distPriceM2.toFixed(3),
-        userAreaVirtualRentPrice: scPriceM2.toFixed(3),
+        virtualCostPerUnit: distPricePerFieldUnit.toFixed(3),
+        userAreaVirtualRentPrice: scPricePerFieldUnit.toFixed(3),
         potentialIncome: potential.toFixed(2),
         appFees: fees.toFixed(2)
       };
@@ -1346,6 +1345,11 @@ const CreateFieldForm = ({
     const shippingDestinationsForApi = buildShippingDestinationsFromUi(shippingCountryCodes, shippingCityRows);
     const shippingScopeForApi = deriveShippingScopeEnum(shippingDestinationsForApi, formData.shippingScope);
 
+    const fieldSizeRaw = parseFloat(formData.fieldSize) || 0;
+    const fieldUnit = normalizeAreaUnit(formData.fieldSizeUnit);
+    const areaM2 = fieldSizeRaw > 0 ? toM2(fieldSizeRaw, fieldUnit) : null;
+    const areaM2Rounded = areaM2 != null && Number.isFinite(areaM2) ? Number(areaM2.toFixed(4)) : null;
+
     const submitData = {
       productName: formData.productName,
       name: formData.productName, // Snake case for backend
@@ -1363,12 +1367,16 @@ const CreateFieldForm = ({
       icon: subcategoryImageForApi,
       fieldSize: formData.fieldSize,
       field_size: formData.fieldSize, // Snake case
-      fieldSizeUnit: formData.fieldSizeUnit,
-      field_size_unit: formData.fieldSizeUnit, // Snake case
+      fieldSizeUnit: fieldUnit,
+      field_size_unit: fieldUnit, // Snake case
+      display_unit: formatFieldAreaUnitLabel(fieldUnit),
+      area_m2: areaM2Rounded,
+      total_area_m2: areaM2Rounded,
+      available_area_m2: areaM2Rounded,
       productionRate: formData.productionPerArea,
       production_rate: formData.productionPerArea, // Calculated production per area
-      productionRateUnit: perAreaUnitSuffix(formData.totalProductionUnit),
-      production_rate_unit: perAreaUnitSuffix(formData.totalProductionUnit),
+      productionRateUnit: productionPerAreaSuffix,
+      production_rate_unit: productionPerAreaSuffix,
       totalProduction: formData.totalProduction,
       total_production: formData.totalProduction,
       totalProductionUnit: normalizeTotalProductionUnit(formData.totalProductionUnit),
@@ -1407,10 +1415,11 @@ const CreateFieldForm = ({
       coordinates: [parseFloat(formData.longitude), parseFloat(formData.latitude)],
       farmer_name: user?.name || '',
       location: actualLocation,
-      available_area: formData.fieldSize || 100,
-      total_area: formData.fieldSize || 100,
+      available_area: areaM2Rounded,
+      total_area: areaM2Rounded,
+      unit: fieldUnit,
       weather: 'Sunny', // Default weather
-      price_per_m2: parseFloat(formData.userAreaVirtualRentPrice) || 0,
+      price_per_m2: pricePerM2FromFieldAreaPrice(formData.userAreaVirtualRentPrice, fieldUnit),
       shipping_pickup: formData.shippingOption !== 'Shipping',
       shipping_delivery: formData.shippingOption !== 'Pickup',
       harvest_date: (formData.harvestDates || []).length > 0 && formData.harvestDates[0].date ? formData.harvestDates[0].date : '15 Sep, 2025',
@@ -2387,10 +2396,10 @@ const CreateFieldForm = ({
                         InputProps={{
                           readOnly: true,
                           endAdornment: (
-                            <InputAdornment position="end">{perAreaUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                            <InputAdornment position="end">{productionPerAreaSuffix}</InputAdornment>
                           ),
                         }}
-                        helperText="Calculated from total production and normalized field area"
+                        helperText={`Calculated from total production ÷ field size (${formatFieldAreaUnitLabel(fieldAreaUnit)})`}
                         isMobile={isMobile}
                       />
                       <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
@@ -2494,13 +2503,13 @@ const CreateFieldForm = ({
                       <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
                         <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
                         <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
-                          {formData.userAreaVirtualRentPrice} <span style={{ color: '#4caf50' }}>$ / m²</span>
+                          {formData.userAreaVirtualRentPrice} <span style={{ color: '#4caf50' }}>{pricePerAreaSuffix}</span>
                         </Typography>
                       </Box>
                     </Box>
                   </Grid>
 
-                  {/* Virtual Cost (Distribution per m2) */}
+                  {/* Virtual Cost (distribution price × production per field area unit) */}
                   <Grid item xs={12} md={6}>
                     <Box>
                       <StyledTextField
@@ -2512,9 +2521,9 @@ const CreateFieldForm = ({
                         InputLabelProps={{ shrink: true }}
                         InputProps={{
                           readOnly: true,
-                          endAdornment: <InputAdornment position="end">$/m²</InputAdornment>
+                          endAdornment: <InputAdornment position="end">{pricePerAreaSuffix}</InputAdornment>
                         }}
-                        helperText="Calculated virtual cost (Wholesale Price * Production/Area)"
+                        helperText={`Wholesale price × production per ${formatFieldAreaUnitLabel(fieldAreaUnit)}`}
                         isMobile={isMobile}
                       />
                       <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
