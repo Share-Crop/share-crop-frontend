@@ -414,7 +414,19 @@ const normalizeAreaUnit = (unit) => {
   if (u === 'sqm' || u === 'm²' || u === 'm2' || u === 'm^2') return 'sqm';
   if (u === 'acres' || u === 'acre') return 'acres';
   if (u === 'hectares' || u === 'hectare' || u === 'ha') return 'hectares';
+  if (u === 'sqft' || u === 'sq ft' || u === 'sq. ft' || u === 'ft2' || u === 'ft²' || u === 'square feet' || u === 'square foot') {
+    return 'sqft';
+  }
   return 'sqm';
+};
+
+const formatFieldAreaUnitLabel = (unit) => {
+  const u = normalizeAreaUnit(unit);
+  if (u === 'sqm') return 'm²';
+  if (u === 'sqft') return 'sq. ft';
+  if (u === 'acres') return 'acres';
+  if (u === 'hectares') return 'hectares';
+  return unit || 'm²';
 };
 
 // Helper to format date for input fields (yyyy-MM-dd format)
@@ -587,6 +599,7 @@ const CreateFieldForm = ({
     let normalizedSize = rawSize;
     if (unit === 'acres') normalizedSize = rawSize * 4046.86;
     else if (unit === 'hectares') normalizedSize = rawSize * 10000;
+    else if (unit === 'sqft') normalizedSize = rawSize * 0.092903;
     
     const distPrice = parseFloat(formData.distributionPrice) || 0;
     const retPrice = parseFloat(formData.retailPrice) || 0;
@@ -1980,6 +1993,7 @@ const CreateFieldForm = ({
                           disabled={lockCommercial}
                         >
                           <MenuItem value="sqm">m²</MenuItem>
+                          <MenuItem value="sqft">sq. ft</MenuItem>
                           <MenuItem value="acres">acres</MenuItem>
                           <MenuItem value="hectares">hectares</MenuItem>
                         </Select>
@@ -2345,7 +2359,7 @@ const CreateFieldForm = ({
                     <StyledTextField
                       fullWidth
                       label="Linked Field Area"
-                      value={`${formData.fieldSize} ${formData.fieldSizeUnit === 'sqm' ? 'm²' : formData.fieldSizeUnit}`}
+                      value={`${formData.fieldSize} ${formatFieldAreaUnitLabel(formData.fieldSizeUnit)}`}
                       isSuggested={true}
                       InputLabelProps={{ shrink: true }}
                       InputProps={{

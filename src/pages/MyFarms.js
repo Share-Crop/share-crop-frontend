@@ -78,7 +78,9 @@ const normalizeAreaUnit = (raw) => {
   if (u === 'm²' || u === 'm2' || u === 'sqm' || u === 'square meter') return 'm2';
   if (u === 'acre' || u === 'acres') return 'acre';
   if (u === 'hectare' || u === 'hectares' || u === 'ha') return 'ha';
-  if (u === 'sqft' || u === 'ft2' || u === 'ft²') return 'ft2';
+  if (u === 'sqft' || u === 'sq ft' || u === 'sq. ft' || u === 'ft2' || u === 'ft²' || u === 'square feet' || u === 'square foot') {
+    return 'ft2';
+  }
   return u;
 };
 

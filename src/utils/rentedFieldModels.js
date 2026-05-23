@@ -8,7 +8,9 @@ export const normalizeAreaUnit = (raw) => {
   if (u === 'm²' || u === 'm2' || u === 'sqm' || u === 'square meter' || u === 'square meters') return 'm2';
   if (u === 'acre' || u === 'acres') return 'acre';
   if (u === 'hectare' || u === 'hectares' || u === 'ha') return 'ha';
-  if (u === 'sqft' || u === 'ft2' || u === 'ft²' || u === 'square feet') return 'ft2';
+  if (u === 'sqft' || u === 'sq ft' || u === 'sq. ft' || u === 'ft2' || u === 'ft²' || u === 'square feet' || u === 'square foot') {
+    return 'ft2';
+  }
   return u;
 };
 
@@ -17,7 +19,7 @@ export const unitLabel = (unit) => {
   if (u === 'm2') return 'm²';
   if (u === 'acre') return 'acres';
   if (u === 'ha') return 'ha';
-  if (u === 'ft2') return 'ft²';
+  if (u === 'ft2') return 'sq. ft';
   return unit || 'm²';
 };
 
@@ -36,7 +38,7 @@ export const formatAreaFromM2 = (m2, unit) => {
   const u = normalizeAreaUnit(unit);
   if (u === 'acre') return `${(v / 4046.8564224).toFixed(2)} acres`;
   if (u === 'ha') return `${(v / 10000).toFixed(2)} ha`;
-  if (u === 'ft2') return `${Math.round(v / 0.092903).toLocaleString()} ft²`;
+  if (u === 'ft2') return `${Math.round(v / 0.092903).toLocaleString()} sq. ft`;
   return `${Math.round(v).toLocaleString()} m²`;
 };
 
