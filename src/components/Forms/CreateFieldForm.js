@@ -67,7 +67,10 @@ import {
   normalizeIso2,
   normalizeShippingDestinations,
   shippingDestinationsSummary,
+  buildShippingDestinationsFromUi,
+  emptyShippingCityRow,
 } from '../../utils/shippingDestinations';
+import ShippingCityAutocomplete from './ShippingCityAutocomplete';
 
 /** Numeric inputs that must not go negative (field size, pricing, rent). */
 const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
@@ -462,27 +465,6 @@ const isYmdBeforeLocalToday = (ymd) => {
   return ymd < getTodayYmdLocal();
 };
 
-function buildShippingDestinationsFromUi(countryCodes, cityRows) {
-  const out = [];
-  const seen = new Set();
-  for (const code of countryCodes || []) {
-    const c = normalizeIso2(code);
-    if (!c || seen.has(`c:${c}`)) continue;
-    seen.add(`c:${c}`);
-    out.push({ type: 'country', countryCode: c });
-  }
-  for (const row of cityRows || []) {
-    const c = normalizeIso2(row?.countryCode);
-    const city = (row?.city || '').trim();
-    if (!c || !city) continue;
-    const k = `t:${c}:${city.toLowerCase()}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push({ type: 'city', countryCode: c, city: city.slice(0, 120) });
-  }
-  return out.slice(0, 50);
-}
-
 const CreateFieldForm = ({
   open,
   onClose,
@@ -578,7 +560,7 @@ const CreateFieldForm = ({
 
   /** ISO2 codes for whole-country delivery; use with `shippingCityRows` for city-specific rules. */
   const [shippingCountryCodes, setShippingCountryCodes] = useState([]);
-  const [shippingCityRows, setShippingCityRows] = useState([{ countryCode: '', city: '' }]);
+  const [shippingCityRows, setShippingCityRows] = useState([emptyShippingCityRow()]);
   /** When true, show the country/city list editor (or stay open while editing an existing list). */
   const [useSpecificDeliveryList, setUseSpecificDeliveryList] = useState(false);
 
@@ -966,9 +948,17 @@ const CreateFieldForm = ({
       }
       const cityRows = sd
         .filter((item) => item.type === 'city' && item.countryCode && item.city)
-        .map((item) => ({ countryCode: item.countryCode, city: item.city }));
+        .map((item) => ({
+          countryCode: item.countryCode,
+          city: item.city,
+          region: item.region || '',
+          regionCode: item.regionCode || '',
+          mapboxId: item.mapboxId || '',
+          label: item.label || (item.region ? `${item.city}, ${item.region}` : item.city),
+          center: item.center || null,
+        }));
       setShippingCountryCodes(countryCodes);
-      setShippingCityRows(cityRows.length > 0 ? cityRows : [{ countryCode: '', city: '' }]);
+      setShippingCityRows(cityRows.length > 0 ? cityRows : [emptyShippingCityRow()]);
       setUseSpecificDeliveryList(sd.length > 0);
     } else if (!editMode) {
       setFormData({
@@ -1003,7 +993,7 @@ const CreateFieldForm = ({
       // Reset location address for new forms
       setLocationAddress('');
       setShippingCountryCodes([]);
-      setShippingCityRows([{ countryCode: '', city: '' }]);
+      setShippingCityRows([emptyShippingCityRow()]);
       setUseSpecificDeliveryList(false);
     }
     /* Intentionally omit full `initialData` from deps: parent often passes a new object reference when
@@ -1265,8 +1255,13 @@ const CreateFieldForm = ({
       const r = rows[i];
       const cc = (r?.countryCode || '').toString().trim();
       const ct = (r?.city || '').toString().trim();
+      const hasPlace = Boolean(r?.mapboxId || r?.label);
       if ((cc && !ct) || (!cc && ct)) {
-        newErrors.shippingCityRows = `City rule ${i + 1}: enter both country and city, or clear the row`;
+        newErrors.shippingCityRows = `City rule ${i + 1}: select country and city, or clear the row`;
+        break;
+      }
+      if (cc && ct && !hasPlace) {
+        newErrors.shippingCityRows = `City rule ${i + 1}: pick the city from search suggestions (not typed manually)`;
         break;
       }
     }
@@ -1483,7 +1478,7 @@ const CreateFieldForm = ({
       totalProductionUnit: 'kg',
     });
     setShippingCountryCodes([]);
-    setShippingCityRows([{ countryCode: '', city: '' }]);
+    setShippingCityRows([emptyShippingCityRow()]);
     setUseSpecificDeliveryList(false);
     setErrors({});
     setIsSubmitting(false);
@@ -2797,7 +2792,7 @@ const CreateFieldForm = ({
                               color="secondary"
                               onClick={() => {
                                 setShippingCountryCodes([]);
-                                setShippingCityRows([{ countryCode: '', city: '' }]);
+                                setShippingCityRows([emptyShippingCityRow()]);
                                 setUseSpecificDeliveryList(false);
                               }}
                               sx={{ textTransform: 'none' }}
@@ -2843,7 +2838,7 @@ const CreateFieldForm = ({
                         />
 
                         <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
-                          Or only certain cities (same country in both boxes):
+                          Or specific cities — search and pick from suggestions (includes state/region for duplicate names):
                         </Typography>
                         {(shippingCityRows || []).map((row, index) => (
                           <Box
@@ -2860,7 +2855,10 @@ const CreateFieldForm = ({
                                 if (lockCommercial) return;
                                 setShippingCityRows((prev) => {
                                   const next = [...prev];
-                                  next[index] = { ...next[index], countryCode: v?.code || '' };
+                                  next[index] = {
+                                    ...emptyShippingCityRow(),
+                                    countryCode: v?.code || '',
+                                  };
                                   return next;
                                 });
                               }}
@@ -2874,21 +2872,20 @@ const CreateFieldForm = ({
                                 />
                               )}
                             />
-                            <StyledTextField
-                              sx={{ flex: '2 1 220px', minWidth: 0, width: isMobile ? '100%' : 'auto' }}
-                              label="City name"
-                              value={row.city}
-                              onChange={(e) => {
+                            <ShippingCityAutocomplete
+                              countryCode={row.countryCode}
+                              value={row}
+                              onChange={(nextRow) => {
                                 if (lockCommercial) return;
-                                const v = e.target.value;
                                 setShippingCityRows((prev) => {
                                   const next = [...prev];
-                                  next[index] = { ...next[index], city: v };
+                                  next[index] = nextRow;
                                   return next;
                                 });
                               }}
                               disabled={lockCommercial}
                               isMobile={isMobile}
+                              error={Boolean(errors.shippingCityRows)}
                             />
                             {!lockCommercial && shippingCityRows.length > 1 ? (
                               <IconButton
@@ -2911,7 +2908,7 @@ const CreateFieldForm = ({
                           <Button
                             size="small"
                             startIcon={<Add />}
-                            onClick={() => setShippingCityRows((prev) => [...prev, { countryCode: '', city: '' }])}
+                            onClick={() => setShippingCityRows((prev) => [...prev, emptyShippingCityRow()])}
                             sx={{ mt: 0.5, mb: 1, textTransform: 'none' }}
                           >
                             Add another city
