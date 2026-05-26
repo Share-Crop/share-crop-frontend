@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import fieldsService from '../services/fields';
 import {
   formatTotalProductionWithUnit,
-  displayProductionRateUnit,
+  productionRateDisplay,
 } from '../utils/fieldProductionUnits';
+import { areaDisplay, priceAreaDisplay, getFieldTotalAreaM2 } from '../utils/fieldAreaDisplay';
 
 import {
   Container,
@@ -353,26 +354,23 @@ const RentedFields = () => {
       });
 
       const list = Array.from(byField.values()).map((item) => {
-        const totalArea = item.total_area || 0;
-        const purchasedArea = item.purchased_area || 0;
-        const progress = totalArea > 0 ? Math.round((purchasedArea / totalArea) * 100) : 0;
-        const displayUnitRaw = item.display_unit || item.field_size_unit || item.unit || 'm²';
-        const displayUnit = normalizeAreaUnit(displayUnitRaw);
-        const totalAreaM2 = toM2(totalArea, displayUnit);
-        const occupiedM2 = Math.max(0, toM2(purchasedArea, displayUnit));
+        const purchasedAreaM2 = item.purchased_area || 0;
+        const totalAreaM2 = getFieldTotalAreaM2(item);
+        const occupiedM2 = Math.max(0, purchasedAreaM2);
         const availableM2 = Math.max(0, totalAreaM2 - occupiedM2);
+        const progress = totalAreaM2 > 0 ? Math.round((occupiedM2 / totalAreaM2) * 100) : 0;
         return {
           ...item,
-          display_unit: displayUnit,
-          area_unit: displayUnit,
           total_area: totalAreaM2,
           available_area: availableM2,
           occupied_area: occupiedM2,
-          total_area_display: formatAreaFromM2(totalAreaM2, displayUnit),
-          available_area_display: formatAreaFromM2(availableM2, displayUnit),
-          occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
+          total_area_display: areaDisplay(item, totalAreaM2).text,
+          available_area_display: areaDisplay(item, availableM2).text,
+          occupied_area_display: areaDisplay(item, occupiedM2).text,
           area_m2: occupiedM2,
-          area: formatAreaFromM2(occupiedM2, displayUnit),
+          area: areaDisplay(item, occupiedM2).text,
+          price_per_unit_display: priceAreaDisplay(item).text,
+          production_rate_display: productionRateDisplay(item).text,
           progress,
         };
       });
@@ -450,22 +448,21 @@ const RentedFields = () => {
       const stats = ownedFieldOrderBreakdownById.get(key);
       if (!stats || !Number.isFinite(stats.totalOccupiedM2)) return f;
 
-      const total = typeof f.total_area === 'string' ? parseFloat(f.total_area) : (f.total_area || 0);
-      if (!Number.isFinite(total) || total <= 0) return f;
+      const totalM2 = getFieldTotalAreaM2(f);
+      if (!Number.isFinite(totalM2) || totalM2 <= 0) return f;
 
-      const occupiedM2 = Math.max(0, Math.min(total, stats.totalOccupiedM2));
-      const availableM2 = Math.max(0, total - occupiedM2);
-      const progress = Math.min(100, Math.round((occupiedM2 / total) * 100));
-      const displayUnit = f.display_unit || f.area_unit || 'm2';
+      const occupiedM2 = Math.max(0, Math.min(totalM2, stats.totalOccupiedM2));
+      const availableM2 = Math.max(0, totalM2 - occupiedM2);
+      const progress = Math.min(100, Math.round((occupiedM2 / totalM2) * 100));
 
       return {
         ...f,
         occupied_area: occupiedM2,
         available_area: availableM2,
-        occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
-        available_area_display: formatAreaFromM2(availableM2, displayUnit),
-        // Keep the main "area" label consistent with occupied display for owned fields.
-        area: formatAreaFromM2(occupiedM2, displayUnit),
+        total_area_display: areaDisplay(f, totalM2).text,
+        occupied_area_display: areaDisplay(f, occupiedM2).text,
+        available_area_display: areaDisplay(f, availableM2).text,
+        area: areaDisplay(f, occupiedM2).text,
         progress,
         buyers_breakdown: stats.buyers,
         occupied_source: 'orders',
@@ -1200,10 +1197,10 @@ const RentedFields = () => {
                         <div className="text-left sm:text-right">
                           <div className="flex items-center gap-2 sm:flex-col sm:items-end">
                             <div className="text-sm font-bold text-emerald-600">
-                              {currencySymbols[userCurrency]}{(parseFloat(field.price_per_m2) || 0).toFixed(2)}/m²
+                              {currencySymbols[userCurrency]}{priceAreaDisplay(field).text.replace(/^\$/, '')}
                             </div>
                             <div className="text-[0.6rem] font-medium text-slate-400">
-                              {field.production_rate} {displayProductionRateUnit(field)}
+                              {field.production_rate_display || productionRateDisplay(field).text}
                             </div>
                           </div>
                         </div>
@@ -1327,7 +1324,7 @@ const RentedFields = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500">Total Area</span>
                           <span className="font-semibold text-slate-900">
-                            {field.total_area_display || `${field.total_area} m²`}
+                            {field.total_area_display || areaDisplay(field).text}
                           </span>
                         </div>
                       </div>
@@ -1338,7 +1335,7 @@ const RentedFields = () => {
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Total Area</span>
                             <span className="font-semibold text-slate-900">
-                              {field.total_area_display || `${field.total_area} m²`}
+                              {field.total_area_display || areaDisplay(field).text}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
@@ -1347,12 +1344,12 @@ const RentedFields = () => {
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Available</span>
-                            <span className="font-semibold text-slate-900">{field.available_area_display || `${field.available_area} m²`}</span>
+                            <span className="font-semibold text-slate-900">{field.available_area_display || areaDisplay(field, field.available_area).text}</span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Production Rate</span>
                             <span className="font-semibold text-slate-900">
-                              {field.production_rate} {displayProductionRateUnit(field)}
+                              {field.production_rate_display || productionRateDisplay(field).text}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
@@ -1362,8 +1359,8 @@ const RentedFields = () => {
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-slate-500">Price/m²</span>
-                            <span className="font-semibold text-emerald-600">{currencySymbols[userCurrency]}{(parseFloat(field.price_per_m2) || 0).toFixed(2)}</span>
+                            <span className="text-slate-500">Price / {areaDisplay(field).unit}</span>
+                            <span className="font-semibold text-emerald-600">{currencySymbols[userCurrency]}{priceAreaDisplay(field).text.replace(/^\$/, '')}</span>
                           </div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-slate-500">Distribution Price</span>
@@ -1605,21 +1602,18 @@ const RentedFields = () => {
                       <Typography variant="body2" sx={{ color: '#64748b' }}>
                         My Rented: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.area}</span>
                       </Typography>
-                      {(() => {
-                        const total = typeof selectedField.total_area === 'string' ? parseFloat(selectedField.total_area) : (selectedField.total_area || 0);
-                        const occupied = typeof selectedField.occupied_area === 'string' ? parseFloat(selectedField.occupied_area) : (selectedField.occupied_area || 0);
-                        const available = Math.max(0, total - occupied);
-                        return (
-                          <>
-                            <Typography variant="body2" sx={{ color: '#64748b' }}>
-                              Available: <span style={{ fontWeight: 600, color: '#1e293b' }}>{available} m²</span>
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: '#64748b' }}>
-                              Total: <span style={{ fontWeight: 600, color: '#1e293b' }}>{selectedField.total_area_display || `${selectedField.total_area} m²`}</span>
-                            </Typography>
-                          </>
-                        );
-                      })()}
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                        Available:{' '}
+                        <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                          {selectedField.available_area_display || areaDisplay(selectedField, selectedField.available_area).text}
+                        </span>
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>
+                        Total:{' '}
+                        <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                          {selectedField.total_area_display || areaDisplay(selectedField).text}
+                        </span>
+                      </Typography>
                     </Stack>
                   </Box>
 
@@ -1894,27 +1888,18 @@ const RentedFields = () => {
                           {selectedField.area}
                         </span>
                       </span>
-                      {(() => {
-                        const total = typeof selectedField.total_area === 'string' ? parseFloat(selectedField.total_area) : (selectedField.total_area || 0);
-                        const occupied = typeof selectedField.occupied_area === 'string' ? parseFloat(selectedField.occupied_area) : (selectedField.occupied_area || 0);
-                        const available = Math.max(0, total - occupied);
-                        return (
-                          <>
-                            <span>
-                              Available:{' '}
-                              <span className="font-semibold text-slate-900">
-                                {available} m²
-                              </span>
-                            </span>
-                            <span>
-                              Total:{' '}
-                              <span className="font-semibold text-slate-900">
-                                {selectedField.total_area_display || `${selectedField.total_area} m²`}
-                              </span>
-                            </span>
-                          </>
-                        );
-                      })()}
+                      <span>
+                        Available:{' '}
+                        <span className="font-semibold text-slate-900">
+                          {selectedField.available_area_display || areaDisplay(selectedField, selectedField.available_area).text}
+                        </span>
+                      </span>
+                      <span>
+                        Total:{' '}
+                        <span className="font-semibold text-slate-900">
+                          {selectedField.total_area_display || areaDisplay(selectedField).text}
+                        </span>
+                      </span>
                     </div>
 
                     {selectedField.is_own_field && Array.isArray(selectedField.buyers_breakdown) && selectedField.buyers_breakdown.length > 0 && (
@@ -1941,7 +1926,7 @@ const RentedFields = () => {
                                 )}
                               </div>
                               <div className="shrink-0 text-xs font-semibold text-emerald-700">
-                                {Math.round((b.quantity_m2 || 0)).toLocaleString()} m²
+                                {areaDisplay(selectedField, b.quantity_m2).text}
                               </div>
                             </div>
                           ))}
@@ -1987,10 +1972,10 @@ const RentedFields = () => {
                   <HarvestProgressBar item={selectedField} />
 
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                    <span className="text-xs text-slate-600">Earnings per m²</span>
+                    <span className="text-xs text-slate-600">Earnings per {areaDisplay(selectedField).unit}</span>
                     <span className="text-sm font-semibold text-emerald-600">
                       {currencySymbols[userCurrency]}
-                      {(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}/m²
+                      {priceAreaDisplay(selectedField).text.replace(/^\$/, '')}
                     </span>
                   </div>
 
@@ -2048,9 +2033,9 @@ const RentedFields = () => {
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">Price per m²</span>
+                    <span className="text-xs text-slate-600">Price per {areaDisplay(selectedField).unit}</span>
                     <span className="font-semibold text-emerald-600">
-                      {currencySymbols[userCurrency]}{(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}
+                      {currencySymbols[userCurrency]}{priceAreaDisplay(selectedField).text.replace(/^\$/, '')}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -2070,8 +2055,7 @@ const RentedFields = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-slate-600">Production Rate</span>
                       <span className="font-semibold text-slate-900">
-                        {(parseFloat(selectedField.production_rate) || 0).toFixed(3)}{' '}
-                        {displayProductionRateUnit(selectedField)}
+                        {selectedField.production_rate_display || productionRateDisplay(selectedField).text}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">

@@ -38,6 +38,7 @@ import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
 import fieldsService from '../services/fields';
+import { enrichFieldsAreaDisplay } from '../utils/fieldAreaDisplay';
 import { orderService } from '../services/orders';
 import { fieldBlocksDeletion, fieldHasOngoingPurchase } from '../utils/fieldEditRestrictions';
 import { fieldToFormInitialData } from '../utils/rentedFieldModels';

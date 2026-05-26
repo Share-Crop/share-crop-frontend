@@ -9,8 +9,9 @@ import {
 import HarvestProgressBar from '../Common/HarvestProgressBar';
 import {
   formatTotalProductionWithUnit,
-  displayProductionRateUnit,
+  productionRateDisplay,
 } from '../../utils/fieldProductionUnits';
+import { areaDisplay, priceAreaDisplay } from '../../utils/fieldAreaDisplay';
 import { formatHarvestDate } from '../../utils/harvestProgress';
 
 /**
@@ -139,27 +140,18 @@ export default function FarmerOwnedFieldDetailModal({
                       {selectedField.area}
                     </span>
                   </span>
-                  {(() => {
-                    const total = typeof selectedField.total_area === 'string' ? parseFloat(selectedField.total_area) : (selectedField.total_area || 0);
-                    const occupied = typeof selectedField.occupied_area === 'string' ? parseFloat(selectedField.occupied_area) : (selectedField.occupied_area || 0);
-                    const available = Math.max(0, total - occupied);
-                    return (
-                      <>
-                        <span>
-                          Available:{' '}
-                          <span className="font-semibold text-slate-900">
-                            {available} m²
-                          </span>
-                        </span>
-                        <span>
-                          Total:{' '}
-                          <span className="font-semibold text-slate-900">
-                            {selectedField.total_area_display || `${selectedField.total_area} m²`}
-                          </span>
-                        </span>
-                      </>
-                    );
-                  })()}
+                  <span>
+                    Available:{' '}
+                    <span className="font-semibold text-slate-900">
+                      {selectedField.available_area_display || areaDisplay(selectedField, selectedField.available_area).text}
+                    </span>
+                  </span>
+                  <span>
+                    Total:{' '}
+                    <span className="font-semibold text-slate-900">
+                      {selectedField.total_area_display || areaDisplay(selectedField).text}
+                    </span>
+                  </span>
                 </div>
 
                 {Array.isArray(selectedField.buyers_breakdown) && selectedField.buyers_breakdown.length > 0 && (
@@ -186,7 +178,7 @@ export default function FarmerOwnedFieldDetailModal({
                             )}
                           </div>
                           <div className="shrink-0 text-xs font-semibold text-emerald-700">
-                            {Math.round((b.quantity_m2 || 0)).toLocaleString()} m²
+                            {areaDisplay(selectedField, b.quantity_m2).text}
                           </div>
                         </div>
                       ))}
@@ -231,10 +223,10 @@ export default function FarmerOwnedFieldDetailModal({
               <HarvestProgressBar item={selectedField} />
 
               <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                <span className="text-xs text-slate-600">Earnings per m²</span>
+                <span className="text-xs text-slate-600">Earnings per {areaDisplay(selectedField).unit}</span>
                 <span className="text-sm font-semibold text-emerald-600">
                   {currencySymbols[userCurrency]}
-                  {(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}/m²
+                  {priceAreaDisplay(selectedField).text.replace(/^\$/, '')}
                 </span>
               </div>
 
@@ -291,9 +283,9 @@ export default function FarmerOwnedFieldDetailModal({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-600">Price per m²</span>
+                <span className="text-xs text-slate-600">Price per {areaDisplay(selectedField).unit}</span>
                 <span className="font-semibold text-emerald-600">
-                  {currencySymbols[userCurrency]}{(parseFloat(selectedField.price_per_m2) || 0).toFixed(2)}
+                  {currencySymbols[userCurrency]}{priceAreaDisplay(selectedField).text.replace(/^\$/, '')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -314,7 +306,7 @@ export default function FarmerOwnedFieldDetailModal({
                   <span className="text-xs text-slate-600">Production Rate</span>
                   <span className="font-semibold text-slate-900">
                     {(parseFloat(selectedField.production_rate) || 0).toFixed(3)}{' '}
-                    {displayProductionRateUnit(selectedField)}
+                    {selectedField.production_rate_display || productionRateDisplay(selectedField).text}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

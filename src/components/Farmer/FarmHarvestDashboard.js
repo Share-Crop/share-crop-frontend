@@ -5,6 +5,7 @@ import FieldHarvestControls from './FieldHarvestControls';
 import {
   getFieldHarvestOrders,
 } from '../../utils/farmerOrderOccupancy';
+import { areaDisplay } from '../../utils/fieldAreaDisplay';
 
 function activeRentalsOnField(fieldId, farmerOrders) {
   return getFieldHarvestOrders(farmerOrders, fieldId);
@@ -151,7 +152,7 @@ export default function FarmHarvestDashboard({
                       <div>
                         <div className="text-sm font-semibold text-slate-900">{field.name}</div>
                         <div className="text-xs text-slate-500">
-                          {field.cropType || 'Crop'} · {Math.round(field.totalAreaM2 || 0).toLocaleString()} m²
+                          {field.cropType || 'Crop'} · {field.total_area_display || areaDisplay(field).text}
                           {rentals.length > 0 && (
                             <span className="ml-2 font-medium text-emerald-700">
                               · {rentals.length} active rental{rentals.length !== 1 ? 's' : ''}

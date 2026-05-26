@@ -45,13 +45,13 @@ import HarvestProgressBar from '../Common/HarvestProgressBar';
 import { formatHarvestDate, getHarvestProgressInfo, hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
 import {
   formatTotalProductionWithUnit,
-  displayProductionRateUnit,
+  productionRateDisplay,
 } from '../../utils/fieldProductionUnits';
 import {
   mapFieldFromApi,
   fieldToFormInitialData,
-  formatAreaFromM2,
 } from '../../utils/rentedFieldModels';
+import { areaDisplay, priceAreaDisplay, getFieldTotalAreaM2 } from '../../utils/fieldAreaDisplay';
 import FarmerOwnedFieldDetailModal from './FarmerOwnedFieldDetailModal';
 import FieldHarvestControls from './FieldHarvestControls';
 import {
@@ -179,21 +179,21 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
       const stats = ownedFieldOrderBreakdownById.get(key);
       if (!stats || !Number.isFinite(stats.totalOccupiedM2)) return f;
 
-      const total = typeof f.total_area === 'string' ? parseFloat(f.total_area) : (f.total_area || 0);
-      if (!Number.isFinite(total) || total <= 0) return f;
+      const totalM2 = getFieldTotalAreaM2(f);
+      if (!Number.isFinite(totalM2) || totalM2 <= 0) return f;
 
-      const occupiedM2 = Math.max(0, Math.min(total, stats.totalOccupiedM2));
-      const availableM2 = Math.max(0, total - occupiedM2);
-      const progress = Math.min(100, Math.round((occupiedM2 / total) * 100));
-      const displayUnit = f.display_unit || f.area_unit || 'm2';
+      const occupiedM2 = Math.max(0, Math.min(totalM2, stats.totalOccupiedM2));
+      const availableM2 = Math.max(0, totalM2 - occupiedM2);
+      const progress = Math.min(100, Math.round((occupiedM2 / totalM2) * 100));
 
       return {
         ...f,
         occupied_area: occupiedM2,
         available_area: availableM2,
-        occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
-        available_area_display: formatAreaFromM2(availableM2, displayUnit),
-        area: formatAreaFromM2(occupiedM2, displayUnit),
+        total_area_display: areaDisplay(f, totalM2).text,
+        occupied_area_display: areaDisplay(f, occupiedM2).text,
+        available_area_display: areaDisplay(f, availableM2).text,
+        area: areaDisplay(f, occupiedM2).text,
         progress,
         buyers_breakdown: stats.buyers,
         occupied_source: 'orders',
@@ -679,10 +679,10 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                         <div className="flex items-center gap-2 sm:flex-col sm:items-end">
                           <div className="text-sm font-bold text-emerald-600">
                             {currencySymbols[userCurrency]}
-                            {(parseFloat(field.price_per_m2) || 0).toFixed(2)}/m²
+                            {priceAreaDisplay(field).text.replace(/^\$/, '')}
                           </div>
                           <div className="text-[0.6rem] font-medium text-slate-400">
-                            {field.production_rate} {displayProductionRateUnit(field)}
+                            {field.production_rate_display || productionRateDisplay(field).text}
                           </div>
                         </div>
                       </div>
@@ -772,7 +772,7 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                     <div className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Total Area</span>
-                        <span className="font-semibold text-slate-900">{field.total_area_display || `${field.total_area} m²`}</span>
+                        <span className="font-semibold text-slate-900">{field.total_area_display || areaDisplay(field).text}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Occupied</span>
@@ -780,12 +780,12 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Available</span>
-                        <span className="font-semibold text-slate-900">{field.available_area_display || `${field.available_area} m²`}</span>
+                        <span className="font-semibold text-slate-900">{field.available_area_display || areaDisplay(field, field.available_area).text}</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Production Rate</span>
                         <span className="font-semibold text-slate-900">
-                          {field.production_rate} {displayProductionRateUnit(field)}
+                          {field.production_rate_display || productionRateDisplay(field).text}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
@@ -795,10 +795,10 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-slate-500">Price/m²</span>
+                        <span className="text-slate-500">Price / {areaDisplay(field).unit}</span>
                         <span className="font-semibold text-emerald-600">
                           {currencySymbols[userCurrency]}
-                          {(parseFloat(field.price_per_m2) || 0).toFixed(2)}
+                          {priceAreaDisplay(field).text.replace(/^\$/, '')}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">

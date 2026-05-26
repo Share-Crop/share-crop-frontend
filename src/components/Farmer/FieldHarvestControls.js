@@ -20,6 +20,7 @@ import {
   getFieldHarvestOrders,
   harvestEligibilityMessage,
 } from '../../utils/farmerOrderOccupancy';
+import { areaDisplay } from '../../utils/fieldAreaDisplay';
 
 const statusLabel = (s) => {
   const v = (s || 'growing').toLowerCase();
@@ -200,7 +201,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Enter the total quantity harvested. It will be split across {activeOrdersOnField.length} active rental(s) by
-            area (m²). Renters see actual vs estimated (+/-).
+            area ({areaDisplay(field).unit}). Renters see actual vs estimated (+/-).
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>

@@ -1,6 +1,8 @@
 /** Shared mapping helpers for Rented Fields / owned field list UIs */
 
 import { inferQuantitySellPercentFromField } from './fieldSellPercent';
+import { areaDisplay, priceAreaDisplay } from './fieldAreaDisplay';
+import { productionRateDisplay } from './fieldProductionUnits';
 
 export const normalizeAreaUnit = (raw) => {
   const u = String(raw || '').trim().toLowerCase();
@@ -97,10 +99,14 @@ export function mapFieldFromApi(raw, currentUserId) {
     area_m2: totalAreaM2,
     available_area: availableAreaM2,
     occupied_area: occupiedM2,
-    total_area_display: formatAreaFromM2(totalAreaM2, displayUnit),
-    available_area_display: formatAreaFromM2(availableAreaM2, displayUnit),
-    occupied_area_display: formatAreaFromM2(occupiedM2, displayUnit),
-    area: formatAreaFromM2(occupiedM2, displayUnit),
+    total_area_display: areaDisplay(raw, totalAreaM2).text,
+    available_area_display: areaDisplay(raw, availableAreaM2).text,
+    occupied_area_display: areaDisplay(raw, occupiedM2).text,
+    area: areaDisplay(raw, occupiedM2).text,
+    price_per_unit_display: priceAreaDisplay(raw).text,
+    production_rate_display: productionRateDisplay(raw).text,
+    field_size: raw.field_size,
+    field_size_unit: raw.field_size_unit,
     price_per_m2: pricePerM2,
     price,
     total_production: totalProduction,

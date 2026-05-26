@@ -33,8 +33,20 @@ import {
   deliveryMatchesShippingDestinations,
   normalizeShippingDestinations,
   shippingDestinationsSummary,
+  shortenLocationLabel,
 } from '../../utils/shippingDestinations';
-import { displayProductionRateUnit, productionKgForRentedM2 } from '../../utils/fieldProductionUnits';
+import FieldDeliveryCheckoutSummary from './FieldDeliveryCheckoutSummary';
+import {
+  productionRateDisplay,
+  productionAmountForField,
+  formatTotalProductionWithUnit,
+} from '../../utils/fieldProductionUnits';
+import {
+  getFieldTotalAreaM2,
+  areaDisplay,
+  priceAreaDisplay,
+  fieldUnitQuantityToM2,
+} from '../../utils/fieldAreaDisplay';
 import { fieldBlocksDeletion } from '../../utils/fieldEditRestrictions';
 
 const OWM_LAYERS = [
@@ -1179,12 +1191,9 @@ const EnhancedFarmMap = forwardRef(({
       const field = Array.isArray(farms) && fieldId != null
         ? farms.find(f => String(f.id) === String(fieldId))
         : null;
-      const rateRaw = field?.production_rate ?? field?.productionRate;
-      const rateUnit = field?.production_rate_unit ?? field?.productionRateUnit ?? '';
-      const fieldSizeUnit = field?.field_size_unit ?? field?.display_unit ?? field?.unit ?? 'sqm';
       let userKg = 0;
-      if (Number.isFinite(pa) && pa > 0) {
-        userKg = productionKgForRentedM2(rateRaw, rateUnit, fieldSizeUnit, pa);
+      if (Number.isFinite(pa) && pa > 0 && field) {
+        userKg = productionAmountForField(field, pa);
       }
       const hDateRaw = p.harvest_date || p.harvestDate || (p.harvest_dates && p.harvest_dates[0]?.date);
       const hTs = hDateRaw ? new Date(hDateRaw).getTime() : null;
@@ -1475,26 +1484,32 @@ const EnhancedFarmMap = forwardRef(({
     const occupied = typeof occCandidateRaw === 'string' ? parseFloat(occCandidateRaw) : occCandidateRaw;
     const purchasedAreaRaw = f.purchased_area ?? f.area_rented ?? f.rented_area;
     const purchasedArea = typeof purchasedAreaRaw === 'string' ? parseFloat(purchasedAreaRaw) : purchasedAreaRaw;
-    const areaCandidateRaw = f.total_area ?? f.field_size ?? f.area_m2 ?? f.field_size_area ?? f.area_size;
-    const totalArea = typeof areaCandidateRaw === 'string' ? parseFloat(areaCandidateRaw) : areaCandidateRaw;
-    const availCandidateRaw = f.available_area ?? f.available_m2 ?? f.area_available;
+    const totalAreaM2 = getFieldTotalAreaM2(f);
+    const availCandidateRaw = f.available_area_m2 ?? f.available_area ?? f.available_m2 ?? f.area_available;
     const availableArea = typeof availCandidateRaw === 'string' ? parseFloat(availCandidateRaw) : availCandidateRaw;
     const isPurchasedDerived = Boolean(
       f.isPurchased || f.is_purchased || f.purchased ||
       (typeof f.purchase_status === 'string' && f.purchase_status.toLowerCase() === 'purchased') ||
       (Number.isFinite(occupied) && occupied > 0) ||
       (Number.isFinite(purchasedArea) && purchasedArea > 0) ||
-      (Number.isFinite(totalArea) && Number.isFinite(availableArea) && totalArea > 0 && availableArea < totalArea)
+      (Number.isFinite(totalAreaM2) && Number.isFinite(availableArea) && totalAreaM2 > 0 && availableArea < totalAreaM2)
     );
+    const shippingDestRaw = f.shipping_destinations ?? f.shippingDestinations;
+    const deliveryChargesRaw = f.delivery_charges ?? f.deliveryCharges;
     return {
       ...f,
       name: f.name ?? f.farm_name ?? f.product_name ?? f.title ?? 'Unnamed Field',
       coordinates: coords ?? f.coordinates,
-      total_area: Number.isFinite(totalArea) ? totalArea : f.total_area,
-      field_size: Number.isFinite(totalArea) ? totalArea : f.field_size,
+      total_area_m2: Number.isFinite(totalAreaM2) && totalAreaM2 > 0 ? totalAreaM2 : f.total_area_m2,
+      area_m2: Number.isFinite(totalAreaM2) && totalAreaM2 > 0 ? totalAreaM2 : f.area_m2,
+      total_area: Number.isFinite(totalAreaM2) && totalAreaM2 > 0 ? totalAreaM2 : f.total_area,
+      field_size: f.field_size ?? f.fieldSize,
+      field_size_unit: f.field_size_unit ?? f.fieldSizeUnit ?? f.display_unit,
+      display_unit: f.display_unit ?? f.field_size_unit ?? f.fieldSizeUnit,
       occupied_area: Number.isFinite(occupied) ? occupied : f.occupied_area,
       purchased_area: Number.isFinite(purchasedArea) ? purchasedArea : f.purchased_area,
       available_area: Number.isFinite(availableArea) ? availableArea : f.available_area,
+      available_area_m2: Number.isFinite(availableArea) ? availableArea : f.available_area_m2,
       /** Prefer server aggregate on /api/fields/all when backend adds it (avoids N× /occupancy calls). */
       occupied_total_m2: f.occupied_total_m2 ?? f.occupiedTotalM2,
       owner_id: f.owner_id ?? f.ownerId,
@@ -1502,7 +1517,16 @@ const EnhancedFarmMap = forwardRef(({
       farmer_id: f.farmer_id ?? f.farmerId,
       is_own_field: f.is_own_field === true || f.is_own_field === 'true',
       isPurchased: isPurchasedDerived,
-      shipping_scope: f.shipping_scope ?? f.shippingScope ?? 'Global'
+      shipping_scope: f.shipping_scope ?? f.shippingScope ?? 'Global',
+      shipping_destinations: shippingDestRaw,
+      shippingDestinations: shippingDestRaw,
+      shipping_pickup: f.shipping_pickup ?? f.shippingPickup,
+      shipping_delivery: f.shipping_delivery ?? f.shippingDelivery,
+      delivery_charges: deliveryChargesRaw,
+      deliveryCharges: deliveryChargesRaw,
+      shipping_option: f.shipping_option ?? f.shippingOption,
+      production_rate_unit: f.production_rate_unit ?? f.productionRateUnit,
+      total_production_unit: f.total_production_unit ?? f.totalProductionUnit,
     };
   }, []);
 
@@ -2201,18 +2225,6 @@ const EnhancedFarmMap = forwardRef(({
   //   return (farm && !!farm.isPurchased) || purchasedFarms.has(productId) || purchasedProductIds.includes(productId);
   // }, [farms, purchasedFarms, purchasedProductIds]);
 
-  /** Denominator for occupied/total pie on markers (align with field records). */
-  const getFieldTotalAreaM2 = (prod) => {
-    if (!prod) return 0;
-    const n = (v) => (typeof v === 'string' ? parseFloat(v) : v);
-    const t = n(prod.total_area);
-    if (Number.isFinite(t) && t > 0) return t;
-    const fs = n(prod.field_size);
-    if (Number.isFinite(fs) && fs > 0) return fs;
-    const am = n(prod.area_m2);
-    if (Number.isFinite(am) && am > 0) return am;
-    return 0;
-  };
 
   const getFieldAvailableAreaM2 = (prod) => {
     if (!prod) return null;
@@ -2395,7 +2407,9 @@ const EnhancedFarmMap = forwardRef(({
       const progress = Math.max(0, Math.min(1, harvest));
       const daysLeft = getDaysUntilHarvest(f);
       const massLabel = Number.isFinite(f.total_kg) ? `${Number(f.total_kg).toFixed(0)} kg` : null;
-      const areaLabel = totalArea > 0 ? `${occArea.toFixed(0)} / ${totalArea.toFixed(0)} m²` : `${occArea.toFixed(0)} m²`;
+      const areaLabel = totalArea > 0
+        ? `${areaDisplay(f, occArea).text} / ${areaDisplay(f, totalArea).text}`
+        : areaDisplay(f, occArea).text;
       
       // Get field status
       const isOwnField = f.owner_id === currentUser?.id || f.is_own_field === true;
@@ -2793,13 +2807,15 @@ const EnhancedFarmMap = forwardRef(({
         setInsufficientFunds(false);
         return;
       }
-      if (quantity > availableArea) {
-        if (onNotification) onNotification(`Only ${availableArea}m² available. Reduce quantity to proceed.`, 'error');
+      const qtyM2 = fieldUnitQuantityToM2(product, quantity);
+      if (qtyM2 > availableArea) {
+        const availLabel = areaDisplay(product, availableArea).text;
+        if (onNotification) onNotification(`Only ${availLabel} available. Reduce quantity to proceed.`, 'error');
         setInsufficientFunds(false);
         return;
       }
 
-      const totalCostInDollars = (product.price_per_m2 || 0.55) * quantity;
+      const totalCostInDollars = (product.price_per_m2 || 0.55) * qtyM2;
       // Convert dollars to coins using the same exchange rate the UI displays.
       // (Avoid hardcoded multipliers so "need/have" stays consistent.)
       const totalCostInCoins = Math.ceil(totalCostInDollars * (Number.isFinite(coinsPerUnit) ? coinsPerUnit : 10));
@@ -2838,8 +2854,8 @@ const EnhancedFarmMap = forwardRef(({
           farmer_name: product.farmer_name || 'Farm Owner',
           farmer_id: product.farmer_id || product.created_by,
           location: product.location || 'Unknown Location',
-          area_rented: quantity,
-          area: quantity,
+          area_rented: qtyM2,
+          area: qtyM2,
           crop_type: product.category || 'Mixed Crops',
           total_cost: totalCostInDollars,
           cost: totalCostInDollars,
@@ -2872,7 +2888,7 @@ const EnhancedFarmMap = forwardRef(({
           const apiOrderData = {
             buyer_id: currentUser.id,
             field_id: product.id,
-            quantity: quantity,
+            quantity: qtyM2,
             total_price: totalCostInDollars,
             status: 'active',
             mode_of_shipping: selectedShipping || 'Delivery',
@@ -2907,7 +2923,7 @@ const EnhancedFarmMap = forwardRef(({
             if (farmerId) {
               const notificationData = {
                 user_id: farmerId,
-                message: `New order received! ${currentUser.name || 'A buyer'} purchased ${quantity}m² of your field "${product.name}" for $${totalCostInDollars.toFixed(2)}`,
+                message: `New order received! ${currentUser.name || 'A buyer'} purchased ${areaDisplay(product, qtyM2).text} of your field "${product.name}" for $${totalCostInDollars.toFixed(2)}`,
                 type: 'success'
               };
 
@@ -2921,7 +2937,7 @@ const EnhancedFarmMap = forwardRef(({
             // Success notification for buyer
             if (onNotification) {
               onNotification(
-                `Purchase successful! ${quantity}m² of ${product.name} purchased for ${totalCostInCoins} coins.`,
+                `Purchase successful! ${areaDisplay(product, qtyM2).text} of ${product.name} purchased for ${totalCostInCoins} coins.`,
                 'success'
               );
             }
@@ -2974,7 +2990,7 @@ const EnhancedFarmMap = forwardRef(({
         if (existing) {
           const updated = purchasedProducts.map(p => p.id === product.id ? {
             ...p,
-            purchased_area: (p.purchased_area || 0) + quantity,
+            purchased_area: (p.purchased_area || 0) + qtyM2,
             selected_harvest_date: selectedHarvestDate ? selectedHarvestDate.date : p.selected_harvest_date,
             selected_harvest_label: selectedHarvestDate ? selectedHarvestDate.label : p.selected_harvest_label,
             selected_harvests: (() => {
@@ -2996,7 +3012,7 @@ const EnhancedFarmMap = forwardRef(({
             name: product.name || product.product_name,
             category: product.subcategory || product.category,
             total_area: totalArea,
-            purchased_area: quantity,
+            purchased_area: qtyM2,
             production_rate: product.production_rate || 0,
             coordinates: product.coordinates,
             selected_harvest_date: selectedHarvestDate ? selectedHarvestDate.date : null,
@@ -3169,8 +3185,9 @@ const EnhancedFarmMap = forwardRef(({
       if (onNotification) onNotification('No area remaining to rent for this field.', 'error');
       return;
     }
-    if (quantity > availableArea) {
-      if (onNotification) onNotification(`Only ${availableArea}m² available. Reduce quantity to proceed.`, 'error');
+    const qtyM2Rent = fieldUnitQuantityToM2(product, quantity);
+    if (qtyM2Rent > availableArea) {
+      if (onNotification) onNotification(`Only ${areaDisplay(product, availableArea).text} available. Reduce quantity to proceed.`, 'error');
       return;
     }
     const rentPricePerMonth = parseFloat(product.rent_price_per_month) || 0;
@@ -3179,7 +3196,7 @@ const EnhancedFarmMap = forwardRef(({
       return;
     }
     const months = rentDuration === 'monthly' ? 1 : rentDuration === 'quarterly' ? 3 : 12;
-    const totalPrice = rentPricePerMonth * quantity * months;
+    const totalPrice = rentPricePerMonth * qtyM2Rent * months;
     const totalCostInCoins = Math.ceil(totalPrice * (Number.isFinite(coinsPerUnit) ? coinsPerUnit : 10));
     const startDate = new Date().toISOString().slice(0, 10);
     const end = new Date();
@@ -3202,7 +3219,7 @@ const EnhancedFarmMap = forwardRef(({
     setRentInProgress(true);
     try {
       await coinService.deductCoins(currentUser.id, totalCostInCoins, {
-        reason: `Rent: ${quantity}m² of ${product.name || 'field'} for ${months} month(s)`,
+        reason: `Rent: ${areaDisplay(product, qtyM2Rent).text} of ${product.name || 'field'} for ${months} month(s)`,
         refType: 'rent',
         refId: null,
       });
@@ -3211,10 +3228,10 @@ const EnhancedFarmMap = forwardRef(({
         start_date: startDate,
         end_date: endDate,
         price: totalPrice,
-        area_rented: quantity,
+        area_rented: qtyM2Rent,
       });
       if (onNotification) {
-        onNotification(`Rented ${quantity}m² of "${product.name || 'field'}" until ${endDate}.`, 'success');
+        onNotification(`Rented ${areaDisplay(product, qtyM2Rent).text} of "${product.name || 'field'}" until ${endDate}.`, 'success');
       }
 
       // Notify buyer that chat with the field owner is now unlocked for this rental
@@ -3885,11 +3902,14 @@ const EnhancedFarmMap = forwardRef(({
                   <div style={{ animation: 'cardSlideIn 0.3s ease-out' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '5px' : '6px', rowGap: 2, flexWrap: 'wrap' }}>
                       <div style={{ color: '#6c757d', fontWeight: 500, fontSize: isMobile ? '9px' : '11px' }}>
-                        Rented: {formatAreaInt(getOccupiedArea(selectedProduct))}m²
+                        Field size: {areaDisplay(selectedProduct).text}
                       </div>
                       <div style={{ fontWeight: 600, color: '#212529', fontSize: isMobile ? '9px' : '11px', marginLeft: 'auto' }}>
-                        Available: {formatAreaInt(getAvailableArea(selectedProduct))}m²
+                        Available: {areaDisplay(selectedProduct, getAvailableArea(selectedProduct)).text}
                       </div>
+                    </div>
+                    <div style={{ color: '#94a3b8', fontWeight: 500, fontSize: isMobile ? '8px' : '10px', marginBottom: isMobile ? '4px' : '5px' }}>
+                      Rented: {areaDisplay(selectedProduct, getOccupiedArea(selectedProduct)).text}
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isMobile ? '4px' : '5px' }}>
@@ -5708,10 +5728,12 @@ const EnhancedFarmMap = forwardRef(({
               {/* Occupancy + harvest (full width) */}
               {(() => {
                 const isOwnFieldPopup = isViewerOwnedFieldForGallery(currentUser, selectedProduct);
-                const totalRaw = fieldOccupancy?.total_area_m2 != null
+                const occTotalM2 = fieldOccupancy?.total_area_m2 != null
                   ? parseFloat(fieldOccupancy.total_area_m2)
-                  : parseFloat(selectedProduct.total_area || 0);
-                const total = Number.isFinite(totalRaw) ? totalRaw : 0;
+                  : NaN;
+                const total = Number.isFinite(occTotalM2) && occTotalM2 > 0
+                  ? occTotalM2
+                  : getFieldTotalAreaM2(selectedProduct);
                 let myM = fieldOccupancy != null ? parseFloat(fieldOccupancy.my_rented_m2) || 0 : null;
                 let otherM = fieldOccupancy != null ? parseFloat(fieldOccupancy.others_rented_m2) || 0 : null;
                 if (fieldOccupancy == null && total > 0) {
@@ -5769,8 +5791,8 @@ const EnhancedFarmMap = forwardRef(({
                       }}
                       >
                         {!isOwnFieldPopup
-                          ? `My rented · ${formatAreaInt(myM)} m²`
-                          : `Occupied · ${formatAreaInt(occTotal)} m²`}
+                          ? `My rented · ${areaDisplay(selectedProduct, myM).text}`
+                          : `Occupied · ${areaDisplay(selectedProduct, occTotal).text}`}
                       </div>
                       <div style={{
 
@@ -5784,9 +5806,11 @@ const EnhancedFarmMap = forwardRef(({
                         marginLeft: 'auto'
                       }}
                       >
-                        <span>Total {formatAreaInt(total)}m²</span>
+                        <span>Total {areaDisplay(selectedProduct).text}</span>
                         <span style={{ color: '#cbd5e1', fontWeight: 500, margin: '0 5px' }}>·</span>
-                        <span style={{ color: '#64748b', fontWeight: 600 }}>Available {formatAreaInt(availVal)}m²</span>
+                        <span style={{ color: '#64748b', fontWeight: 600 }}>
+                          Available {areaDisplay(selectedProduct, availVal).text}
+                        </span>
                       </div>
                     </div>
                     <div style={{
@@ -6179,23 +6203,34 @@ const EnhancedFarmMap = forwardRef(({
                               >
                                 +
                               </button>
-                              <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>m²</div>
+                              <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
+                                {areaDisplay(selectedProduct).unit}
+                              </div>
                             </div>
                           </div>
 
                           {/* Price Info – rent disabled, only buy */}
                           <div style={{ marginBottom: isMobile ? '6px' : '8px' }}>
                             <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d' }}>
-                              Price {(parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || parseFloat(selectedProduct.sellingPrice) || 0).toFixed(2)}$/m²
+                              Price {priceAreaDisplay(selectedProduct).text}
                             </div>
                             <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', fontWeight: 500 }}>
-                              Estimated Prod {selectedProduct.production_rate || selectedProduct.productionRate || 'N/A'}{' '}
-                              {displayProductionRateUnit(selectedProduct)}
+                              Rate {productionRateDisplay(selectedProduct).text}
                             </div>
+                            {quantity > 0 && (() => {
+                              const estM2 = fieldUnitQuantityToM2(selectedProduct, quantity);
+                              const estHarvest = productionAmountForField(selectedProduct, estM2);
+                              if (!(estHarvest > 0)) return null;
+                              return (
+                                <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#0f172a', fontWeight: 600, marginTop: 3 }}>
+                                  Est. harvest (your {quantity} {areaDisplay(selectedProduct).unit}):{' '}
+                                  {formatTotalProductionWithUnit(estHarvest, selectedProduct.total_production_unit)}
+                                </div>
+                              );
+                            })()}
                             {selectedProduct.last_harvest_production_rate != null && selectedProduct.last_harvest_production_rate !== '' ? (
                               <div style={{ fontSize: isMobile ? '9px' : '10px', color: '#94a3b8', marginTop: 2 }}>
-                                Last Harvest Prod {String(selectedProduct.last_harvest_production_rate)}{' '}
-                                {displayProductionRateUnit(selectedProduct)}
+                                Last harvest rate {productionRateDisplay(selectedProduct).text}
                               </div>
                             ) : null}
                           </div>
@@ -6212,166 +6247,159 @@ const EnhancedFarmMap = forwardRef(({
                                   if (selectedProduct.shipping_pickup) availableOptions.push('Pickup');
                                   if (selectedProduct.shipping_delivery) availableOptions.push('Delivery');
                                   const options = (availableOptions.length > 0 ? availableOptions : ['Delivery', 'Pickup']);
-                                  const deliveryAllowed = isDeliveryAllowed(selectedProduct);
-                                  return options.map((option) => {
-                                    const isDelivery = option === 'Delivery';
-                                    const disabled = isDelivery && !deliveryAllowed;
-                                    return (
+                                  return options.map((option) => (
                                       <div
                                         key={option}
                                         role="button"
                                         aria-pressed={selectedShipping === option}
-                                        aria-disabled={disabled}
-                                        tabIndex={disabled ? -1 : 0}
-                                        onKeyDown={(e) => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { setSelectedShipping(option); setShippingError(false); } }}
-                                        onClick={() => { if (disabled) return; setSelectedShipping(option); setShippingError(false); }}
-                                        onMouseEnter={(e) => { if (disabled) return; e.currentTarget.style.transform = selectedShipping === option ? 'scale(1.06)' : 'scale(1.03)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
-                                        onMouseLeave={(e) => { if (disabled) return; e.currentTarget.style.transform = selectedShipping === option ? 'scale(1.05)' : 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                                        tabIndex={0}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedShipping(option); setShippingError(false); } }}
+                                        onClick={() => { setSelectedShipping(option); setShippingError(false); }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.transform = selectedShipping === option ? 'scale(1.06)' : 'scale(1.03)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.transform = selectedShipping === option ? 'scale(1.05)' : 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
                                         style={{
                                           padding: '4px 8px',
-                                          backgroundColor: disabled ? '#f0f0f0' : (selectedShipping === option ? '#007bff' : '#f8f9fa'),
-                                          color: disabled ? '#9aa0a6' : (selectedShipping === option ? 'white' : '#6c757d'),
+                                          backgroundColor: selectedShipping === option ? '#007bff' : '#f8f9fa',
+                                          color: selectedShipping === option ? 'white' : '#6c757d',
                                           borderRadius: '4px',
                                           fontSize: '11px',
-                                          cursor: disabled ? 'not-allowed' : 'pointer',
-                                          border: disabled ? '1px solid #e9ecef' : (selectedShipping ? (selectedShipping === option ? 'none' : '1px solid #e9ecef') : (shippingError ? '2px solid #ef4444' : '1px solid #e9ecef')),
+                                          cursor: 'pointer',
+                                          border: selectedShipping ? (selectedShipping === option ? 'none' : '1px solid #e9ecef') : (shippingError ? '2px solid #ef4444' : '1px solid #e9ecef'),
                                           fontWeight: 500,
                                           transition: 'background-color 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease',
                                           transform: selectedShipping === option ? 'scale(1.05)' : 'scale(1)',
-                                          opacity: disabled ? 0.7 : 1
                                         }}
                                       >
                                         {option}
                                       </div>
-                                    );
-                                  });
+                                    ));
                                 })()}
                               </div>
 
-                              {!isDeliveryAllowed(selectedProduct) && (
+                              {selectedShipping === 'Pickup' && (
                                 <div style={{
-                                  width: '98%',
-                                  margin: isMobile ? '6px 0 6px 0' : '8px 0 8px 0',
-                                  color: '#ef4444',
-                                  fontWeight: 600,
-                                  fontSize: isMobile ? '9px' : '11px',
-                                  textAlign: 'left'
+                                  marginTop: isMobile ? 8 : 10,
+                                  fontSize: isMobile ? 10 : 11,
+                                  color: '#64748b',
+                                  lineHeight: 1.4,
                                 }}>
-                                  Delivery is unavailable at your location.
-                                  <div style={{ marginTop: isMobile ? '4px' : '6px', color: '#ef4444', fontWeight: 600, textAlign: 'left', fontSize: isMobile ? '9px' : '11px' }}>
-                                    {(() => {
-                                      const sum = shippingDestinationsSummary(
-                                        selectedProduct.shipping_destinations ?? selectedProduct.shippingDestinations
-                                      );
-                                      if (sum) return `Ships to: ${sum}`;
-                                      const scopeRaw = selectedProduct.shipping_scope || selectedProduct.shippingScope || 'Global';
-                                      const scope = String(scopeRaw || '').toLowerCase();
-                                      const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-                                      const p = extractCityCountry(locStr);
-                                      if (scope === 'city' && p.city) return `Delivery is only available in ${p.city}`;
-                                      if (scope === 'country' && p.country) return `Delivery is only available in ${p.country}`;
-                                      return '';
-                                    })()}
-                                  </div>
+                                  Collect from the farm when your harvest is ready.
                                 </div>
                               )}
 
-                              <div style={{ marginTop: isMobile ? '6px' : '8px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
-                                <FormControlLabel
-                                  control={
-                                    <Checkbox
-                                      checked={orderForSomeoneElse}
-                                      onChange={(e) => setOrderForSomeoneElse(e.target.checked)}
-                                      color="primary"
-                                      size={isMobile ? 'small' : 'medium'}
+                              {selectedShipping === 'Delivery' && (
+                                <>
+                                  <div style={{ marginTop: isMobile ? 8 : 10 }}>
+                                    <div style={{ fontSize: isMobile ? 10 : 12, color: '#6c757d', marginBottom: isMobile ? 4 : 6, fontWeight: 500 }}>
+                                      Delivery address
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: isMobile ? 6 : 8 }}>
+                                      <div
+                                        role="button"
+                                        aria-pressed={deliveryMode === 'existing'}
+                                        onClick={() => {
+                                          setDeliveryMode('existing');
+                                          setShowAddressOverlay(false);
+                                          void fetchSavedDeliveryAddress();
+                                        }}
+                                        style={{
+                                          padding: '4px 8px',
+                                          backgroundColor: deliveryMode === 'existing' ? '#ff9800' : '#f8f9fa',
+                                          color: deliveryMode === 'existing' ? '#fff' : '#6c757d',
+                                          borderRadius: 4,
+                                          border: deliveryMode === 'existing' ? 'none' : '1px solid #e9ecef',
+                                          fontWeight: 500,
+                                          fontSize: 11,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        Saved
+                                      </div>
+                                      <div
+                                        role="button"
+                                        aria-pressed={deliveryMode === 'new'}
+                                        onClick={() => { setDeliveryMode('new'); setShowAddressOverlay(true); }}
+                                        style={{
+                                          padding: '4px 8px',
+                                          backgroundColor: deliveryMode === 'new' ? '#ff9800' : '#f8f9fa',
+                                          color: deliveryMode === 'new' ? '#fff' : '#6c757d',
+                                          borderRadius: 4,
+                                          border: deliveryMode === 'new' ? 'none' : '1px solid #e9ecef',
+                                          fontWeight: 500,
+                                          fontSize: 11,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        New address
+                                      </div>
+                                    </div>
+
+                                    {deliveryMode === 'existing' && (
+                                      <div style={{
+                                        backgroundColor: '#fffbeb',
+                                        border: '1px solid #fcd34d',
+                                        borderRadius: 8,
+                                        padding: isMobile ? 8 : 10,
+                                        fontSize: isMobile ? 10 : 11,
+                                        color: '#78350f',
+                                        fontWeight: 500,
+                                        lineHeight: 1.4,
+                                      }}>
+                                        {existingDeliveryAddress || 'No saved address — add a new one.'}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div style={{ marginTop: isMobile ? 6 : 8 }}>
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          checked={orderForSomeoneElse}
+                                          onChange={(e) => setOrderForSomeoneElse(e.target.checked)}
+                                          color="primary"
+                                          size={isMobile ? 'small' : 'medium'}
+                                          sx={{
+                                            '& .MuiSvgIcon-root': { fontSize: isMobile ? 16 : 18 },
+                                            '&.MuiCheckbox-root': { padding: isMobile ? '2px' : '4px' },
+                                          }}
+                                        />
+                                      }
+                                      label="Order for someone else"
                                       sx={{
-                                        '& .MuiSvgIcon-root': { fontSize: isMobile ? 16 : 18 },
-                                        '&.MuiCheckbox-root': { padding: isMobile ? '2px' : '4px' }
+                                        marginLeft: 0,
+                                        '.MuiFormControlLabel-label': {
+                                          fontSize: isMobile ? 10 : 11,
+                                          fontWeight: 500,
+                                          color: '#64748b',
+                                        },
                                       }}
                                     />
-                                  }
-                                  label="Order for someone else"
-                                  sx={{
-                                    marginLeft: 0,
-                                    '.MuiFormControlLabel-label': { fontSize: isMobile ? '10px' : '12px', fontWeight: 600, color: '#4a5568' }
-                                  }}
-                                />
-                              </div>
-
-
-
-                              {selectedShipping === 'Delivery' && (
-                                <div style={{ marginTop: isMobile ? '8px' : '10px' }}>
-                                  <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#6c757d', marginBottom: isMobile ? '4px' : '6px', fontWeight: 500 }}>
-                                    Delivery Address:
-                                  </div>
-                                  <div style={{ display: 'flex', gap: '6px', marginBottom: isMobile ? '6px' : '8px' }}>
-                                    <div
-                                      role="button"
-                                      aria-pressed={deliveryMode === 'existing'}
-                                      onClick={() => {
-                                        setDeliveryMode('existing');
-                                        setShowAddressOverlay(false);
-                                        void fetchSavedDeliveryAddress();
-                                      }}
-                                      style={{
-                                        padding: '4px 8px',
-                                        backgroundColor: deliveryMode === 'existing' ? '#ff9800' : '#f8f9fa',
-                                        color: deliveryMode === 'existing' ? '#fff' : '#6c757d',
-                                        borderRadius: '4px',
-                                        border: deliveryMode === 'existing' ? 'none' : '1px solid #e9ecef',
-                                        fontWeight: 500,
-                                        fontSize: '11px',
-                                        cursor: 'pointer',
-                                        transition: 'transform 150ms ease, box-shadow 150ms ease',
-                                        transform: deliveryMode === 'existing' ? 'scale(1.05)' : 'scale(1)'
-                                      }}
-                                    >
-                                      Use saved address
-                                    </div>
-                                    <div
-                                      role="button"
-                                      aria-pressed={deliveryMode === 'new'}
-                                      onClick={() => { setDeliveryMode('new'); setShowAddressOverlay(true); }}
-                                      style={{
-                                        padding: '4px 8px',
-                                        backgroundColor: deliveryMode === 'new' ? '#ff9800' : '#f8f9fa',
-                                        color: deliveryMode === 'new' ? '#fff' : '#6c757d',
-                                        borderRadius: '4px',
-                                        border: deliveryMode === 'new' ? 'none' : '1px solid #e9ecef',
-                                        fontWeight: 500,
-                                        fontSize: '11px',
-                                        cursor: 'pointer',
-                                        transition: 'transform 150ms ease, box-shadow 150ms ease',
-                                        transform: deliveryMode === 'new' ? 'scale(1.05)' : 'scale(1)'
-                                      }}
-                                    >
-                                      Add new address
-                                    </div>
                                   </div>
 
-                                  {deliveryMode === 'existing' ? (
-                                    <div style={{
-                                      backgroundColor: '#fff8e1',
-                                      border: '1px solid #ff9800',
-                                      borderRadius: isMobile ? '6px' : '8px',
-                                      padding: isMobile ? '8px' : '10px',
-                                      fontSize: isMobile ? '10px' : '12px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '8px'
-                                    }}>
-                                      {existingDeliveryAddress ? (
-                                        <div style={{ color: '#7a5a00', fontWeight: 600 }}>{existingDeliveryAddress}</div>
-                                      ) : (
-                                        <>
-                                          <span style={{ fontSize: isMobile ? '12px' : '14px' }}>⚠️</span>
-                                          <div style={{ color: '#7a5a00', fontWeight: 600 }}>No saved address. Please add a new address.</div>
-                                        </>
-                                      )}
-                                    </div>
-                                  ) : null}
-                                </div>
+                                  <FieldDeliveryCheckoutSummary
+                                    destinations={selectedProduct.shipping_destinations ?? selectedProduct.shippingDestinations}
+                                    deliveryCharges={selectedProduct.delivery_charges ?? selectedProduct.deliveryCharges}
+                                    shippingScope={selectedProduct.shipping_scope || selectedProduct.shippingScope}
+                                    allowed={isDeliveryAllowed(selectedProduct)}
+                                    orderForSomeoneElse={orderForSomeoneElse}
+                                    buyerLocationLabel={(() => {
+                                      if (deliveryMode === 'existing' && existingDeliveryAddress) {
+                                        return shortenLocationLabel(existingDeliveryAddress);
+                                      }
+                                      if (deliveryMode === 'new' && newDeliveryAddress?.country) {
+                                        const parts = [
+                                          newDeliveryAddress.city,
+                                          newDeliveryAddress.country,
+                                        ].filter(Boolean);
+                                        return parts.join(', ');
+                                      }
+                                      return shortenLocationLabel(
+                                        userLocationName || currentUser?.location || user?.location || ''
+                                      );
+                                    })()}
+                                    isMobile={isMobile}
+                                  />
+                                </>
                               )}
 
                             </div>
@@ -6441,7 +6469,8 @@ const EnhancedFarmMap = forwardRef(({
 
                           {/* Total Price – rent disabled, buy only */}
                           {(() => {
-                            const totalCostInDollars = (parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || 0) * quantity;
+                            const totalCostInDollars = (parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || 0)
+                              * fieldUnitQuantityToM2(selectedProduct, quantity);
                             const totalCostInCoins = Math.ceil(totalCostInDollars * coinsPerUnit);
                             return (
                               <>
@@ -6481,9 +6510,10 @@ const EnhancedFarmMap = forwardRef(({
                             const isRent = purchaseMode === 'rent';
                             const rentPricePerMonth = parseFloat(selectedProduct.rent_price_per_month) || 0;
                             const months = rentDuration === 'monthly' ? 1 : rentDuration === 'quarterly' ? 3 : 12;
+                            const qtyM2Ui = fieldUnitQuantityToM2(selectedProduct, quantity);
                             const totalCostInDollars = isRent && rentPricePerMonth > 0
-                              ? rentPricePerMonth * quantity * months
-                              : ((parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || 0) * quantity);
+                              ? rentPricePerMonth * qtyM2Ui * months
+                              : ((parseFloat(selectedProduct.price_per_m2) || parseFloat(selectedProduct.price) || 0) * qtyM2Ui);
                             const totalCostInCoins = Math.ceil(totalCostInDollars * coinsPerUnit);
                             const shortfall = totalCostInCoins - userCoins;
                             return (

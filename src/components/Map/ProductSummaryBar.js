@@ -2,6 +2,8 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import { getProductIcon, productCategories } from '../../utils/productIcons';
 import { getHarvestProgressInfo, getHarvestDaysLeftLabel, hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
+import { productionAmountForField } from '../../utils/fieldProductionUnits';
+import { areaDisplay } from '../../utils/fieldAreaDisplay';
 
 const ProductSummaryBar = ({
   purchasedProducts,
@@ -47,8 +49,9 @@ const ProductSummaryBar = ({
       const prev = map.get(k);
       const harvestInfo = getHarvestProgressInfo(harvestSource);
       const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
-      const productionRate = typeof p.production_rate === 'string' ? parseFloat(p.production_rate) : (p.production_rate || 0);
-      const totalKg = purchasedArea * productionRate;
+      const totalKg = fieldRow
+        ? productionAmountForField({ ...fieldRow, ...p }, purchasedArea)
+        : productionAmountForField(p, purchasedArea);
       
       const base = {
         id: k,
@@ -62,11 +65,13 @@ const ProductSummaryBar = ({
         progress_percent: 0
       };
       const merged = prev || base;
+      if (!merged.area_source) merged.area_source = harvestSource;
       const kgAdd =
         typeof p.total_kg === 'number' && Number.isFinite(p.total_kg) && p.total_kg > 0
           ? p.total_kg
           : totalKg;
       merged.purchased_area = (merged.purchased_area || 0) + purchasedArea;
+      merged.area_display = areaDisplay(merged.area_source, merged.purchased_area).text;
       merged.total_kg = (merged.total_kg || 0) + kgAdd;
       merged.delta_kg = (merged.delta_kg || 0) + (p.delta_kg || 0);
       merged.has_actual_harvest = merged.has_actual_harvest || Boolean(p.has_actual_harvest);
@@ -90,9 +95,13 @@ const ProductSummaryBar = ({
           icon
         });
       } else {
+        const purchased_area = (prev.purchased_area || 0) + (prod.purchased_area || 0);
+        const area_source = prev.area_source || prod.area_source;
         byIcon.set(icon, {
           ...prev,
-          purchased_area: (prev.purchased_area || 0) + (prod.purchased_area || 0),
+          purchased_area,
+          area_source,
+          area_display: areaDisplay(area_source, purchased_area).text,
           total_kg: (prev.total_kg || 0) + (prod.total_kg || 0),
           delta_kg: (prev.delta_kg || 0) + (prod.delta_kg || 0),
           has_actual_harvest: prev.has_actual_harvest || prod.has_actual_harvest,
@@ -243,7 +252,7 @@ const ProductSummaryBar = ({
                 textAlign: 'center',
                 marginBottom: '2px'
               }}>
-                {Math.round(purchasedArea)}m²
+                {product.area_display}
               </div>
               {daysLeft !== null && (
                 <div style={{

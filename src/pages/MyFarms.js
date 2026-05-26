@@ -57,7 +57,8 @@ import StatCard from '../components/Common/StatCard';
 import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { userDocumentsService } from '../services/userDocuments';
-import { formatTotalProductionWithUnit } from '../utils/fieldProductionUnits';
+import { formatTotalProductionWithUnit, productionRateDisplay } from '../utils/fieldProductionUnits';
+import { areaDisplay, priceAreaDisplay, getFieldTotalAreaM2 } from '../utils/fieldAreaDisplay';
 import {
   buildFieldIdToFarmIdMap,
   farmAllowsDelete,
@@ -362,7 +363,7 @@ const MyFarms = () => {
           // Transform fields data to match the expected format for display
           transformedFields = farmerFields.map(field => {
             const orderOccM2 = occupiedByFieldId.get(String(field.id));
-            const totalAreaM2 = parseFloat(field.total_area_m2 || field.area_m2 || field.field_size || 0);
+            const totalAreaM2 = getFieldTotalAreaM2(field);
             const availableFromFieldM2 = parseFloat(field.available_area_m2 || field.available_area || 0);
             const occupiedFromFieldM2 = Math.max(0, totalAreaM2 - availableFromFieldM2);
 
@@ -390,7 +391,14 @@ const MyFarms = () => {
               totalAreaM2,
               availableAreaM2,
               occupiedM2,
-              area: `${Math.round(occupiedM2).toLocaleString()} m²`,
+              area: areaDisplay(field, occupiedM2).text,
+              display_unit: field.display_unit || field.field_size_unit,
+              field_size: field.field_size,
+              field_size_unit: field.field_size_unit,
+              total_area_display: areaDisplay(field, totalAreaM2).text,
+              available_area_display: areaDisplay(field, availableAreaM2).text,
+              price_per_unit_display: priceAreaDisplay(field).text,
+              production_rate_display: productionRateDisplay(field).text,
               soilType: field.soil_type,
               irrigationType: field.irrigation_type,
               totalProduction,
@@ -404,6 +412,7 @@ const MyFarms = () => {
               price: field.price,
               price_per_m2: field.price_per_m2,
               production_rate: field.production_rate,
+              production_rate_unit: field.production_rate_unit,
               operational_status: field.operational_status || 'growing',
               isFarmerCreated: true
             };
@@ -1246,7 +1255,7 @@ const MyFarms = () => {
                             <div className="mb-2 grid grid-cols-2 gap-2">
                               <div className="rounded-lg bg-slate-50 p-1.5 text-center">
                                 <div className="text-[0.6rem] text-slate-500">Area</div>
-                                <div className="text-xs font-semibold text-slate-700">{Math.round(field.totalAreaM2 || 0).toLocaleString()} m²</div>
+                                <div className="text-xs font-semibold text-slate-700">{field.total_area_display || areaDisplay(field, field.totalAreaM2).text}</div>
                               </div>
                               <div className="rounded-lg bg-amber-50 p-1.5 text-center">
                                 <div className="text-[0.6rem] text-slate-500">Production</div>
@@ -1294,7 +1303,7 @@ const MyFarms = () => {
                             <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-2">
                               <div className="text-[0.65rem] text-slate-500">
                                 {field.price_per_m2 > 0 ? (
-                                  <span>{formatCurrency(field.price_per_m2)}/m²</span>
+                                  <span>{field.price_per_unit_display || priceAreaDisplay(field).text}</span>
                                 ) : field.price > 0 ? (
                                   <span>{formatCurrency(field.price)}</span>
                                 ) : (

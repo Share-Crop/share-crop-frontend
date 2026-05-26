@@ -1,4 +1,4 @@
-import { toM2 } from './rentedFieldModels';
+import { toM2, normalizeAreaUnit } from './rentedFieldModels';
 
 /** Canonical DB values for fields.total_production_unit */
 export const TOTAL_PRODUCTION_UNITS = ['kg', 'L', 'lbs', 'units'];
@@ -53,16 +53,40 @@ export function pricePerM2FromFieldAreaPrice(pricePerFieldUnit, fieldAreaUnitRaw
   return price / m2PerUnit;
 }
 
-/** Estimated harvest (kg) for rented m² when production rate uses field area unit. */
+/** True when rate is per m² and the field actually uses m² (not sq.ft / acre / ha). */
+export function isProductionRatePerM2(productionRateUnit, fieldAreaUnitRaw) {
+  const unit = String(productionRateUnit || '').toLowerCase();
+  if (!/\/\s*m\s*²|\/\s*m2\b|\/sqm\b/.test(unit)) return false;
+  return normalizeAreaUnit(fieldAreaUnitRaw) === 'm2';
+}
+
+/**
+ * Estimated harvest for a rented/purchased area.
+ * - Rate per m² (kg/m²): harvest = areaM2 × rate
+ * - Rate per field unit (kg/sq. ft, kg/acre, …): harvest = areaM2 × (rate / m² per 1 field unit)
+ *
+ * Example: 5 kg/sq. ft, 200 sq. ft field → 1000 kg; buyer rents 18.58 m² (=200 sq.ft) → 1000 kg.
+ */
 export function productionKgForRentedM2(productionRate, productionRateUnit, fieldSizeUnit, rentedAreaM2) {
   const rate = typeof productionRate === 'string' ? parseFloat(productionRate) : (productionRate ?? 0);
   const area = typeof rentedAreaM2 === 'string' ? parseFloat(rentedAreaM2) : (rentedAreaM2 ?? 0);
   if (!Number.isFinite(rate) || rate < 0 || !Number.isFinite(area) || area <= 0) return 0;
-  const unit = String(productionRateUnit || '').toLowerCase();
-  if (/m\s*²|\/m²|\/m2|\/sqm\b|kg\/m/.test(unit)) return area * rate;
+  if (isProductionRatePerM2(productionRateUnit, fieldSizeUnit)) {
+    return area * rate;
+  }
   const m2PerFieldUnit = toM2(1, fieldSizeUnit);
   if (m2PerFieldUnit > 0) return area * (rate / m2PerFieldUnit);
   return 0;
+}
+
+/** Harvest for a field record; area must be in m² (order/API). Uses correct unit conversion. */
+export function productionAmountForField(field, rentedAreaM2) {
+  if (!field) return 0;
+  const rate = parseFloat(field.production_rate ?? field.productionRate);
+  if (!Number.isFinite(rate)) return 0;
+  const rateUnit = displayProductionRateUnit(field);
+  const fieldAreaUnit = resolveFieldAreaUnitRaw(field);
+  return productionKgForRentedM2(rate, rateUnit, fieldAreaUnit, rentedAreaM2);
 }
 
 export function usdPerProductionUnitSuffix(raw) {
@@ -76,12 +100,54 @@ export function formatTotalProductionWithUnit(value, unitRaw) {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${label}`;
 }
 
-/** Prefer explicit total unit; else parse legacy production_rate_unit like "kg/m²". */
+/** Field area unit for production labels (display_unit wins over legacy m² defaults). */
+export function resolveFieldAreaUnitRaw(field) {
+  const rateUnit = String(field?.production_rate_unit || field?.productionRateUnit || '');
+  if (/sq\.?\s*ft|ft²|\/ft2|square\s*feet/i.test(rateUnit)) return 'sqft';
+  if (/\/acre|acres/i.test(rateUnit)) return 'acre';
+  if (/\/ha\b|hectare/i.test(rateUnit)) return 'ha';
+  return field?.display_unit
+    || field?.field_size_unit
+    || field?.fieldSizeUnit
+    || field?.unit
+    || 'sqm';
+}
+
+/**
+ * Per-area production suffix for UI (e.g. kg/sq. ft).
+ * Uses production_rate_unit when it matches the field area; otherwise builds from
+ * total_production_unit + field area unit (fixes stale kg/m² in DB for sq.ft fields).
+ */
 export function displayProductionRateUnit(field) {
-  if (field?.total_production_unit != null && String(field.total_production_unit).trim() !== '') {
-    return perAreaUnitSuffix(field.total_production_unit);
+  const areaUnit = resolveFieldAreaUnitRaw(field);
+  const areaLabel = fieldAreaUnitLabel(areaUnit);
+  const prodUnit = field?.total_production_unit ?? 'kg';
+  const built = () => perAreaUnitSuffixWithFieldArea(prodUnit, areaUnit);
+
+  const pru = String(field?.production_rate_unit || field?.productionRateUnit || '').trim();
+  if (!pru) return built();
+  if (!pru.includes('/')) return built();
+
+  const pruLower = pru.toLowerCase();
+  const rateUsesM2 = /\/\s*m\s*²|\/\s*m2\b|\/sqm\b/.test(pruLower);
+  const fieldIsM2 = areaUnit === 'm2' || areaLabel === 'm²';
+  if (rateUsesM2 && !fieldIsM2) return built();
+  if (!rateUsesM2 && fieldIsM2 && /sq\.?\s*ft|ft²|\/ft2/.test(pruLower)) return built();
+
+  return pru;
+}
+
+/** Production rate for UI — value + unit + combined text. */
+export function productionRateDisplay(field) {
+  const raw = field?.production_rate ?? field?.productionRate;
+  const value = typeof raw === 'string' ? parseFloat(raw) : raw;
+  const unit = displayProductionRateUnit(field);
+  if (raw == null || raw === '' || !Number.isFinite(value)) {
+    return { value: null, unit, text: 'N/A' };
   }
-  const pru = field?.production_rate_unit || field?.productionRateUnit;
-  if (pru && String(pru).trim()) return String(pru).trim();
-  return 'kg/m²';
+  return {
+    value,
+    unit,
+    text: `${value} ${unit}`,
+  };
 }

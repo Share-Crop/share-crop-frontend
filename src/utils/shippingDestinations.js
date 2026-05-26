@@ -211,3 +211,52 @@ export function shippingDestinationsSummary(destinations) {
   });
   return parts.filter(Boolean).join(', ');
 }
+
+/** Structured list for compact UI (chips, collapsible coverage). */
+export function summarizeShippingDestinations(destinations) {
+  const d = normalizeShippingDestinations(destinations);
+  const countries = [];
+  const cities = [];
+  for (const x of d) {
+    if (x.type === 'country') {
+      const name = ISO2_NAME_BY_CODE.get(x.countryCode) || x.countryCode;
+      if (name) countries.push(name);
+    } else if (x.type === 'city') {
+      let label = x.label;
+      if (!label) {
+        const countryName = ISO2_NAME_BY_CODE.get(x.countryCode) || x.countryCode;
+        label = x.region ? `${x.city}, ${x.region}` : `${x.city}, ${countryName}`;
+      }
+      if (label) cities.push(label);
+    }
+  }
+  return {
+    countries,
+    cities,
+    countryCount: countries.length,
+    cityCount: cities.length,
+    total: countries.length + cities.length,
+  };
+}
+
+export function shippingCoverageShortLabel(destinations, shippingScope) {
+  const { countryCount, cityCount, total } = summarizeShippingDestinations(destinations);
+  if (total === 0) {
+    const scope = String(shippingScope || 'Global').toLowerCase();
+    if (scope === 'global') return 'Worldwide';
+    return String(shippingScope || '');
+  }
+  const bits = [];
+  if (countryCount) bits.push(`${countryCount} ${countryCount === 1 ? 'country' : 'countries'}`);
+  if (cityCount) bits.push(`${cityCount} ${cityCount === 1 ? 'city' : 'cities'}`);
+  return bits.join(' · ');
+}
+
+/** Last meaningful segment(s) of a comma-separated address for display. */
+export function shortenLocationLabel(locationStr, maxParts = 2) {
+  if (!locationStr || typeof locationStr !== 'string') return '';
+  const parts = locationStr.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return locationStr.trim();
+  if (parts.length <= maxParts) return parts.join(', ');
+  return parts.slice(-maxParts).join(', ');
+}
