@@ -36,6 +36,9 @@ import {
   shortenLocationLabel,
 } from '../../utils/shippingDestinations';
 import FieldDeliveryCheckoutSummary from './FieldDeliveryCheckoutSummary';
+import DeliveryAddressDialog from '../Forms/DeliveryAddressDialog';
+import { findUsStateByName } from '../../data/usStates';
+import { deliveryLocationStringFromFeature } from '../../utils/mapboxPlaces';
 import {
   productionRateDisplay,
   productionAmountForField,
@@ -191,19 +194,16 @@ const EnhancedFarmMap = forwardRef(({
     line2: '',
     city: '',
     state: '',
+    stateCode: '',
     zip: '',
-    country: ''
+    country: '',
+    countryCode: '',
   });
   const [orderForSomeoneElse, setOrderForSomeoneElse] = useState(false);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [addressError, setAddressError] = useState('');
   const [showAddressOverlay, setShowAddressOverlay] = useState(false);
   const [savingDeliveryAddress, setSavingDeliveryAddress] = useState(false);
-  const [addressSuggestions, setAddressSuggestions] = useState([]);
-  const addressSearchTimeoutRef = useRef(null);
-  const addressOverlayContentRef = useRef(null);
-  const addressLine1Ref = useRef(null);
-  const [addressSuggestionsPos, setAddressSuggestionsPos] = useState(null);
   const [userPosition, setUserPosition] = useState(null);
   const [userLocationName, setUserLocationName] = useState('');
 
@@ -814,15 +814,19 @@ const EnhancedFarmMap = forwardRef(({
       const data = res?.data;
       if (data && typeof data === 'object') {
         setExistingDeliveryAddress(String(data.summary || '').trim());
+        const st = data.state != null ? String(data.state) : '';
+        const us = findUsStateByName(st);
         setNewDeliveryAddress((prev) => ({
           name: data.name != null ? String(data.name) : (prev.name || ''),
           phone: data.phone != null ? String(data.phone) : (prev.phone || ''),
           line1: data.line1 != null ? String(data.line1) : '',
           line2: data.line2 != null ? String(data.line2) : '',
           city: data.city != null ? String(data.city) : '',
-          state: data.state != null ? String(data.state) : '',
+          state: st,
+          stateCode: us?.code || (data.stateCode != null ? String(data.stateCode) : ''),
           zip: data.zip != null ? String(data.zip) : '',
           country: data.country != null ? String(data.country) : '',
+          countryCode: data.countryCode != null ? String(data.countryCode) : prev.countryCode || '',
         }));
       } else {
         setExistingDeliveryAddress('');
@@ -1263,157 +1267,109 @@ const EnhancedFarmMap = forwardRef(({
   //   return Array.from(map.values());
   // }, []);
 
-  const fetchAddressSuggestions = useCallback(async (query) => {
-    const q = (query || '').trim();
-    if (!q) { setAddressSuggestions([]); return; }
-    // setAddressSearchLoading(true);
+  const filterDeliveryAddressFeatures = useCallback(
+    (features) => {
+      if (!Array.isArray(features) || !selectedProduct) return features || [];
+      const destList = normalizeShippingDestinations(
+        selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations
+      );
+      if (destList.length > 0) {
+        return features.filter((f) => {
+          const locStr = deliveryLocationStringFromFeature(f);
+          return deliveryMatchesShippingDestinations(destList, locStr, false) === true;
+        });
+      }
+      const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
+      const scope = String(scopeRaw || '').toLowerCase();
+      if (scope === 'global') return features;
+      const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+      const p = extractCityCountry(locStr);
+      if (scope === 'city' && p.city) {
+        const cityLower = p.city.toLowerCase();
+        return features.filter((f) => {
+          const place = (f.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('place'));
+          return (place?.text || '').toLowerCase() === cityLower;
+        });
+      }
+      if (scope === 'country' && p.country) {
+        const countryLower = p.country.toLowerCase();
+        return features.filter((f) => {
+          const country = (f.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('country'));
+          return (country?.text || '').toLowerCase() === countryLower;
+        });
+      }
+      return features;
+    },
+    [selectedProduct, productLocations, extractCityCountry]
+  );
+
+  const handleSaveDeliveryAddress = useCallback(async () => {
+    const syntheticLoc = `${newDeliveryAddress.city || ''}, ${newDeliveryAddress.country || ''}`.trim();
+    const destRaw = selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations;
+    const explicit = deliveryMatchesShippingDestinations(destRaw, syntheticLoc, false);
+    let valid = true;
+    if (explicit !== null) {
+      valid = explicit;
+    } else {
+      const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
+      const scope = String(scopeRaw || '').toLowerCase();
+      if (scope !== 'global' && selectedProduct) {
+        const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
+        const p = extractCityCountry(locStr);
+        if (scope === 'city') {
+          const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
+          valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
+        } else if (scope === 'country') {
+          const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
+          valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+        }
+      }
+    }
+    if (!valid) {
+      setAddressError('Address is outside the delivery region.');
+      return;
+    }
+    if (!currentUser?.id) {
+      setAddressError('Please log in to save your delivery address.');
+      return;
+    }
+    const summary = `${newDeliveryAddress.name}, ${newDeliveryAddress.line1}${newDeliveryAddress.line2 ? ` ${newDeliveryAddress.line2}` : ''}, ${newDeliveryAddress.city}, ${newDeliveryAddress.state ? `${newDeliveryAddress.state}, ` : ''}${newDeliveryAddress.zip}, ${newDeliveryAddress.country}`;
+    setSavingDeliveryAddress(true);
     try {
-      if (process.env.REACT_APP_MAPBOX_ACCESS_TOKEN) {
-        const resp = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${process.env.REACT_APP_MAPBOX_ACCESS_TOKEN}`);
-        const data = await resp.json();
-        let results = Array.isArray(data?.features) ? data.features.map(f => ({
-          name: f.text,
-          formatted_address: f.place_name,
-          context: f.context || [],
-        })) : [];
-        const destList = normalizeShippingDestinations(
-          selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations
-        );
-        const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
-        const scope = String(scopeRaw || '').toLowerCase();
-        if (orderForSomeoneElse && selectedProduct) {
-          if (destList.length > 0) {
-            results = results.filter((r) =>
-              deliveryMatchesShippingDestinations(destList, r.formatted_address || '', false)
-            );
-          } else if (scope !== 'global') {
-            const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-            const p = extractCityCountry(locStr);
-            if (scope === 'city' && p.city) {
-              const cityLower = p.city.toLowerCase();
-              results = results.filter((r) => {
-                const place = (r.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('place'));
-                const txt = (place?.text || '').toLowerCase();
-                return txt === cityLower;
-              });
-            } else if (scope === 'country' && p.country) {
-              const countryLower = p.country.toLowerCase();
-              results = results.filter((r) => {
-                const country = (r.context || []).find((c) => typeof c.id === 'string' && c.id.startsWith('country'));
-                const txt = (country?.text || '').toLowerCase();
-                return txt === countryLower;
-              });
-            }
-          }
-        }
-        setAddressSuggestions(results);
-      } else {
-        const resp = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=5`, { headers: { 'User-Agent': 'ShareCrop-Frontend/1.0' } });
-        const data = await resp.json();
-        let results = Array.isArray(data) ? data.map(it => ({
-          name: it.display_name?.split(',')[0] || it.display_name || q,
-          formatted_address: it.display_name || q,
-          address: it.address || {},
-        })) : [];
-        const destList = normalizeShippingDestinations(
-          selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations
-        );
-        const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
-        const scope = String(scopeRaw || '').toLowerCase();
-        if (orderForSomeoneElse && selectedProduct) {
-          if (destList.length > 0) {
-            results = results.filter((r) =>
-              deliveryMatchesShippingDestinations(destList, r.formatted_address || '', false)
-            );
-          } else if (scope !== 'global') {
-            const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-            const p = extractCityCountry(locStr);
-            if (scope === 'city' && p.city) {
-              const cityLower = p.city.toLowerCase();
-              results = results.filter((r) => {
-                const adr = r.address || {};
-                const txt = (adr.city || adr.town || adr.village || '').toLowerCase();
-                return txt === cityLower;
-              });
-            } else if (scope === 'country' && p.country) {
-              const countryLower = p.country.toLowerCase();
-              results = results.filter((r) => {
-                const adr = r.address || {};
-                const txt = (adr.country || '').toLowerCase();
-                return txt === countryLower;
-              });
-            }
-          }
-        }
-        setAddressSuggestions(results);
-      }
-    } catch (e) {
-      setAddressSuggestions([]);
+      await api.put('/api/users/me/delivery-address', {
+        name: newDeliveryAddress.name,
+        phone: newDeliveryAddress.phone,
+        line1: newDeliveryAddress.line1,
+        line2: newDeliveryAddress.line2,
+        city: newDeliveryAddress.city,
+        state: newDeliveryAddress.state,
+        stateCode: newDeliveryAddress.stateCode || '',
+        zip: newDeliveryAddress.zip,
+        country: newDeliveryAddress.country,
+        countryCode: newDeliveryAddress.countryCode || '',
+        summary,
+      });
+      setExistingDeliveryAddress(summary);
+      setDeliveryMode('existing');
+      setShowAddressOverlay(false);
+      setAddressError('');
+      if (onNotification) onNotification('Delivery address saved.', 'success');
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Could not save address';
+      setAddressError(msg);
+      if (onNotification) onNotification(msg, 'error');
     } finally {
-      // setAddressSearchLoading(false);
+      setSavingDeliveryAddress(false);
     }
-  }, [orderForSomeoneElse, selectedProduct, productLocations, extractCityCountry]);
+  }, [
+    newDeliveryAddress,
+    selectedProduct,
+    productLocations,
+    extractCityCountry,
+    currentUser?.id,
+    onNotification,
+  ]);
 
-  const applyAddressSelection = useCallback((place) => {
-    let city = newDeliveryAddress.city;
-    let state = newDeliveryAddress.state;
-    let zip = newDeliveryAddress.zip;
-    let country = newDeliveryAddress.country;
-    if (place.context && Array.isArray(place.context)) {
-      const pick = (prefix) => {
-        const item = place.context.find(c => typeof c.id === 'string' && c.id.startsWith(prefix));
-        return item ? (item.text || '') : '';
-      };
-      city = pick('place') || city;
-      state = pick('region') || state;
-      country = pick('country') || country;
-      zip = pick('postcode') || zip;
-    }
-    if (place.address && typeof place.address === 'object') {
-      city = place.address.city || place.address.town || place.address.village || city;
-      state = place.address.state || state;
-      country = place.address.country || country;
-      zip = place.address.postcode || zip;
-    }
-    setNewDeliveryAddress({
-      ...newDeliveryAddress,
-      line1: place.formatted_address || place.name || newDeliveryAddress.line1,
-      city,
-      state,
-      zip,
-      country,
-    });
-    setAddressSuggestions([]);
-    setAddressError('');
-  }, [newDeliveryAddress]);
-
-  useEffect(() => {
-    if (!showAddressOverlay || addressSuggestions.length === 0) { setAddressSuggestionsPos(null); return; }
-    const container = addressOverlayContentRef.current;
-    const target = addressLine1Ref.current;
-    if (!container || !target) return;
-    const cRect = container.getBoundingClientRect();
-    const tRect = target.getBoundingClientRect();
-    setAddressSuggestionsPos({
-      top: (tRect.bottom - cRect.top) + (isMobile ? 6 : 8),
-      left: (tRect.left - cRect.left),
-      width: tRect.width,
-    });
-  }, [addressSuggestions, showAddressOverlay, isMobile]);
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (!showAddressOverlay) return;
-      const container = addressOverlayContentRef.current;
-      const inputEl = addressLine1Ref.current;
-      if (!container || !inputEl) return;
-      if (!container.contains(e.target) && !inputEl.contains(e.target)) {
-        setAddressSuggestions([]);
-        setAddressSuggestionsPos(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showAddressOverlay]);
   // Helper function to check if an item should be filtered out based on occupied area
   // Only filter out items where we explicitly know occupied area is 0
   // If occupied area is undefined/null, we should still show the item
@@ -6774,169 +6730,6 @@ const EnhancedFarmMap = forwardRef(({
 
 
 
-              {showAddressOverlay && (
-                <div style={{ position: 'absolute', top: isMobile ? -34 : -30, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}>
-                  <div style={{ backgroundColor: 'white', width: isMobile ? '280px' : '380px', borderRadius: isMobile ? '8px' : '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: '1px solid #e9ecef', fontFamily: 'system-ui, -apple-system, sans-serif', overflow: 'hidden' }}>
-                    <div style={{ position: 'relative', padding: isMobile ? '6px 12px 0' : '8px 16px 0' }}>
-                      <div style={{ fontWeight: 700, color: '#212529', fontSize: isMobile ? '12px' : '14px', paddingBottom: isMobile ? '6px' : '8px' }}>Add Delivery Address</div>
-                      <div onClick={() => setShowAddressOverlay(false)} style={{ cursor: 'pointer', fontSize: isMobile ? '12px' : '14px', color: '#6c757d', width: isMobile ? '20px' : '24px', height: isMobile ? '20px' : '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', backgroundColor: '#f0f0f0', position: 'absolute', top: isMobile ? '6px' : '8px', right: isMobile ? '6px' : '8px', fontWeight: 'bold', zIndex: 10 }}>✕</div>
-                    </div>
-                    <div ref={addressOverlayContentRef} style={{ position: 'relative', padding: isMobile ? '8px' : '10px', maxHeight: isMobile ? '70vh' : '72vh', overflowY: 'auto' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? '8px' : '10px', marginBottom: isMobile ? '8px' : '10px' }}>
-                        <TextField label="Full name" variant="outlined" size="small" fullWidth value={newDeliveryAddress.name} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, name: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                        <TextField label="Phone" variant="outlined" size="small" fullWidth value={newDeliveryAddress.phone} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, phone: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                      </div>
-                      <div ref={addressLine1Ref} style={{ marginBottom: isMobile ? '8px' : '10px' }}>
-                        <TextField
-                          label="Address line 1"
-                          variant="outlined"
-                          size="small"
-                          fullWidth
-                          value={newDeliveryAddress.line1}
-                          onChange={e => {
-                            const v = e.target.value;
-                            setNewDeliveryAddress({ ...newDeliveryAddress, line1: v });
-                            if (addressSearchTimeoutRef.current) clearTimeout(addressSearchTimeoutRef.current);
-                            addressSearchTimeoutRef.current = setTimeout(() => { fetchAddressSuggestions(v); }, 300);
-                          }}
-                          onBlur={() => { setAddressSuggestions([]); setAddressSuggestionsPos(null); }}
-                          sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: isMobile ? '8px' : '10px' }}>
-                        <TextField label="Address line 2 (optional)" variant="outlined" size="small" fullWidth value={newDeliveryAddress.line2} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, line2: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: isMobile ? '8px' : '10px', marginBottom: isMobile ? '8px' : '10px' }}>
-                        <TextField label="City" variant="outlined" size="small" fullWidth value={newDeliveryAddress.city} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, city: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                        <TextField label="State" variant="outlined" size="small" fullWidth value={newDeliveryAddress.state} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, state: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                        <TextField label="ZIP" variant="outlined" size="small" fullWidth value={newDeliveryAddress.zip} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, zip: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                      </div>
-                      <TextField label="Country" variant="outlined" size="small" fullWidth value={newDeliveryAddress.country} onChange={e => setNewDeliveryAddress({ ...newDeliveryAddress, country: e.target.value })} sx={{ '& .MuiInputBase-input': { fontSize: isMobile ? '12px' : '13px', padding: isMobile ? '8px' : '10px' }, '& .MuiOutlinedInput-root': { borderRadius: isMobile ? '6px' : '8px' }, '& .MuiInputLabel-root': { fontSize: isMobile ? '11px' : '12px' } }} />
-                      {addressError && (<div style={{ color: '#ef4444', fontSize: isMobile ? '10px' : '12px', marginTop: isMobile ? '8px' : '10px', fontWeight: 600 }}>{addressError}</div>)}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: isMobile ? '10px' : '12px' }}>
-                        <button
-                          type="button"
-                          disabled={savingDeliveryAddress}
-                          onClick={async () => {
-                            const syntheticLoc = `${newDeliveryAddress.city || ''}, ${newDeliveryAddress.country || ''}`.trim();
-                            const destRaw = selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations;
-                            const explicit = deliveryMatchesShippingDestinations(destRaw, syntheticLoc, false);
-                            let valid = true;
-                            if (explicit !== null) {
-                              valid = explicit;
-                            } else {
-                              const scopeRaw = selectedProduct?.shipping_scope || selectedProduct?.shippingScope || 'Global';
-                              const scope = String(scopeRaw || '').toLowerCase();
-                              if (scope !== 'global') {
-                                const locStr = productLocations.get(selectedProduct.id) || selectedProduct.location || '';
-                                const p = extractCityCountry(locStr);
-                                if (scope === 'city') {
-                                  const rCity = (newDeliveryAddress.city || '').trim().toLowerCase();
-                                  valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
-                                } else if (scope === 'country') {
-                                  const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
-                                  valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
-                                }
-                              }
-                            }
-                            if (!valid) { setAddressError('Address is outside the delivery region.'); return; }
-                            const summary = `${newDeliveryAddress.name}, ${newDeliveryAddress.line1}${newDeliveryAddress.line2 ? ` ${newDeliveryAddress.line2}` : ''}, ${newDeliveryAddress.city}, ${newDeliveryAddress.state ? `${newDeliveryAddress.state}, ` : ''}${newDeliveryAddress.zip}, ${newDeliveryAddress.country}`;
-                            if (!currentUser?.id) {
-                              setAddressError('Please log in to save your delivery address.');
-                              return;
-                            }
-                            setSavingDeliveryAddress(true);
-                            try {
-                              await api.put('/api/users/me/delivery-address', {
-                                name: newDeliveryAddress.name,
-                                phone: newDeliveryAddress.phone,
-                                line1: newDeliveryAddress.line1,
-                                line2: newDeliveryAddress.line2,
-                                city: newDeliveryAddress.city,
-                                state: newDeliveryAddress.state,
-                                zip: newDeliveryAddress.zip,
-                                country: newDeliveryAddress.country,
-                                summary,
-                              });
-                              setExistingDeliveryAddress(summary);
-                              setDeliveryMode('existing');
-                              setShowAddressOverlay(false);
-                              setAddressError('');
-                              if (onNotification) onNotification('Delivery address saved.', 'success');
-                            } catch (err) {
-                              const msg = err.response?.data?.error || err.message || 'Could not save address';
-                              setAddressError(msg);
-                              if (onNotification) onNotification(msg, 'error');
-                            } finally {
-                              setSavingDeliveryAddress(false);
-                            }
-                          }}
-                          style={{
-                            backgroundColor: savingDeliveryAddress ? '#ccc' : '#ff9800',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: isMobile ? '4px' : '6px',
-                            padding: isMobile ? '8px 12px' : '10px 14px',
-                            fontSize: isMobile ? '12px' : '13px',
-                            cursor: savingDeliveryAddress ? 'not-allowed' : 'pointer',
-                            fontWeight: 600
-                          }}
-                        >
-                          {savingDeliveryAddress ? 'Saving…' : 'Save Address'}
-                        </button>
-                      </div>
-                      {addressSuggestionsPos && addressSuggestions.length > 0 && (
-                        <Paper
-                          style={{
-                            position: 'absolute',
-                            top: addressSuggestionsPos.top,
-                            left: addressSuggestionsPos.left,
-                            minWidth: addressSuggestionsPos.width,
-                            maxHeight: isMobile ? 150 : 200,
-                            overflow: 'auto',
-                            borderRadius: isMobile ? 8 : 12,
-                            border: '1px solid #e8f5e8',
-                            boxShadow: '0 4px 20px rgba(76, 175, 80, 0.1)',
-                            zIndex: 1102,
-                            backgroundColor: '#fff'
-                          }}
-                        >
-                          {addressSuggestions.map((place, idx) => (
-                            <Box
-                              key={`addr-sugg-${idx}`}
-                              onClick={() => applyAddressSelection(place)}
-                              style={{
-                                padding: isMobile ? '12px' : '14px',
-                                cursor: 'pointer',
-                                borderBottom: idx < addressSuggestions.length - 1 ? '1px solid #f0f7f0' : 'none',
-                                transition: 'all 0.2s ease'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#f8fdf8';
-                                e.currentTarget.style.borderLeft = '3px solid #4caf50';
-                                e.currentTarget.style.paddingLeft = isMobile ? '14px' : '16px';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                                e.currentTarget.style.borderLeft = 'none';
-                                e.currentTarget.style.paddingLeft = isMobile ? '12px' : '14px';
-                              }}
-                            >
-                              <Typography style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#2e7d32', marginBottom: 2 }}>
-                                {place.name}
-                              </Typography>
-                              <Typography style={{ fontSize: isMobile ? 9 : 11, color: '#666' }}>
-                                {place.formatted_address}
-                              </Typography>
-                            </Box>
-                          ))}
-                        </Paper>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
             </div>
           </div>
         </div>
@@ -7085,6 +6878,20 @@ const EnhancedFarmMap = forwardRef(({
           }
         `}
       </style >
+
+      <DeliveryAddressDialog
+        open={showAddressOverlay}
+        onClose={() => {
+          setShowAddressOverlay(false);
+          setAddressError('');
+        }}
+        value={newDeliveryAddress}
+        onChange={setNewDeliveryAddress}
+        addressError={addressError}
+        onFetchSuggestionsFilter={filterDeliveryAddressFeatures}
+        onSave={handleSaveDeliveryAddress}
+        saving={savingDeliveryAddress}
+      />
 
       {/* Webcam Popup - Global */}
       <WebcamPopup

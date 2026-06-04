@@ -12,8 +12,13 @@ const fieldSx = (isMobile) => ({
   width: '100%',
   '& .MuiOutlinedInput-root': {
     borderRadius: isMobile ? '8px' : '12px',
-    fontSize: isMobile ? '14px' : '16px',
-    minHeight: isMobile ? '48px' : '56px',
+    fontSize: '16px',
+    minHeight: isMobile ? 48 : 56,
+  },
+  '& .MuiInputBase-input': {
+    fontSize: '16px',
+    lineHeight: 1.5,
+    padding: isMobile ? '12px 14px !important' : undefined,
   },
 });
 
@@ -22,6 +27,8 @@ const fieldSx = (isMobile) => ({
  */
 const ShippingCityAutocomplete = ({
   countryCode,
+  regionCode = '',
+  regionName = '',
   value,
   onChange,
   disabled = false,
@@ -45,14 +52,20 @@ const ShippingCityAutocomplete = ({
       setOptions([]);
       return;
     }
-    if (!countryCode || String(query || '').trim().length < 2) {
+    const cc = String(countryCode || '').trim().toUpperCase();
+    const needsState = cc === 'US' && !String(regionCode || regionName || '').trim();
+    if (!countryCode || needsState || String(query || '').trim().length < 2) {
       setOptions([]);
       setLoading(false);
       return;
     }
     searchTimer.current = setTimeout(async () => {
       setLoading(true);
-      const features = await searchMapboxPlaces(query, { countryCode });
+      const features = await searchMapboxPlaces(query, {
+        countryCode,
+        regionCode,
+        regionName,
+      });
       const mapped = features
         .map((f) => mapboxFeatureToShippingCityRow(f, countryCode))
         .filter(Boolean)
@@ -83,8 +96,8 @@ const ShippingCityAutocomplete = ({
   return (
     <>
       <Autocomplete
-        sx={{ flex: '2 1 220px', minWidth: 0, width: isMobile ? '100%' : 'auto' }}
-        disabled={disabled || !countryCode}
+        sx={{ flex: '2 1 220px', minWidth: 0, width: '100%' }}
+        disabled={disabled || !countryCode || (String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName)}
         options={options}
         loading={loading}
         filterOptions={(x) => x}
@@ -129,9 +142,12 @@ const ShippingCityAutocomplete = ({
           });
           setInputValue(opt.label || opt.place_name || opt.city || '');
         }}
+        slotProps={{ popper: { sx: { zIndex: 15000 } } }}
         noOptionsText={
           !countryCode
             ? 'Select a country first'
+            : String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName
+              ? 'Select state first (e.g. Florida)'
             : inputValue.trim().length < 2
               ? 'Type at least 2 characters'
               : 'No cities found'
@@ -141,7 +157,13 @@ const ShippingCityAutocomplete = ({
             {...params}
             sx={fieldSx(isMobile)}
             label="City"
-            placeholder={countryCode ? 'Search city (e.g. Springfield, IL)' : 'Select country first'}
+            placeholder={
+              !countryCode
+                ? 'Select country first'
+                : String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName
+                  ? 'Select state first'
+                  : 'Search city (e.g. Miami)'
+            }
             error={error}
             size={isMobile ? 'small' : 'medium'}
             InputProps={{

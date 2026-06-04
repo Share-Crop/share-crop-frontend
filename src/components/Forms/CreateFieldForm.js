@@ -71,6 +71,7 @@ import {
   emptyShippingCityRow,
 } from '../../utils/shippingDestinations';
 import ShippingCityAutocomplete from './ShippingCityAutocomplete';
+import ShippingStateAutocomplete from './ShippingStateAutocomplete';
 
 /** Numeric inputs that must not go negative (field size, pricing, rent). */
 const NON_NEGATIVE_NUMERIC_FIELDS = new Set([
@@ -154,8 +155,9 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
     borderRadius: isMobile ? '8px' : '12px',
     backgroundColor: isSuggested ? '#f8fafc' : '#ffffff',
     transition: 'all 0.3s ease',
-    fontSize: isMobile ? '14px' : '16px',
-    height: isMobile ? '48px' : '56px',
+    fontSize: '16px',
+    minHeight: isMobile ? 48 : 56,
+    height: 'auto',
     '&:not(.Mui-disabled):hover .MuiOutlinedInput-notchedOutline': {
       borderColor: '#c8e6c9',
       boxShadow: isSuggested ? 'none' : '0 4px 12px rgba(76, 175, 80, 0.1)',
@@ -180,6 +182,9 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
     fontStyle: isSuggested ? 'italic' : 'normal',
     color: isSuggested ? '#64748b' : 'inherit',
     cursor: isSuggested ? 'default' : 'text',
+    fontSize: '16px',
+    lineHeight: 1.5,
+    padding: isMobile ? '12px 14px !important' : undefined,
   },
   '& .MuiInputBase-input.Mui-disabled': {
     WebkitTextFillColor: '#475569',
@@ -1258,6 +1263,10 @@ const CreateFieldForm = ({
       const hasPlace = Boolean(r?.mapboxId || r?.label);
       if ((cc && !ct) || (!cc && ct)) {
         newErrors.shippingCityRows = `City rule ${i + 1}: select country and city, or clear the row`;
+        break;
+      }
+      if (cc === 'US' && ct && !r?.regionCode && !(r?.region || '').trim()) {
+        newErrors.shippingCityRows = `City rule ${i + 1}: select state (e.g. Florida) before the city`;
         break;
       }
       if (cc && ct && !hasPlace) {
@@ -2815,6 +2824,7 @@ const CreateFieldForm = ({
                           }}
                           disabled={lockCommercial}
                           sx={{ width: '100%', mb: 2 }}
+                          slotProps={{ popper: { sx: { zIndex: 15000 } } }}
                           renderTags={(value, getTagProps) =>
                             value.map((option, index) => (
                               <Chip
@@ -2838,15 +2848,23 @@ const CreateFieldForm = ({
                         />
 
                         <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
-                          Or specific cities — search and pick from suggestions (includes state/region for duplicate names):
+                          Or specific cities — choose country, then state/province, then city from suggestions:
                         </Typography>
                         {(shippingCityRows || []).map((row, index) => (
                           <Box
                             key={index}
-                            sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1, alignItems: 'flex-start', width: '100%' }}
+                            sx={{
+                              display: 'flex',
+                              flexDirection: isMobile ? 'column' : 'row',
+                              gap: 1,
+                              flexWrap: 'wrap',
+                              mb: 1.5,
+                              alignItems: 'stretch',
+                              width: '100%',
+                            }}
                           >
                             <Autocomplete
-                              sx={{ flex: '1 1 200px', minWidth: 0, maxWidth: isMobile ? '100%' : 360 }}
+                              sx={{ flex: '1 1 200px', minWidth: 0, width: '100%', maxWidth: '100%' }}
                               options={ISO2_COUNTRY_OPTIONS}
                               getOptionLabel={(o) => `${o.name} (${o.code})`}
                               isOptionEqualToValue={(a, b) => a.code === b.code}
@@ -2863,6 +2881,7 @@ const CreateFieldForm = ({
                                 });
                               }}
                               disabled={lockCommercial}
+                              slotProps={{ popper: { sx: { zIndex: 15000 } } }}
                               renderInput={(params) => (
                                 <StyledTextField
                                   {...params}
@@ -2872,8 +2891,25 @@ const CreateFieldForm = ({
                                 />
                               )}
                             />
+                            <ShippingStateAutocomplete
+                              countryCode={row.countryCode}
+                              value={row}
+                              disabled={lockCommercial}
+                              isMobile={isMobile}
+                              error={Boolean(errors.shippingCityRows)}
+                              onChange={(nextRow) => {
+                                if (lockCommercial) return;
+                                setShippingCityRows((prev) => {
+                                  const next = [...prev];
+                                  next[index] = nextRow;
+                                  return next;
+                                });
+                              }}
+                            />
                             <ShippingCityAutocomplete
                               countryCode={row.countryCode}
+                              regionCode={row.regionCode}
+                              regionName={row.region}
                               value={row}
                               onChange={(nextRow) => {
                                 if (lockCommercial) return;
