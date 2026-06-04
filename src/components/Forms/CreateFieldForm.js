@@ -2859,12 +2859,23 @@ const CreateFieldForm = ({
                               gap: 1,
                               flexWrap: 'wrap',
                               mb: 1.5,
-                              alignItems: 'stretch',
+                              alignItems: isMobile ? 'flex-start' : 'center',
                               width: '100%',
+                              ...(isMobile
+                                ? {
+                                    '& > *': { flex: '0 0 auto', width: '100%', maxWidth: '100%' },
+                                    '& .MuiAutocomplete-root': { flex: '0 0 auto', width: '100%' },
+                                  }
+                                : {}),
                             }}
                           >
                             <Autocomplete
-                              sx={{ flex: '1 1 200px', minWidth: 0, width: '100%', maxWidth: '100%' }}
+                              sx={{
+                                flex: isMobile ? '0 0 auto' : '1 1 200px',
+                                minWidth: 0,
+                                width: '100%',
+                                maxWidth: '100%',
+                              }}
                               options={ISO2_COUNTRY_OPTIONS}
                               getOptionLabel={(o) => `${o.name} (${o.code})`}
                               isOptionEqualToValue={(a, b) => a.code === b.code}

@@ -96,7 +96,11 @@ const ShippingCityAutocomplete = ({
   return (
     <>
       <Autocomplete
-        sx={{ flex: '2 1 220px', minWidth: 0, width: '100%' }}
+        sx={{
+          flex: isMobile ? '0 0 auto' : '2 1 220px',
+          minWidth: 0,
+          width: '100%',
+        }}
         disabled={disabled || !countryCode || (String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName)}
         options={options}
         loading={loading}
