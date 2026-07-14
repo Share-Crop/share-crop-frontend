@@ -16,12 +16,28 @@ const HarvestProgressBar = ({
   const barHeight = compact ? '6px' : '8px';
 
   return (
-    <div style={{ width: '100%', ...style }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-        <div style={{ color: '#64748b', fontWeight: 600, fontSize: textSize }}>
-          {label}
-        </div>
-        <div style={{ color: '#0f172a', fontWeight: 700, fontSize: textSize, textAlign: 'right' }}>
+    <div style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', boxSizing: 'border-box', ...style }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px', minWidth: 0 }}>
+        {label ? (
+          <div style={{ color: '#64748b', fontWeight: 600, fontSize: textSize, flexShrink: 0 }}>
+            {label}
+          </div>
+        ) : (
+          <div style={{ flex: 1, minWidth: 0 }} />
+        )}
+        <div
+          style={{
+            color: '#0f172a',
+            fontWeight: 700,
+            fontSize: textSize,
+            textAlign: 'right',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: label ? '70%' : '100%',
+          }}
+        >
           {info.hasHarvestDate ? `${info.progressPercent}%` : 'N/A'}
           <span style={{ color: '#64748b', fontWeight: 500, fontSize: metaSize }}>
             {` • ${getHarvestDaysLeftLabel(info.daysLeft, daysShort, { isExpiredSeason: info.isExpiredSeason })}`}

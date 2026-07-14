@@ -110,6 +110,7 @@ const MyFarms = () => {
   /** Raw farmer orders (incl. pending) for delete / farm-clear rules */
   const [farmerOrdersList, setFarmerOrdersList] = useState([]);
   const [pageTab, setPageTab] = useState(MY_FARMS_TAB);
+  const [highlightFieldId, setHighlightFieldId] = useState(null);
   const { user } = useAuth();
 
   const fieldIdToFarmIdMap = useMemo(() => buildFieldIdToFarmIdMap(myFields), [myFields]);
@@ -135,6 +136,7 @@ const MyFarms = () => {
   const handleCloseFarmDetail = () => {
     setFarmDetailOpen(false);
     setSelectedFarm(null);
+    setHighlightFieldId(null);
   };
 
   const handleDeleteFieldCard = async (field) => {
@@ -314,6 +316,36 @@ const MyFarms = () => {
       window.history.replaceState({}, '', newUrl);
     }
   }, []);
+
+  // Deep-link from Rented out Fields (enter harvest CTA): open farm detail for field_id
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fieldId = params.get('field_id');
+    if (!fieldId || (!myFarms.length && !myFields.length)) return;
+
+    const ownedField = myFields.find((f) => String(f.id) === String(fieldId));
+    const farmId = ownedField?.farm_id;
+    const farm =
+      (farmId && myFarms.find((f) => String(f.id) === String(farmId))) ||
+      myFarms.find((f) => (f.fields || []).some((field) => String(field.id) === String(fieldId)));
+
+    if (!farm) return;
+    setSelectedFarm(farm);
+    setFarmDetailOpen(true);
+    setHighlightFieldId(String(fieldId));
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [myFarms, myFields]);
+
+  useEffect(() => {
+    if (!farmDetailOpen || !highlightFieldId) return;
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`my-farm-field-${highlightFieldId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [farmDetailOpen, highlightFieldId, selectedFarm?.id]);
 
   const fetchFarms = async () => {
     try {
@@ -1235,8 +1267,13 @@ const MyFarms = () => {
                         };
                         return (
                           <div
+                            id={`my-farm-field-${field.id}`}
                             key={field.id}
-                            className="flex flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                            className={`flex flex-col rounded-xl border bg-white p-3 shadow-sm ${
+                              String(highlightFieldId) === String(field.id)
+                                ? 'border-amber-400 ring-2 ring-amber-200'
+                                : 'border-slate-200'
+                            }`}
                           >
                             {/* Header */}
                             <div className="mb-2 flex items-start justify-between gap-1">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -28,7 +28,9 @@ import {
   FormControl,
   InputLabel,
   TextField,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   ShoppingCart,
   Visibility,
@@ -50,6 +52,9 @@ import {
   Info,
   HighlightOff,
   Inventory2,
+  ChevronLeft,
+  ChevronRight,
+  SwapHoriz,
 } from '@mui/icons-material';
 import { Alert, AlertTitle } from '@mui/material';
 import StatCard from '../components/Common/StatCard';
@@ -62,6 +67,11 @@ import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 import fieldsService from '../services/fields';
 import { canSelectShippedOrCompletedStatus, getOrderHarvestYmd } from '../utils/orderHarvestGate';
 import { getEstimatedDeliveryLeadDays, formatShippingLeadAfterHarvest } from '../utils/fieldEstimatedDelivery';
+import {
+  getDeliverableHarvest,
+  getHarvestUrgency,
+  urgencyChipSx,
+} from '../utils/farmerOrderHarvestDisplay';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -114,9 +124,106 @@ const harvestDateDisplay = (order) => {
   return { dateText: null, label: null };
 };
 
+const ORDER_STATUS_LABELS = {
+  pending: 'Pending',
+  active: 'Active',
+  shipped: 'Shipped',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+const normalizeOrderStatus = (status) => {
+  const s = String(status || '').trim().toLowerCase();
+  return ORDER_STATUS_LABELS[s] ? s : 'active';
+};
+
+/** Status dropdown — MenuItems must stay direct Select children (no Tooltip wrappers) or MUI shows a blank value. */
+const FarmerOrderStatusSelect = ({
+  order,
+  updatingStatus,
+  onChange,
+  fullWidth = true,
+  size = 'small',
+}) => {
+  const status = normalizeOrderStatus(order?.status);
+  const harvestOk = canSelectShippedOrCompletedStatus(order);
+  const ymd = getOrderHarvestYmd(order);
+  const shipDisabled = !harvestOk && status !== 'shipped';
+  const doneDisabled = !harvestOk && status !== 'completed';
+  const lockHint = ymd
+    ? `Available on or after harvest (${ymd})`
+    : 'Set a harvest date on the order before Shipped or Completed.';
+  const color =
+    status === 'active' ? '#1d4ed8' :
+    status === 'completed' ? '#059669' :
+    status === 'shipped' ? '#0369a1' :
+    status === 'pending' ? '#d97706' :
+    '#ef4444';
+
+  return (
+    <Tooltip
+      title={status === 'cancelled' ? 'Cancelled orders cannot be changed.' : ''}
+      disableHoverListener={status !== 'cancelled'}
+    >
+      <FormControl size={size} fullWidth={fullWidth}>
+        <Select
+          value={status}
+          displayEmpty
+          renderValue={(selected) => ORDER_STATUS_LABELS[selected] || selected || '—'}
+          onChange={(e) => {
+            const next = normalizeOrderStatus(e.target.value);
+            if (next === status) return;
+            onChange(order, next);
+          }}
+          disabled={updatingStatus || status === 'cancelled'}
+          sx={{
+            borderRadius: 1.5,
+            fontSize: '0.75rem',
+            height: 32,
+            backgroundColor: status === 'pending' ? '#fffbeb' : 'white',
+            '& .MuiSelect-select': {
+              py: 0.5,
+              fontWeight: 600,
+              color,
+            },
+          }}
+        >
+          <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>
+            Active
+          </MenuItem>
+          <MenuItem
+            value="shipped"
+            disabled={shipDisabled}
+            title={shipDisabled ? lockHint : undefined}
+            sx={{ fontSize: '0.75rem', fontWeight: 600, color: shipDisabled ? '#94a3b8' : '#0369a1' }}
+          >
+            Shipped
+          </MenuItem>
+          <MenuItem
+            value="completed"
+            disabled={doneDisabled}
+            title={doneDisabled ? lockHint : undefined}
+            sx={{ fontSize: '0.75rem', fontWeight: 600, color: doneDisabled ? '#94a3b8' : '#059669' }}
+          >
+            Completed
+          </MenuItem>
+          <MenuItem value="cancelled" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>
+            Cancelled
+          </MenuItem>
+        </Select>
+      </FormControl>
+    </Tooltip>
+  );
+};
+
 const FarmOrders = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const tableScrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -135,6 +242,77 @@ const FarmOrders = () => {
   const [harvestUnit, setHarvestUnit] = useState('kg');
   const [harvestNote, setHarvestNote] = useState('');
   const [harvestFormError, setHarvestFormError] = useState(null);
+
+  const updateTableScrollHints = useCallback(() => {
+    const el = tableScrollRef.current;
+    if (!el) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanScrollLeft(scrollLeft > 4);
+    setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 4);
+  }, []);
+
+  const scrollTableBy = useCallback((direction) => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+    const step = Math.max(240, Math.round(el.clientWidth * 0.5));
+    el.scrollBy({ left: direction * step, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    if (isMobile || loading) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return undefined;
+    }
+
+    let attachedEl = null;
+    let ro = null;
+    let cancelled = false;
+
+    const detach = () => {
+      if (attachedEl) {
+        attachedEl.removeEventListener('scroll', updateTableScrollHints);
+        attachedEl = null;
+      }
+      window.removeEventListener('resize', updateTableScrollHints);
+      if (ro) {
+        ro.disconnect();
+        ro = null;
+      }
+    };
+
+    const attach = () => {
+      if (cancelled) return;
+      const el = tableScrollRef.current;
+      if (!el || el === attachedEl) {
+        if (el) updateTableScrollHints();
+        return;
+      }
+      detach();
+      attachedEl = el;
+      updateTableScrollHints();
+      el.addEventListener('scroll', updateTableScrollHints, { passive: true });
+      window.addEventListener('resize', updateTableScrollHints);
+      if (typeof ResizeObserver !== 'undefined') {
+        ro = new ResizeObserver(updateTableScrollHints);
+        ro.observe(el);
+      }
+    };
+
+    const raf = window.requestAnimationFrame(attach);
+    const timeout = window.setTimeout(attach, 80);
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timeout);
+      detach();
+    };
+  }, [isMobile, loading, orders.length, filter, updateTableScrollHints]);
 
   const loadOrders = useCallback(async () => {
     if (!user?.id) {
@@ -173,7 +351,7 @@ const FarmOrders = () => {
         area_rented: `${order.quantity || 0} m²`,
         quantity: Number(order.quantity) || 0,
         total_cost: Number(order.total_price) || 0,
-        status: order.status || 'pending',
+        status: normalizeOrderStatus(order.status),
         created_at:
           ownFieldById.get(String(order.field_id))?.created_at ||
           ownFieldById.get(String(order.field_id))?.createdAt ||
@@ -227,8 +405,32 @@ const FarmOrders = () => {
         farm_id: order.farm_id || mergedField.farm_id || mergedField.farmId || null,
         notes: order.notes ?? null,
         selected_harvest_label: order.selected_harvest_label || null,
+        total_production:
+          order.total_production ??
+          mergedField.total_production ??
+          mergedField.totalProduction ??
+          null,
         total_production_unit:
-          mergedField.total_production_unit || mergedField.total_productionUnit || 'kg',
+          order.total_production_unit ||
+          mergedField.total_production_unit ||
+          mergedField.total_productionUnit ||
+          'kg',
+        total_area_m2:
+          order.total_area_m2 ??
+          mergedField.total_area_m2 ??
+          mergedField.totalAreaM2 ??
+          order.total_area ??
+          mergedField.total_area ??
+          null,
+        operational_status:
+          order.operational_status ||
+          mergedField.operational_status ||
+          'growing',
+        field_harvest_total: order.field_harvest_total ?? null,
+        harvest_unit: order.harvest_unit || null,
+        harvest_declared_at: order.harvest_declared_at || null,
+        harvest_allocated_qty: order.harvest_allocated_qty ?? null,
+        harvest_estimated_qty: order.harvest_estimated_qty ?? null,
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
@@ -265,6 +467,18 @@ const FarmOrders = () => {
     }
   };
 
+  const handleGoEnterHarvest = (order, e) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (!order?.field_id) {
+      navigate('/farmer/my-farms');
+      return;
+    }
+    navigate(`/farmer/my-farms?field_id=${order.field_id}`);
+  };
+
   const doStatusUpdate = useCallback(
     async (orderId, newStatus, extra = {}) => {
       if (!orderId || !newStatus) return false;
@@ -290,7 +504,12 @@ const FarmOrders = () => {
 
   const handleStatusChange = async (order, newStatus) => {
     if (!order?.id || !newStatus) return;
-    if (newStatus === 'completed' && String(user?.user_type || '') !== 'admin') {
+    const current = normalizeOrderStatus(order.status);
+    const next = normalizeOrderStatus(newStatus);
+    if (current === next) return;
+
+    // Already completed after field harvest — don't open harvest dialog again.
+    if (next === 'completed' && current !== 'completed' && String(user?.user_type || '') !== 'admin') {
       setHarvestOrder(order);
       setHarvestAmount('');
       setHarvestUnit(
@@ -301,7 +520,7 @@ const FarmOrders = () => {
       setHarvestCompleteOpen(true);
       return;
     }
-    await doStatusUpdate(order.id, newStatus, {});
+    await doStatusUpdate(order.id, next, {});
   };
 
   const submitHarvestComplete = async () => {
@@ -709,8 +928,13 @@ const FarmOrders = () => {
           }}
         >
           <Box sx={{ p: 2, borderBottom: '1px solid #e2e8f0' }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Box>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              alignItems={{ xs: 'stretch', sm: 'center' }}
+              justifyContent="space-between"
+              gap={1.5}
+            >
+              <Box sx={{ minWidth: 0 }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1e293b', fontSize: '1rem' }}>
                   Order History
                 </Typography>
@@ -718,14 +942,69 @@ const FarmOrders = () => {
                   {filteredOrders.length} {filter === 'all' ? 'total' : filter} orders
                 </Typography>
               </Box>
-              <Button
-                variant="outlined"
-                onClick={handleReportClick}
-                startIcon={<Download sx={{ fontSize: 18 }} />}
-                sx={{ borderRadius: 2, px: 2, py: 1, fontSize: '0.8rem' }}
-              >
-                Export
-              </Button>
+              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+                {!isMobile && (canScrollLeft || canScrollRight) && (
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={0.75}
+                    sx={{
+                      px: 1,
+                      py: 0.5,
+                      borderRadius: 999,
+                      backgroundColor: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                    }}
+                  >
+                    <SwapHoriz sx={{ fontSize: 16, color: '#1d4ed8' }} />
+                    <Typography variant="caption" sx={{ fontWeight: 600, color: '#1d4ed8', whiteSpace: 'nowrap' }}>
+                      Scroll for more columns
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      aria-label="Scroll table left"
+                      disabled={!canScrollLeft}
+                      onClick={() => scrollTableBy(-1)}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        color: '#1d4ed8',
+                        backgroundColor: '#fff',
+                        border: '1px solid #bfdbfe',
+                        '&:hover': { backgroundColor: '#dbeafe' },
+                        '&.Mui-disabled': { opacity: 0.35 },
+                      }}
+                    >
+                      <ChevronLeft sx={{ fontSize: 18 }} />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      aria-label="Scroll table right"
+                      disabled={!canScrollRight}
+                      onClick={() => scrollTableBy(1)}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        color: '#1d4ed8',
+                        backgroundColor: '#fff',
+                        border: '1px solid #bfdbfe',
+                        '&:hover': { backgroundColor: '#dbeafe' },
+                        '&.Mui-disabled': { opacity: 0.35 },
+                      }}
+                    >
+                      <ChevronRight sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Stack>
+                )}
+                <Button
+                  variant="outlined"
+                  onClick={handleReportClick}
+                  startIcon={<Download sx={{ fontSize: 18 }} />}
+                  sx={{ borderRadius: 2, px: 2, py: 1, fontSize: '0.8rem' }}
+                >
+                  Export
+                </Button>
+              </Stack>
             </Stack>
           </Box>
 
@@ -739,112 +1018,467 @@ const FarmOrders = () => {
                 {filter === 'all' ? 'Orders from buyers will appear here.' : 'Try a different filter.'}
               </Typography>
             </Box>
+          ) : isMobile ? (
+            <Stack spacing={1.5} sx={{ p: 1.5 }}>
+              {filteredOrders.map((order) => {
+                const urgency = getHarvestUrgency(order);
+                const deliverable = getDeliverableHarvest(order, orders);
+                const { dateText, label: harvestLabel } = harvestDateDisplay(order);
+                return (
+                  <Paper
+                    key={order.id}
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                      p: 1.75,
+                      backgroundColor: '#fff',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1.25} alignItems="flex-start" sx={{ mb: 1.25 }}>
+                      <Box
+                        component="img"
+                        src={orderProductIconSrc(order)}
+                        alt={order.field_name}
+                        sx={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 1.5,
+                          objectFit: 'cover',
+                          border: '1px solid #e2e8f0',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.9rem',
+                              color: '#0f172a',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0,
+                            }}
+                          >
+                            {order.field_name}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={urgency.shortLabel || urgency.label}
+                            sx={{
+                              ...urgencyChipSx(urgency.tone),
+                              flexShrink: 0,
+                              height: 22,
+                              '& .MuiChip-label': { fontSize: '0.68rem', px: 0.75, whiteSpace: 'nowrap' },
+                            }}
+                          />
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                          {order.buyer_name}
+                          {order.buyer_email ? ` · ${order.buyer_email}` : ''}
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    <Box sx={{ mb: 1.25, minWidth: 0, overflow: 'hidden' }}>
+                      <HarvestProgressBar item={order} compact showDate={false} daysShort label="" />
+                    </Box>
+
+                    <Stack spacing={1} sx={{ mb: 1.25 }}>
+                      <Stack direction="row" justifyContent="space-between" gap={1}>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, flexShrink: 0 }}>
+                          Harvest
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 600, textAlign: 'right', color: '#334155' }}>
+                          {dateText || '—'}
+                          {harvestLabel ? ` · ${harvestLabel}` : ''}
+                        </Typography>
+                      </Stack>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
+                          Deliver to
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontSize: '0.8rem',
+                            color: order.delivery_address ? '#0f172a' : '#94a3b8',
+                            wordBreak: 'break-word',
+                            whiteSpace: 'pre-wrap',
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {order.delivery_address || '—'}
+                        </Typography>
+                      </Box>
+                      <Stack direction="row" justifyContent="space-between" gap={2} flexWrap="wrap">
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block' }}>
+                            Area
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                            {order.area_rented}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block' }}>
+                            Revenue
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 700, color: '#059669' }}>
+                            ${Number(order.total_cost).toFixed(2)}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
+                          Deliver to this buyer
+                        </Typography>
+                        {deliverable.declared && deliverable.primaryLine ? (
+                          <Box>
+                            <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                              {deliverable.primaryLine}
+                            </Typography>
+                            {deliverable.secondaryLine && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.35 }}>
+                                {deliverable.secondaryLine}
+                              </Typography>
+                            )}
+                            {deliverable.contextLine && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                {deliverable.contextLine}
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : (
+                          <Button
+                            size="small"
+                            onClick={(e) => handleGoEnterHarvest(order, e)}
+                            sx={{
+                              p: 0,
+                              minWidth: 0,
+                              textTransform: 'none',
+                              fontSize: '0.78rem',
+                              fontWeight: 700,
+                              color: '#b45309',
+                              justifyContent: 'flex-start',
+                              '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                            }}
+                          >
+                            Enter your harvest total on My Farms →
+                          </Button>
+                        )}
+                      </Box>
+                    </Stack>
+
+                    <Divider sx={{ my: 1.25 }} />
+
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
+                      <Box sx={{ minWidth: 120, flex: 1 }}>
+                        <FarmerOrderStatusSelect
+                          order={order}
+                          updatingStatus={updatingStatus}
+                          onChange={handleStatusChange}
+                        />
+                      </Box>
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                        {order.field_id && (
+                          <Button
+                            size="small"
+                            startIcon={<LocationOn sx={{ fontSize: 16 }} />}
+                            onClick={() => handleViewOnMap(order)}
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              color: '#1d4ed8',
+                              px: 0.75,
+                              minWidth: 0,
+                              '&:hover': { backgroundColor: '#eff6ff' },
+                            }}
+                          >
+                            View on map
+                          </Button>
+                        )}
+                        <Button
+                          size="small"
+                          startIcon={<Visibility sx={{ fontSize: 16 }} />}
+                          onClick={() => handleViewDetails(order)}
+                          sx={{
+                            textTransform: 'none',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            color: '#059669',
+                            px: 0.75,
+                            minWidth: 0,
+                            '&:hover': { backgroundColor: '#ecfdf5' },
+                          }}
+                        >
+                          View details
+                        </Button>
+                        {order.pending_refund_request_id && (
+                          <>
+                            <IconButton
+                              size="small"
+                              disabled={refundActionLoading || updatingStatus}
+                              onClick={() => handleApproveRefund(order.pending_refund_request_id)}
+                              sx={{ color: '#059669' }}
+                            >
+                              <CheckCircle sx={{ fontSize: 18 }} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              disabled={refundActionLoading || updatingStatus}
+                              onClick={() => openRejectRefund(order.pending_refund_request_id, order.field_name)}
+                              sx={{ color: '#dc2626' }}
+                            >
+                              <HighlightOff sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          </>
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
           ) : (
-            <TableContainer>
-              <Table>
+            <Box sx={{ position: 'relative' }}>
+              {canScrollLeft && (
+                <Box
+                  sx={{
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 28,
+                    zIndex: 3,
+                    background: 'linear-gradient(to right, rgba(248,250,252,0.95), transparent)',
+                  }}
+                />
+              )}
+              {canScrollRight && (
+                <Box
+                  sx={{
+                    pointerEvents: 'none',
+                    position: 'absolute',
+                    right: 220,
+                    top: 0,
+                    bottom: 0,
+                    width: 28,
+                    zIndex: 3,
+                    background: 'linear-gradient(to left, rgba(248,250,252,0.95), transparent)',
+                  }}
+                />
+              )}
+            <TableContainer
+              ref={tableScrollRef}
+              sx={{
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                '&::-webkit-scrollbar': { height: 8 },
+                '&::-webkit-scrollbar-thumb': { backgroundColor: '#cbd5e1', borderRadius: 4 },
+              }}
+            >
+              <Table
+                sx={{
+                  minWidth: 1320,
+                  tableLayout: 'fixed',
+                  '& .MuiTableCell-root': {
+                    verticalAlign: 'top',
+                  },
+                }}
+              >
                 <TableHead>
                   <TableRow sx={{ backgroundColor: '#f8fafc' }}>
-
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Field / Product</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Buyer</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Harvest date</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Deliver to</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Area</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Revenue</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Status</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Order date</TableCell>
-                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5 }}>Actions</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 170 }}>
+                      Field / Product
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 140 }}>
+                      Buyer
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 120 }}>
+                      Harvest / ordered
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 110 }}>
+                      Urgency
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 260 }}>
+                      Deliver to
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 80 }}>
+                      Area
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 170 }}>
+                      Deliver to buyer
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 90 }}>
+                      Revenue
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        fontWeight: 600,
+                        color: '#475569',
+                        fontSize: '0.8rem',
+                        py: 1.5,
+                        width: 220,
+                        position: 'sticky',
+                        right: 0,
+                        zIndex: 4,
+                        backgroundColor: '#f8fafc',
+                        boxShadow: '-10px 0 16px -12px rgba(15, 23, 42, 0.28)',
+                        borderLeft: '1px solid #e2e8f0',
+                      }}
+                    >
+                      Status / actions
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {filteredOrders.map((order, index) => (
                     <TableRow
                       key={order.id}
-                      onClick={() => handleViewOnMap(order)}
                       sx={{
-                        cursor: order.field_id ? 'pointer' : 'default',
                         '&:hover': { backgroundColor: '#f8fafc' },
                         borderBottom: index === filteredOrders.length - 1 ? 'none' : '1px solid #e2e8f0',
                       }}
                     >
-
-                      <TableCell sx={{ py: 1.5 }}>
-                        <Stack direction="row" alignItems="center" spacing={1.5}>
+                      <TableCell sx={{ py: 1.5, pr: 1 }}>
+                        <Stack direction="row" alignItems="flex-start" spacing={1} sx={{ minWidth: 0 }}>
                           <Box
                             component="img"
                             src={orderProductIconSrc(order)}
                             alt={order.field_name}
                             sx={{
-                              width: 40,
-                              height: 40,
+                              width: 36,
+                              height: 36,
                               borderRadius: 1.5,
                               objectFit: 'cover',
                               border: '1px solid #e2e8f0',
+                              flexShrink: 0,
                             }}
                           />
-                          <Box sx={{ minWidth: 0, flex: 1 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem', mb: 0.75 }}>
+                          <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 600,
+                                fontSize: '0.8rem',
+                                mb: 0.5,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={order.field_name}
+                            >
                               {order.field_name}
                             </Typography>
-                            <HarvestProgressBar item={order} compact showDate={false} daysShort />
+                            <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
+                              <HarvestProgressBar item={order} compact showDate={false} daysShort label="" />
+                            </Box>
                           </Box>
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontWeight: 500,
+                            fontSize: '0.8rem',
+                            wordBreak: 'break-word',
+                          }}
+                        >
                           {order.buyer_name}
                         </Typography>
                         {order.buyer_email && (
-                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                              fontSize: '0.7rem',
+                              display: 'block',
+                              wordBreak: 'break-all',
+                              lineHeight: 1.3,
+                            }}
+                          >
                             {order.buyer_email}
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, maxWidth: 160 }}>
+                      <TableCell sx={{ py: 1.5 }}>
                         {(() => {
                           const { dateText, label } = harvestDateDisplay(order);
-                          if (!dateText) {
-                            return (
-                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                                —
-                              </Typography>
-                            );
-                          }
+                          const orderedAt = new Date(order.order_created_at || order.created_at);
                           return (
                             <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                                {dateText}
+                              <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                {dateText || '—'}
                               </Typography>
                               {label ? (
                                 <Typography
                                   variant="caption"
                                   color="text.secondary"
-                                  sx={{ fontSize: '0.7rem', display: 'block' }}
+                                  sx={{
+                                    fontSize: '0.68rem',
+                                    display: 'block',
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'normal',
+                                  }}
                                 >
                                   {label}
                                 </Typography>
                               ) : null}
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.68rem', display: 'block' }}>
+                                Ordered {Number.isNaN(orderedAt.getTime()) ? '—' : orderedAt.toLocaleDateString()}
+                              </Typography>
                             </Box>
                           );
                         })()}
                       </TableCell>
-                      <TableCell sx={{ py: 1.5, maxWidth: 200 }}>
+                      <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const urgency = getHarvestUrgency(order);
+                          return (
+                            <Tooltip title={urgency.label}>
+                              <Chip
+                                size="small"
+                                label={urgency.shortLabel || urgency.label}
+                                sx={{
+                                  ...urgencyChipSx(urgency.tone),
+                                  height: 'auto',
+                                  maxWidth: '100%',
+                                  '& .MuiChip-label': {
+                                    fontSize: '0.72rem',
+                                    px: 0.85,
+                                    py: 0.4,
+                                    whiteSpace: 'normal',
+                                    lineHeight: 1.2,
+                                    overflow: 'visible',
+                                    textOverflow: 'clip',
+                                  },
+                                }}
+                              />
+                            </Tooltip>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell sx={{ py: 1.5 }}>
                         {order.delivery_address ? (
-                          <Tooltip title={order.delivery_address}>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontSize: '0.8rem',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                                wordBreak: 'break-word',
-                              }}
-                            >
-                              {order.delivery_address}
-                            </Typography>
-                          </Tooltip>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontSize: '0.78rem',
+                              lineHeight: 1.4,
+                              whiteSpace: 'normal',
+                              wordBreak: 'break-word',
+                              color: '#0f172a',
+                            }}
+                          >
+                            {order.delivery_address}
+                          </Typography>
                         ) : (
                           <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
                             —
@@ -852,165 +1486,172 @@ const FarmOrders = () => {
                         )}
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
-                        <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                        <Typography variant="body2" sx={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                           {order.area_rented}
                         </Typography>
                       </TableCell>
+                      <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const deliverable = getDeliverableHarvest(order, orders);
+                          if (deliverable.declared && deliverable.primaryLine) {
+                            return (
+                              <Box>
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: 800,
+                                    fontSize: '0.8rem',
+                                    color: '#0f172a',
+                                    whiteSpace: 'normal',
+                                    wordBreak: 'break-word',
+                                  }}
+                                >
+                                  {deliverable.primaryLine}
+                                </Typography>
+                                {(deliverable.tableSecondaryLine || deliverable.secondaryLine) && (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{
+                                      fontSize: '0.68rem',
+                                      display: 'block',
+                                      lineHeight: 1.35,
+                                      whiteSpace: 'normal',
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {deliverable.tableSecondaryLine || deliverable.secondaryLine}
+                                  </Typography>
+                                )}
+                              </Box>
+                            );
+                          }
+                          return (
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={(e) => handleGoEnterHarvest(order, e)}
+                              sx={{
+                                p: 0,
+                                minWidth: 0,
+                                textTransform: 'none',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                color: '#b45309',
+                                lineHeight: 1.3,
+                                justifyContent: 'flex-start',
+                                textAlign: 'left',
+                                whiteSpace: 'normal',
+                                '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                              }}
+                            >
+                              Enter harvest →
+                            </Button>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell sx={{ py: 1.5 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#059669', fontSize: '0.8rem' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#059669', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                           ${Number(order.total_cost).toFixed(2)}
                         </Typography>
                       </TableCell>
-                      <TableCell sx={{ py: 1, minWidth: 150 }}>
-                        <Tooltip
-                          title={order.status === 'cancelled' ? 'Cancelled orders cannot be changed.' : ''}
-                          disableHoverListener={order.status !== 'cancelled'}
-                        >
-                          <Box sx={{ width: '100%' }} onClick={(e) => e.stopPropagation()}>
-                            <FormControl size="small" fullWidth>
-                              <Select
-                                value={order.status}
-                                onChange={(e) => handleStatusChange(order, e.target.value)}
-                                disabled={updatingStatus || order.status === 'cancelled'}
-                                sx={{
-                                  borderRadius: 1.5,
-                                  fontSize: '0.75rem',
-                                  height: 32,
-                                  backgroundColor: order.status === 'pending' ? '#fffbeb' : 'white',
-                                  '& .MuiSelect-select': {
-                                    py: 0.5,
-                                    fontWeight: 600,
-                                    color: getStatusColor(order.status) === 'primary' ? '#1d4ed8' :
-                                      getStatusColor(order.status) === 'success' ? '#059669' :
-                                        getStatusColor(order.status) === 'info' ? '#0369a1' :
-                                        getStatusColor(order.status) === 'warning' ? '#d97706' : '#ef4444'
-                                  }
-                                }}
-                              >
-                                {/* <MenuItem value="pending">Pending (legacy — new orders auto-confirm)</MenuItem> */}
-                                <MenuItem value="active" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1d4ed8' }}>Active</MenuItem>
-                                {(() => {
-                                  const harvestOk = canSelectShippedOrCompletedStatus(order);
-                                  const ymd = getOrderHarvestYmd(order);
-                                  const shipDisabled = !harvestOk && order.status !== 'shipped';
-                                  const doneDisabled = !harvestOk && order.status !== 'completed';
-                                  const lockHint = ymd
-                                    ? `Available on or after harvest (${ymd})`
-                                    : 'Set a harvest date on the order before Shipped or Completed.';
-                                  return (
-                                    <>
-                                      <Tooltip title={shipDisabled ? lockHint : ''}>
-                                        <span>
-                                          <MenuItem
-                                            value="shipped"
-                                            disabled={shipDisabled}
-                                            sx={{ fontSize: '0.75rem', fontWeight: 600, color: shipDisabled ? '#94a3b8' : '#0369a1' }}
-                                          >
-                                            Shipped
-                                          </MenuItem>
-                                        </span>
-                                      </Tooltip>
-                                      <Tooltip title={doneDisabled ? lockHint : ''}>
-                                        <span>
-                                          <MenuItem
-                                            value="completed"
-                                            disabled={doneDisabled}
-                                            sx={{ fontSize: '0.75rem', fontWeight: 600, color: doneDisabled ? '#94a3b8' : '#059669' }}
-                                          >
-                                            Completed
-                                          </MenuItem>
-                                        </span>
-                                      </Tooltip>
-                                    </>
-                                  );
-                                })()}
-                                <MenuItem value="cancelled" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>Cancelled</MenuItem>
-                              </Select>
-                            </FormControl>
-                          </Box>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell sx={{ py: 1.5 }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          {new Date(order.order_created_at || order.created_at).toLocaleDateString()}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
-                        <Stack direction="row" spacing={0.5}>
-                          {order.field_id && (
-                            <Tooltip title="View on Map">
-                              <IconButton
+                      <TableCell
+                        sx={{
+                          py: 1,
+                          position: 'sticky',
+                          right: 0,
+                          zIndex: 3,
+                          backgroundColor: '#fff',
+                          boxShadow: '-10px 0 16px -12px rgba(15, 23, 42, 0.28)',
+                          borderLeft: '1px solid #e2e8f0',
+                        }}
+                      >
+                        <Stack spacing={0.5}>
+                          <FarmerOrderStatusSelect
+                            order={order}
+                            updatingStatus={updatingStatus}
+                            onChange={handleStatusChange}
+                          />
+                          <Stack direction="row" alignItems="center" spacing={0.25} flexWrap="nowrap">
+                            {order.field_id && (
+                              <Button
                                 size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleViewOnMap(order);
-                                }}
+                                startIcon={<LocationOn sx={{ fontSize: '0.85rem !important' }} />}
+                                onClick={() => handleViewOnMap(order)}
                                 sx={{
+                                  textTransform: 'none',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 700,
                                   color: '#1d4ed8',
-                                  '&:hover': { backgroundColor: '#dbeafe' },
-                                  p: 0.5,
+                                  px: 0.4,
+                                  py: 0,
+                                  minWidth: 0,
+                                  minHeight: 0,
+                                  lineHeight: 1.2,
+                                  whiteSpace: 'nowrap',
+                                  '& .MuiButton-startIcon': { mr: 0.35 },
+                                  '&:hover': { backgroundColor: '#eff6ff' },
                                 }}
                               >
-                                <LocationOn sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          <Tooltip title="View details & update status">
-                            <IconButton
+                                View on map
+                              </Button>
+                            )}
+                            <Button
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleViewDetails(order);
-                              }}
+                              startIcon={<Visibility sx={{ fontSize: '0.85rem !important' }} />}
+                              onClick={() => handleViewDetails(order)}
                               sx={{
+                                textTransform: 'none',
+                                fontSize: '0.65rem',
+                                fontWeight: 700,
                                 color: '#059669',
-
-                                p: 0.5,
+                                px: 0.4,
+                                py: 0,
+                                minWidth: 0,
+                                minHeight: 0,
+                                lineHeight: 1.2,
+                                whiteSpace: 'nowrap',
+                                '& .MuiButton-startIcon': { mr: 0.35 },
+                                '&:hover': { backgroundColor: '#ecfdf5' },
                               }}
                             >
-                              <Visibility sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                          {order.pending_refund_request_id && (
-                            <>
-                              <Tooltip
-                                title={
-                                  order.pending_refund_request_reason
-                                    ? `Buyer message: ${order.pending_refund_request_reason}\n\nApprove: cancel order and refund coins.`
-                                    : 'Approve refund (cancel order, return coins to buyer)'
-                                }
-                              >
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    disabled={refundActionLoading || updatingStatus}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleApproveRefund(order.pending_refund_request_id);
-                                    }}
-                                    sx={{ color: '#059669', p: 0.5 }}
-                                  >
-                                    <CheckCircle sx={{ fontSize: 18 }} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                              <Tooltip title="Decline refund request">
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    disabled={refundActionLoading || updatingStatus}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openRejectRefund(order.pending_refund_request_id, order.field_name);
-                                    }}
-                                    sx={{ color: '#dc2626', p: 0.5 }}
-                                  >
-                                    <HighlightOff sx={{ fontSize: 18 }} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            </>
-                          )}
+                              View details
+                            </Button>
+                            {order.pending_refund_request_id && (
+                              <>
+                                <Tooltip
+                                  title={
+                                    order.pending_refund_request_reason
+                                      ? `Buyer message: ${order.pending_refund_request_reason}\n\nApprove: cancel order and refund coins.`
+                                      : 'Approve refund (cancel order, return coins to buyer)'
+                                  }
+                                >
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      disabled={refundActionLoading || updatingStatus}
+                                      onClick={() => handleApproveRefund(order.pending_refund_request_id)}
+                                      sx={{ color: '#059669', p: 0.25 }}
+                                    >
+                                      <CheckCircle sx={{ fontSize: 15 }} />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Decline refund request">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      disabled={refundActionLoading || updatingStatus}
+                                      onClick={() => openRejectRefund(order.pending_refund_request_id, order.field_name)}
+                                      sx={{ color: '#dc2626', p: 0.25 }}
+                                    >
+                                      <HighlightOff sx={{ fontSize: 15 }} />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              </>
+                            )}
+                          </Stack>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -1018,6 +1659,7 @@ const FarmOrders = () => {
                 </TableBody>
               </Table>
             </TableContainer>
+            </Box>
           )}
         </Paper>
       </Box>
@@ -1093,6 +1735,56 @@ const FarmOrders = () => {
                       </Typography>
                     </Box>
                     <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+                    <Box sx={{ minWidth: 180 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                        Deliver to this buyer
+                      </Typography>
+                      {(() => {
+                        const deliverable = getDeliverableHarvest(selectedOrder, orders);
+                        if (deliverable.declared && deliverable.primaryLine) {
+                          return (
+                            <>
+                              <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+                                {deliverable.primaryLine}
+                              </Typography>
+                              {deliverable.secondaryLine && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.35 }}>
+                                  {deliverable.secondaryLine}
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#b45309', mt: 0.25 }}>
+                              Harvest not entered yet
+                            </Typography>
+                            <Button
+                              size="small"
+                              onClick={() => handleGoEnterHarvest(selectedOrder)}
+                              sx={{
+                                mt: 0.5,
+                                px: 0,
+                                minWidth: 0,
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                color: '#b45309',
+                                '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                              }}
+                            >
+                              Enter your harvest total on My Farms →
+                            </Button>
+                            {deliverable.planned?.text && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                Planned for this buyer: {deliverable.planned.text}
+                              </Typography>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </Box>
+                    <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
                     <Box sx={{ flex: 1, minWidth: 200 }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
                         Shipping
@@ -1165,6 +1857,104 @@ const FarmOrders = () => {
                       )}
                     </Box>
                   )}
+                  {(() => {
+                    const deliverable = getDeliverableHarvest(selectedOrder, orders);
+                    const urgency = getHarvestUrgency(selectedOrder);
+                    return (
+                      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #cbd5e1' }}>
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0f172a' }}>
+                            What this buyer gets
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={urgency.shortLabel || urgency.label}
+                            sx={{
+                              ...urgencyChipSx(urgency.tone),
+                              height: 'auto',
+                              '& .MuiChip-label': { fontSize: '0.7rem', py: 0.35 },
+                            }}
+                          />
+                        </Stack>
+
+                        <Alert
+                          severity={deliverable.declared ? 'success' : 'warning'}
+                          icon={false}
+                          sx={{ borderRadius: 2, mb: 1.5 }}
+                        >
+                          {deliverable.declared && deliverable.primaryLine ? (
+                            <>
+                              <AlertTitle sx={{ fontWeight: 800, mb: 0.5 }}>
+                                Send {deliverable.primaryLine} to this buyer
+                              </AlertTitle>
+                              <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
+                                {deliverable.secondaryLine ||
+                                  'This is their share from the harvest you entered for the field.'}
+                              </Typography>
+                              {deliverable.deltaPlain && (
+                                <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600 }}>
+                                  {deliverable.deltaPlain}.
+                                </Typography>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <AlertTitle sx={{ fontWeight: 800, mb: 0.5 }}>
+                                Harvest total not entered yet
+                              </AlertTitle>
+                              <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
+                                Go to My Farms, open this field, and enter how much you harvested in total. Then we&apos;ll
+                                show exactly how much to send this buyer.
+                              </Typography>
+                              {deliverable.planned?.text && (
+                                <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600 }}>
+                                  Planned for this buyer (from field setup): {deliverable.planned.text}
+                                </Typography>
+                              )}
+                            </>
+                          )}
+                        </Alert>
+
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={4}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
+                              1. Planned for this buyer
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                              {deliverable.planned?.text || '—'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                              Based on the area they bought
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
+                              2. You harvested (whole field)
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                              {deliverable.declared ? deliverable.fieldTotalText || '—' : 'Not entered'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                              {deliverable.fieldPlan?.text
+                                ? `Field was set up for about ${deliverable.fieldPlan.text}`
+                                : 'The total you typed when marking harvested'}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
+                              3. Send this buyer
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 800, color: '#059669' }}>
+                              {deliverable.declared ? deliverable.primaryLine || '—' : 'Waiting on harvest'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                              Their share of your harvest
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    );
+                  })()}
                 </Paper>
               </Grid>
               <Grid item xs={12} md={6}>
