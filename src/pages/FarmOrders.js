@@ -1134,41 +1134,41 @@ const FarmOrders = () => {
                       </Stack>
                       <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}>
-                          Deliver to this buyer
+                          Est vs Actual
                         </Typography>
-                        {deliverable.declared && deliverable.primaryLine ? (
+                        {deliverable.declared && deliverable.actualText ? (
                           <Box>
-                            <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
-                              {deliverable.primaryLine}
+                            <Typography variant="body2" sx={{ fontSize: '0.85rem', fontWeight: 800, color: '#059669' }}>
+                              Actual {deliverable.actualText}
                             </Typography>
-                            {deliverable.secondaryLine && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.35 }}>
-                                {deliverable.secondaryLine}
-                              </Typography>
-                            )}
-                            {deliverable.contextLine && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                                {deliverable.contextLine}
-                              </Typography>
-                            )}
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                              Est {deliverable.estimatedText || '—'}
+                            </Typography>
                           </Box>
                         ) : (
-                          <Button
-                            size="small"
-                            onClick={(e) => handleGoEnterHarvest(order, e)}
-                            sx={{
-                              p: 0,
-                              minWidth: 0,
-                              textTransform: 'none',
-                              fontSize: '0.78rem',
-                              fontWeight: 700,
-                              color: '#b45309',
-                              justifyContent: 'flex-start',
-                              '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
-                            }}
-                          >
-                            Enter your harvest total on My Farms →
-                          </Button>
+                          <Box>
+                            {deliverable.estimatedText && (
+                              <Typography variant="body2" sx={{ fontSize: '0.8rem', fontWeight: 700, mb: 0.25 }}>
+                                Est {deliverable.estimatedText}
+                              </Typography>
+                            )}
+                            <Button
+                              size="small"
+                              onClick={(e) => handleGoEnterHarvest(order, e)}
+                              sx={{
+                                p: 0,
+                                minWidth: 0,
+                                textTransform: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                color: '#b45309',
+                                justifyContent: 'flex-start',
+                                '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                              }}
+                            >
+                              Enter harvest →
+                            </Button>
+                          </Box>
                         )}
                       </Box>
                     </Stack>
@@ -1313,7 +1313,7 @@ const FarmOrders = () => {
                       Area
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 170 }}>
-                      Deliver to buyer
+                      Est vs Actual
                     </TableCell>
                     <TableCell sx={{ fontWeight: 600, color: '#475569', fontSize: '0.8rem', py: 1.5, width: 90 }}>
                       Revenue
@@ -1492,61 +1492,47 @@ const FarmOrders = () => {
                       </TableCell>
                       <TableCell sx={{ py: 1.5 }} onClick={(e) => e.stopPropagation()}>
                         {(() => {
-                          const deliverable = getDeliverableHarvest(order, orders);
-                          if (deliverable.declared && deliverable.primaryLine) {
+                          const deliverable = getDeliverableHarvest(order);
+                          if (deliverable.declared && deliverable.actualText) {
                             return (
                               <Box>
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    fontWeight: 800,
-                                    fontSize: '0.8rem',
-                                    color: '#0f172a',
-                                    whiteSpace: 'normal',
-                                    wordBreak: 'break-word',
-                                  }}
-                                >
-                                  {deliverable.primaryLine}
+                                <Typography variant="body2" sx={{ fontWeight: 800, fontSize: '0.8rem', color: '#059669' }}>
+                                  Actual {deliverable.actualText}
                                 </Typography>
-                                {(deliverable.tableSecondaryLine || deliverable.secondaryLine) && (
-                                  <Typography
-                                    variant="caption"
-                                    color="text.secondary"
-                                    sx={{
-                                      fontSize: '0.68rem',
-                                      display: 'block',
-                                      lineHeight: 1.35,
-                                      whiteSpace: 'normal',
-                                      wordBreak: 'break-word',
-                                    }}
-                                  >
-                                    {deliverable.tableSecondaryLine || deliverable.secondaryLine}
-                                  </Typography>
-                                )}
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', display: 'block' }}>
+                                  Est {deliverable.estimatedText || '—'}
+                                </Typography>
                               </Box>
                             );
                           }
                           return (
-                            <Button
-                              size="small"
-                              variant="text"
-                              onClick={(e) => handleGoEnterHarvest(order, e)}
-                              sx={{
-                                p: 0,
-                                minWidth: 0,
-                                textTransform: 'none',
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                color: '#b45309',
-                                lineHeight: 1.3,
-                                justifyContent: 'flex-start',
-                                textAlign: 'left',
-                                whiteSpace: 'normal',
-                                '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
-                              }}
-                            >
-                              Enter harvest →
-                            </Button>
+                            <Box>
+                              {deliverable.estimatedText && (
+                                <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, color: '#475569', mb: 0.25 }}>
+                                  Est {deliverable.estimatedText}
+                                </Typography>
+                              )}
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={(e) => handleGoEnterHarvest(order, e)}
+                                sx={{
+                                  p: 0,
+                                  minWidth: 0,
+                                  textTransform: 'none',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  color: '#b45309',
+                                  lineHeight: 1.3,
+                                  justifyContent: 'flex-start',
+                                  textAlign: 'left',
+                                  whiteSpace: 'normal',
+                                  '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                                }}
+                              >
+                                Enter harvest →
+                              </Button>
+                            </Box>
                           );
                         })()}
                       </TableCell>
@@ -1737,28 +1723,26 @@ const FarmOrders = () => {
                     <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
                     <Box sx={{ minWidth: 180 }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
-                        Deliver to this buyer
+                        Est vs Actual
                       </Typography>
                       {(() => {
-                        const deliverable = getDeliverableHarvest(selectedOrder, orders);
-                        if (deliverable.declared && deliverable.primaryLine) {
+                        const deliverable = getDeliverableHarvest(selectedOrder);
+                        if (deliverable.declared && deliverable.actualText) {
                           return (
                             <>
-                              <Typography variant="h5" sx={{ fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-                                {deliverable.primaryLine}
+                              <Typography variant="h5" sx={{ fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
+                                {deliverable.actualText}
                               </Typography>
-                              {deliverable.secondaryLine && (
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.35 }}>
-                                  {deliverable.secondaryLine}
-                                </Typography>
-                              )}
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
+                                Actual · Est {deliverable.estimatedText || '—'}
+                              </Typography>
                             </>
                           );
                         }
                         return (
                           <>
-                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#b45309', mt: 0.25 }}>
-                              Harvest not entered yet
+                            <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.25 }}>
+                              Est {deliverable.estimatedText || '—'}
                             </Typography>
                             <Button
                               size="small"
@@ -1773,13 +1757,8 @@ const FarmOrders = () => {
                                 '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
                               }}
                             >
-                              Enter your harvest total on My Farms →
+                              Enter harvest →
                             </Button>
-                            {deliverable.planned?.text && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                Planned for this buyer: {deliverable.planned.text}
-                              </Typography>
-                            )}
                           </>
                         );
                       })()}
@@ -1858,14 +1837,25 @@ const FarmOrders = () => {
                     </Box>
                   )}
                   {(() => {
-                    const deliverable = getDeliverableHarvest(selectedOrder, orders);
+                    const deliverable = getDeliverableHarvest(selectedOrder);
                     const urgency = getHarvestUrgency(selectedOrder);
+                    const areaLabel =
+                      deliverable.orderArea != null && deliverable.fieldArea != null
+                        ? `${Number(deliverable.orderArea).toLocaleString(undefined, { maximumFractionDigits: 2 })} m² of ${Number(deliverable.fieldArea).toLocaleString(undefined, { maximumFractionDigits: 2 })} m² field`
+                        : null;
                     return (
                       <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #cbd5e1' }}>
                         <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1} sx={{ mb: 1.5 }}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0f172a' }}>
-                            What this buyer gets
-                          </Typography>
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0f172a' }}>
+                              Estimated vs Actual
+                            </Typography>
+                            {areaLabel && (
+                              <Typography variant="caption" color="text.secondary">
+                                For this order&apos;s area ({areaLabel})
+                              </Typography>
+                            )}
+                          </Box>
                           <Chip
                             size="small"
                             label={urgency.shortLabel || urgency.label}
@@ -1877,81 +1867,65 @@ const FarmOrders = () => {
                           />
                         </Stack>
 
-                        <Alert
-                          severity={deliverable.declared ? 'success' : 'warning'}
-                          icon={false}
-                          sx={{ borderRadius: 2, mb: 1.5 }}
+                        <Stack
+                          direction={{ xs: 'column', sm: 'row' }}
+                          spacing={2}
+                          divider={<Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />}
+                          sx={{
+                            p: 2,
+                            borderRadius: 2,
+                            border: '1px solid #e2e8f0',
+                            backgroundColor: '#fff',
+                          }}
                         >
-                          {deliverable.declared && deliverable.primaryLine ? (
-                            <>
-                              <AlertTitle sx={{ fontWeight: 800, mb: 0.5 }}>
-                                Send {deliverable.primaryLine} to this buyer
-                              </AlertTitle>
-                              <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
-                                {deliverable.secondaryLine ||
-                                  'This is their share from the harvest you entered for the field.'}
-                              </Typography>
-                              {deliverable.deltaPlain && (
-                                <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600 }}>
-                                  {deliverable.deltaPlain}.
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                              Estimated
+                            </Typography>
+                            <Typography variant="h5" sx={{ fontWeight: 800, color: '#475569', lineHeight: 1.2 }}>
+                              {deliverable.estimatedText || '—'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                              From field setup amount
+                            </Typography>
+                          </Box>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                              Actual yield
+                            </Typography>
+                            {deliverable.declared && deliverable.actualText ? (
+                              <>
+                                <Typography variant="h5" sx={{ fontWeight: 800, color: '#059669', lineHeight: 1.2 }}>
+                                  {deliverable.actualText}
                                 </Typography>
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              <AlertTitle sx={{ fontWeight: 800, mb: 0.5 }}>
-                                Harvest total not entered yet
-                              </AlertTitle>
-                              <Typography variant="body2" sx={{ lineHeight: 1.45 }}>
-                                Go to My Farms, open this field, and enter how much you harvested in total. Then we&apos;ll
-                                show exactly how much to send this buyer.
-                              </Typography>
-                              {deliverable.planned?.text && (
-                                <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600 }}>
-                                  Planned for this buyer (from field setup): {deliverable.planned.text}
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                  Deliver this much to the buyer
                                 </Typography>
-                              )}
-                            </>
-                          )}
-                        </Alert>
-
-                        <Grid container spacing={2}>
-                          <Grid item xs={12} sm={4}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
-                              1. Planned for this buyer
-                            </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                              {deliverable.planned?.text || '—'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                              Based on the area they bought
-                            </Typography>
-                          </Grid>
-                          <Grid item xs={12} sm={4}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
-                              2. You harvested (whole field)
-                            </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                              {deliverable.declared ? deliverable.fieldTotalText || '—' : 'Not entered'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                              {deliverable.fieldPlan?.text
-                                ? `Field was set up for about ${deliverable.fieldPlan.text}`
-                                : 'The total you typed when marking harvested'}
-                            </Typography>
-                          </Grid>
-                          <Grid item xs={12} sm={4}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block' }}>
-                              3. Send this buyer
-                            </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 800, color: '#059669' }}>
-                              {deliverable.declared ? deliverable.primaryLine || '—' : 'Waiting on harvest'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                              Their share of your harvest
-                            </Typography>
-                          </Grid>
-                        </Grid>
+                              </>
+                            ) : (
+                              <>
+                                <Typography variant="body1" sx={{ fontWeight: 700, color: '#b45309', mt: 0.5 }}>
+                                  Not entered yet
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  onClick={() => handleGoEnterHarvest(selectedOrder)}
+                                  sx={{
+                                    mt: 0.5,
+                                    px: 0,
+                                    minWidth: 0,
+                                    textTransform: 'none',
+                                    fontWeight: 700,
+                                    color: '#b45309',
+                                    '&:hover': { backgroundColor: 'transparent', textDecoration: 'underline' },
+                                  }}
+                                >
+                                  Enter harvest on My Farms →
+                                </Button>
+                              </>
+                            )}
+                          </Box>
+                        </Stack>
                       </Box>
                     );
                   })()}

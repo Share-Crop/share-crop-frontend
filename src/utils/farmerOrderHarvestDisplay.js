@@ -57,7 +57,7 @@ export function harvestUnitLabel(order) {
 }
 
 /**
- * Estimated whole-field yield from field setup (e.g. 70 kg).
+ * Estimated whole-field yield from field setup (e.g. 120 kg).
  */
 export function getEstimatedFieldYield(order) {
   const total = toNum(order?.total_production ?? order?.totalProduction);
@@ -70,145 +70,91 @@ export function getEstimatedFieldYield(order) {
 }
 
 /**
- * This order's share of estimated field yield by purchased area / field area.
+ * Order area share of the field: order_m2 / field_total_m2.
+ * Example: 0.65 / 10 = 0.065
  */
-export function getEstimatedOrderYield(order) {
-  const fromApi = toNum(order?.harvest_estimated_qty);
-  const unit = harvestUnitLabel(order);
-  if (fromApi != null && fromApi >= 0) {
-    return {
-      amount: fromApi,
-      unit,
-      text: formatAmt(fromApi, order),
-    };
-  }
-  const fieldEst = getEstimatedFieldYield(order);
+export function getOrderAreaShare(order) {
   const area = toNum(order?.quantity);
   const totalArea = fieldTotalAreaM2(order);
-  if (!fieldEst || area == null || area <= 0 || !totalArea || totalArea <= 0) return null;
-  const share = (area / totalArea) * fieldEst.amount;
+  if (area == null || area <= 0 || !totalArea || totalArea <= 0) return null;
+  return area / totalArea;
+}
+
+/**
+ * This order's share of estimated field yield by purchased area / field area.
+ * Example: 120 kg setup × (0.65 / 10) = 7.8 kg
+ */
+export function getEstimatedOrderYield(order) {
+  const fieldEst = getEstimatedFieldYield(order);
+  const share = getOrderAreaShare(order);
+  if (!fieldEst || share == null) return null;
+  const amount = fieldEst.amount * share;
   return {
-    amount: share,
+    amount,
     unit: fieldEst.unit,
-    text: formatAmt(share, order),
+    text: formatAmt(amount, order),
   };
 }
 
 /**
- * Order-centric harvest numbers for UI.
- * Primary number = how much THIS buyer should receive.
+ * Simple farmer-facing numbers for one order:
+ * - estimated = setup total × (order area / field area)
+ * - actual    = harvest entered × (order area / field area)
+ * Show only those two as Est vs Actual.
  */
-export function getDeliverableHarvest(order, siblingOrders = []) {
+export function getDeliverableHarvest(order) {
   const unit = harvestUnitLabel(order);
-  const fieldTotal = toNum(order?.field_harvest_total);
-  let allocated = toNum(order?.harvest_allocated_qty);
-  let computedFromSiblings = false;
+  const share = getOrderAreaShare(order);
+  const fieldSetupTotal = toNum(order?.total_production ?? order?.totalProduction);
+  const fieldHarvestTotal = toNum(order?.field_harvest_total);
 
-  const sameField = (siblingOrders.length ? siblingOrders : [order]).filter(
-    (o) =>
-      String(o.field_id) === String(order.field_id) &&
-      !['cancelled', 'pending'].includes(String(o.status || '').toLowerCase())
-  );
+  const declared = hasDeclaredFieldHarvest(order) && fieldHarvestTotal != null && fieldHarvestTotal > 0;
 
-  if ((allocated == null || allocated < 0) && fieldTotal != null && fieldTotal > 0) {
-    const area = toNum(order?.quantity) || 0;
-    let rented = 0;
-    for (const o of sameField) {
-      const q = toNum(o.quantity);
-      if (q) rented += q;
-    }
-    if (rented > 0 && area > 0) {
-      allocated = (area / rented) * fieldTotal;
-      computedFromSiblings = true;
-    }
+  let estimated = null;
+  if (fieldSetupTotal != null && fieldSetupTotal >= 0 && share != null) {
+    estimated = fieldSetupTotal * share;
   }
 
-  const planned = getEstimatedOrderYield(order);
-  const fieldPlan = getEstimatedFieldYield(order);
-  const declared = Boolean(
-    hasDeclaredFieldHarvest(order) && (fieldTotal != null || allocated != null)
-  );
-
-  const shareRatio =
-    fieldTotal != null && fieldTotal > 0 && allocated != null
-      ? allocated / fieldTotal
-      : null;
-  const isFullHarvest =
-    fieldTotal != null &&
-    allocated != null &&
-    fieldTotal > 0 &&
-    Math.abs(allocated - fieldTotal) / fieldTotal < 0.02;
-
-  let deltaAmount = null;
-  if (declared && allocated != null && planned?.amount != null) {
-    deltaAmount = allocated - planned.amount;
+  let actual = null;
+  if (declared && share != null) {
+    actual = fieldHarvestTotal * share;
   }
 
-  let deltaPlain = null;
-  if (deltaAmount != null && planned?.amount != null) {
-    const absText = formatAmt(Math.abs(deltaAmount), order);
-    if (Math.abs(deltaAmount) < 0.05) {
-      deltaPlain = 'About the same as planned for this buyer';
-    } else if (deltaAmount > 0) {
-      deltaPlain = `${absText} more than planned for this buyer`;
-    } else {
-      deltaPlain = `${absText} less than planned for this buyer`;
-    }
-  }
+  const estimatedText = estimated != null ? formatAmt(estimated, order) : null;
+  const actualText = actual != null ? formatAmt(actual, order) : null;
 
-  // Plain-language lines for farmers
-  let primaryLine = null;
-  let secondaryLine = null;
-  let tableSecondaryLine = null;
-  let contextLine = null;
-
-  if (declared && allocated != null) {
-    primaryLine = formatAmt(allocated, order);
-    if (isFullHarvest) {
-      secondaryLine =
-        sameField.length <= 1
-          ? 'Full harvest for this buyer (only rental on this field)'
-          : 'This buyer gets the full harvest you entered';
-      tableSecondaryLine =
-        sameField.length <= 1 ? 'Only rental — full harvest' : 'Gets full harvest entered';
-    } else if (fieldTotal != null) {
-      const pct =
-        shareRatio != null ? Math.round(shareRatio * 100) : null;
-      secondaryLine =
-        pct != null
-          ? `${pct}% of your field harvest (${formatAmt(fieldTotal, order)} total)`
-          : `From your field harvest of ${formatAmt(fieldTotal, order)}`;
-      tableSecondaryLine =
-        pct != null
-          ? `${pct}% of field (${formatAmt(fieldTotal, order)})`
-          : `From field ${formatAmt(fieldTotal, order)}`;
-    }
-    if (planned?.text) {
-      contextLine = `Planned for this buyer: ${planned.text}`;
-    }
-  }
+  // Primary = what to deliver (actual once entered)
+  const primaryLine = actualText;
+  const secondaryLine = estimatedText ? `Est. ${estimatedText}` : null;
+  const tableSecondaryLine = estimatedText ? `Est ${estimatedText}` : null;
 
   return {
     declared,
-    fieldTotal,
-    allocated,
     unit,
-    planned,
-    fieldPlan,
-    sameFieldCount: sameField.length,
-    isFullHarvest,
-    shareRatio,
-    computedFromSiblings,
-    deltaAmount,
-    deltaPlain,
-    // display helpers
+    share,
+    orderArea: toNum(order?.quantity),
+    fieldArea: fieldTotalAreaM2(order),
+    fieldSetupTotal,
+    fieldHarvestTotal,
+    estimated,
+    actual,
+    estimatedText,
+    actualText,
+    // aliases used by existing UI
+    planned: estimatedText
+      ? { amount: estimated, unit, text: estimatedText }
+      : null,
+    fieldPlan: fieldSetupTotal != null
+      ? { amount: fieldSetupTotal, unit, text: formatAmt(fieldSetupTotal, order) }
+      : null,
+    fieldTotal: fieldHarvestTotal,
+    allocated: actual,
     primaryLine,
     secondaryLine,
-    tableSecondaryLine: tableSecondaryLine || secondaryLine,
-    contextLine,
-    fieldTotalText: fieldTotal != null ? formatAmt(fieldTotal, order) : null,
-    allocatedText: allocated != null ? formatAmt(allocated, order) : null,
-    // legacy aliases still used in a few places
+    tableSecondaryLine,
+    contextLine: null,
+    fieldTotalText: fieldHarvestTotal != null ? formatAmt(fieldHarvestTotal, order) : null,
+    allocatedText: actualText,
   };
 }
 
