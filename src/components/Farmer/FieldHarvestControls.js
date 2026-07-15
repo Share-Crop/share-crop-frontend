@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Button,
   Dialog,
@@ -20,7 +20,7 @@ import {
   getFieldHarvestOrders,
   harvestEligibilityMessage,
 } from '../../utils/farmerOrderOccupancy';
-import { areaDisplay } from '../../utils/fieldAreaDisplay';
+import { formatTotalProductionWithUnit, productionUnitLabel } from '../../utils/fieldProductionUnits';
 
 const statusLabel = (s) => {
   const v = (s || 'growing').toLowerCase();
@@ -29,20 +29,65 @@ const statusLabel = (s) => {
   return { text: 'Growing', color: '#047857', bg: '#ecfdf5' };
 };
 
+function toNum(raw) {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Whole-field Est vs Actual (My Farms):
+ * - estimated = field setup total_production
+ * - actual    = harvest quantity farmer entered
+ */
+function getFieldHarvestComparison(field, events) {
+  const estimated = toNum(field?.totalProduction ?? field?.total_production);
+  const latest = Array.isArray(events) && events.length ? events[0] : null;
+  const actual = latest ? toNum(latest.total_quantity) : null;
+  const unitRaw =
+    latest?.unit ||
+    field?.totalProductionUnit ||
+    field?.total_production_unit ||
+    'kg';
+  const unit = productionUnitLabel(unitRaw);
+  const declared = actual != null && actual > 0;
+  const delta =
+    declared && estimated != null ? actual - estimated : null;
+
+  return {
+    estimated,
+    actual,
+    delta,
+    declared,
+    unit,
+    estimatedText:
+      estimated != null ? formatTotalProductionWithUnit(estimated, unitRaw) : null,
+    actualText:
+      declared ? formatTotalProductionWithUnit(actual, unitRaw) : null,
+  };
+}
+
 const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, prominent = false }) => {
   const [operationalStatus, setOperationalStatus] = useState(field?.operational_status || 'growing');
   const [harvestOpen, setHarvestOpen] = useState(false);
   const [totalQty, setTotalQty] = useState('');
-  const [unit, setUnit] = useState('kg');
+  const [unit, setUnit] = useState(
+    () => productionUnitLabel(field?.totalProductionUnit || field?.total_production_unit || 'kg')
+  );
   const [notes, setNotes] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [allocations, setAllocations] = useState([]);
-  const [loadingAlloc, setLoadingAlloc] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [loadingHarvest, setLoadingHarvest] = useState(false);
 
   useEffect(() => {
     setOperationalStatus(field?.operational_status || 'growing');
   }, [field?.operational_status, field?.id]);
+
+  useEffect(() => {
+    const u = productionUnitLabel(field?.totalProductionUnit || field?.total_production_unit || 'kg');
+    setUnit(u);
+  }, [field?.totalProductionUnit, field?.total_production_unit, field?.id]);
 
   const activeOrdersOnField = getFieldHarvestOrders(farmerOrders, field.id);
 
@@ -53,30 +98,35 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
     field.available_area ?? field.availableAreaM2
   );
 
-  const loadAllocations = useCallback(async () => {
+  const loadHarvestSummary = useCallback(async () => {
     if (!field?.id) return;
-    setLoadingAlloc(true);
+    setLoadingHarvest(true);
     try {
       const res = await fieldsService.getHarvestEvents(field.id);
-      setAllocations(res.data?.allocations || []);
+      setEvents(res.data?.events || []);
     } catch {
-      setAllocations([]);
+      setEvents([]);
     } finally {
-      setLoadingAlloc(false);
+      setLoadingHarvest(false);
     }
   }, [field?.id]);
 
   useEffect(() => {
     if (operationalStatus === 'harvested' || operationalStatus === 'shipped') {
-      loadAllocations();
+      loadHarvestSummary();
     }
-  }, [operationalStatus, loadAllocations]);
+  }, [operationalStatus, loadHarvestSummary]);
+
+  const comparison = useMemo(
+    () => getFieldHarvestComparison(field, events),
+    [field, events]
+  );
 
   const submitHarvest = async () => {
     setError(null);
     setBusy(true);
     try {
-      await fieldsService.completeHarvest(field.id, {
+      const res = await fieldsService.completeHarvest(field.id, {
         total_quantity: totalQty,
         unit,
         notes,
@@ -84,7 +134,11 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
       setOperationalStatus('harvested');
       setHarvestOpen(false);
       setTotalQty('');
-      await loadAllocations();
+      if (res.data?.event) {
+        setEvents([res.data.event, ...(res.data?.events || [])].filter(Boolean));
+      } else {
+        await loadHarvestSummary();
+      }
       if (onFieldUpdated) onFieldUpdated();
     } catch (e) {
       setError(e.response?.data?.error || e.message || 'Could not record harvest');
@@ -114,6 +168,8 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
   const btnSx = prominent
     ? { fontSize: '0.8rem', py: 0.75, px: 2, textTransform: 'none', fontWeight: 600 }
     : { fontSize: '0.65rem', py: 0.25, textTransform: 'none' };
+
+  const fieldEstPreview = toNum(field?.totalProduction ?? field?.total_production);
 
   return (
     <div className={prominent ? 'mt-1' : 'mt-2 border-t border-slate-100 pt-2'}>
@@ -163,33 +219,44 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
 
       {(operationalStatus === 'harvested' || operationalStatus === 'shipped') && (
         <div className="mt-1">
-          {loadingAlloc ? (
+          {loadingHarvest ? (
             <CircularProgress size={16} />
-          ) : allocations.length > 0 ? (
-            <Table size="small" sx={{ '& td, & th': { fontSize: '0.65rem', py: 0.5 } }}>
+          ) : comparison.declared || comparison.estimated != null ? (
+            <Table size="small" sx={{ '& td, & th': { fontSize: '0.7rem', py: 0.5 } }}>
               <TableHead>
                 <TableRow>
-                  <TableCell>Renter</TableCell>
-                  <TableCell align="right">Actual</TableCell>
+                  <TableCell>Field harvest</TableCell>
                   <TableCell align="right">Est.</TableCell>
+                  <TableCell align="right">Actual</TableCell>
                   <TableCell align="right">+/-</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {allocations.slice(0, 5).map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell>{a.buyer_name || 'Buyer'}</TableCell>
-                    <TableCell align="right">{Number(a.actual_kg).toFixed(1)} kg</TableCell>
-                    <TableCell align="right">{Number(a.estimated_kg).toFixed(1)}</TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ color: Number(a.delta_kg) >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}
-                    >
-                      {Number(a.delta_kg) >= 0 ? '+' : ''}
-                      {Number(a.delta_kg).toFixed(1)}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <TableRow>
+                  <TableCell>Whole field</TableCell>
+                  <TableCell align="right">
+                    {comparison.estimatedText || '—'}
+                  </TableCell>
+                  <TableCell align="right">
+                    {comparison.actualText || '—'}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{
+                      color:
+                        comparison.delta == null
+                          ? 'inherit'
+                          : comparison.delta >= 0
+                            ? '#059669'
+                            : '#dc2626',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {comparison.delta == null
+                      ? '—'
+                      : `${comparison.delta >= 0 ? '+' : ''}${Number(comparison.delta).toFixed(1)} ${comparison.unit}`}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           ) : null}
@@ -199,9 +266,20 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
       <Dialog open={harvestOpen} onClose={() => !busy && setHarvestOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Total harvest for this field</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Enter the total quantity harvested. It will be split across {activeOrdersOnField.length} active rental(s) by
-            area ({areaDisplay(field).unit}). Renters see actual vs estimated (+/-).
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Enter the <strong>total</strong> quantity harvested from this whole field
+            {fieldEstPreview != null ? (
+              <>
+                . Setup estimate is{' '}
+                <strong>
+                  {formatTotalProductionWithUnit(
+                    fieldEstPreview,
+                    field?.totalProductionUnit || field?.total_production_unit || unit
+                  )}
+                </strong>
+              </>
+            ) : null}
+            .
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -216,6 +294,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
             onChange={(e) => setTotalQty(e.target.value)}
             margin="dense"
             required
+            inputProps={{ min: 0, step: 'any' }}
           />
           <TextField fullWidth label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} margin="dense" />
           <TextField
@@ -233,7 +312,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
             Cancel
           </Button>
           <Button variant="contained" onClick={submitHarvest} disabled={busy}>
-            {busy ? 'Saving…' : 'Distribute harvest'}
+            {busy ? 'Saving…' : 'Save harvest'}
           </Button>
         </DialogActions>
       </Dialog>
