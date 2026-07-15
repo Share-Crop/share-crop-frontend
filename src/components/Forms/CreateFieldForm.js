@@ -9,7 +9,6 @@ import {
   Button,
   Typography,
   IconButton,
-  Grid,
   FormControl,
   InputLabel,
   Select,
@@ -125,10 +124,10 @@ const StyledDialog = styled(Dialog)(({ theme, isMobile }) => ({
     borderRadius: isMobile ? '12px' : '20px',
     boxShadow: '0 20px 60px rgba(0, 0, 0, 0.1)',
     border: '1px solid #e0e7ff',
-    maxWidth: isMobile ? '320px' : '800px',
-    width: isMobile ? '320px' : '800px',
+    maxWidth: isMobile ? 'calc(100vw - 16px)' : '800px',
+    width: isMobile ? 'calc(100vw - 16px)' : '800px',
     margin: isMobile ? '8px' : '32px',
-    maxHeight: isMobile ? '85vh' : '90vh',
+    maxHeight: isMobile ? '90vh' : '90vh',
   },
 }));
 
@@ -150,7 +149,8 @@ const StyledDialogContent = styled(DialogContent)(({ theme, isMobile }) => ({
 }));
 
 const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => ({
-  width: isMobile ? '100%' : '320px',
+  width: '100%',
+  minWidth: 0,
   '& .MuiOutlinedInput-root': {
     borderRadius: isMobile ? '8px' : '12px',
     backgroundColor: isSuggested ? '#f8fafc' : '#ffffff',
@@ -194,7 +194,14 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
     color: '#4a5568',
     fontWeight: 500,
     fontSize: isMobile ? '12px' : '14px',
+    fontStyle: isSuggested ? 'italic' : 'normal',
     zIndex: 1,
+    whiteSpace: 'normal',
+    lineHeight: 1.25,
+    maxWidth: 'calc(100% - 14px)',
+    '&.MuiInputLabel-shrink': {
+      maxWidth: 'calc(133% - 32px)',
+    },
     '&.Mui-focused': {
       color: isSuggested ? '#4a5568' : '#4caf50',
     },
@@ -202,18 +209,29 @@ const StyledTextField = styled(TextField)(({ theme, isMobile, isSuggested }) => 
       color: '#64748b',
     },
   },
+  '& .MuiInputAdornment-root': {
+    fontStyle: isSuggested ? 'italic' : 'normal',
+    color: isSuggested ? '#64748b' : undefined,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
   '& .MuiOutlinedInput-notchedOutline': {
     border: '2px solid #e8f5e8',
     borderRadius: isMobile ? '8px' : '12px',
     transition: 'all 0.3s ease',
   },
   '& .MuiFormHelperText-root': {
+    marginLeft: 0,
+    marginRight: 0,
+    whiteSpace: 'normal',
     fontSize: isMobile ? '10px' : '12px',
   },
 }));
 
 const StyledFormControl = styled(FormControl)(({ theme, isMobile }) => ({
-  width: isMobile ? '100%' : '320px',
+  width: '100%',
+  minWidth: 0,
+  maxWidth: '100%',
   '& .MuiOutlinedInput-root': {
     borderRadius: isMobile ? '8px' : '12px',
     backgroundColor: '#ffffff',
@@ -282,27 +300,140 @@ const StyledButton = styled(Button)(({ theme, isMobile }) => ({
   },
 }));
 
-
-const CombinedInputContainer = styled(Box)(({ theme, isMobile }) => ({
-  display: 'flex',
-  alignItems: 'flex-start',
-  flexWrap: isMobile ? 'wrap' : 'nowrap',
-  gap: isMobile ? '12px' : '12px',
+/** Equal two-column form layout (no MUI Grid). */
+const FormStack = styled('div')(({ isMobile }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
+  columnGap: 16,
+  rowGap: 16,
   width: '100%',
-  maxWidth: '100%',
-  '& .MuiTextField-root': {
-    flex: '1 1 auto',
+  alignItems: 'start',
+  boxSizing: 'border-box',
+  '& > .form-full, & > .pricing-full': {
+    gridColumn: '1 / -1',
     minWidth: 0,
-    width: 'auto !important',
-    maxWidth: '100%',
   },
-  '& .MuiFormControl-root': {
-    flex: isMobile ? '1 1 100%' : '0 0 auto',
-    width: isMobile ? '100% !important' : '132px !important',
-    minWidth: isMobile ? '100%' : 132,
-    maxWidth: isMobile ? '100%' : 132,
+  '& .MuiFormControl-root, & .MuiTextField-root, & .MuiAutocomplete-root': {
+    width: '100% !important',
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+  '& .MuiFormHelperText-root': {
+    marginLeft: 0,
+    marginRight: 0,
   },
 }));
+
+const FormSizeUnitRow = styled('div')(({ isMobile }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) 120px',
+  columnGap: 16,
+  rowGap: 12,
+  width: '100%',
+  alignItems: 'start',
+  '& .MuiFormControl-root, & .MuiTextField-root': {
+    width: '100% !important',
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+}));
+
+const FormSideNote = styled('div')(({ isMobile }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  alignItems: 'flex-start',
+  gap: 4,
+  minHeight: isMobile ? 48 : 56,
+  paddingTop: isMobile ? 0 : 2,
+  boxSizing: 'border-box',
+}));
+
+const FormChoiceRow = styled(RadioGroup)(({ isMobile, columns }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile
+    ? 'minmax(0, 1fr)'
+    : `repeat(${columns || 3}, minmax(0, 1fr))`,
+  gap: 12,
+  width: '100%',
+  '&.MuiFormGroup-root': {
+    flexWrap: 'nowrap',
+  },
+  '& .MuiFormControlLabel-root': {
+    margin: 0,
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: isMobile ? '10px 12px' : '10px 14px',
+    borderRadius: 12,
+    border: '2px solid #e2e8f0',
+    backgroundColor: '#f8fafc',
+    transition: 'all 0.2s ease',
+    justifyContent: 'flex-start',
+    minHeight: isMobile ? 44 : 48,
+    '& .MuiTypography-root': {
+      fontWeight: 500,
+      fontSize: isMobile ? '0.875rem' : '0.95rem',
+      lineHeight: 1.25,
+    },
+  },
+}));
+
+const HarvestDateRow = styled('div')(({ isMobile }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr) auto',
+  columnGap: 12,
+  rowGap: 12,
+  width: '100%',
+  alignItems: 'center',
+  padding: isMobile ? 0 : 12,
+  border: isMobile ? 'none' : '1px solid #e2e8f0',
+  borderRadius: isMobile ? 0 : 8,
+  boxSizing: 'border-box',
+  marginBottom: 12,
+  '& .MuiFormControl-root, & .MuiTextField-root': {
+    width: '100% !important',
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+}));
+
+const ShippingPlaceRow = styled('div')(({ isMobile }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile
+    ? 'minmax(0, 1fr)'
+    : 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto',
+  columnGap: 12,
+  rowGap: 12,
+  width: '100%',
+  alignItems: 'start',
+  marginBottom: 12,
+  boxSizing: 'border-box',
+  '& .MuiAutocomplete-root, & .MuiFormControl-root, & .MuiTextField-root': {
+    width: '100% !important',
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+}));
+
+const DeliveryTierRow = styled('div')(({ isMobile }) => ({
+  display: 'grid',
+  gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr) auto',
+  columnGap: 12,
+  rowGap: 8,
+  width: '100%',
+  alignItems: 'center',
+  marginBottom: 8,
+  '& .MuiFormControl-root, & .MuiTextField-root': {
+    width: '100% !important',
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+}));
+
+/** @deprecated alias — Pricing section uses FormStack */
+const PricingStack = FormStack;
+const PricingProdUnitRow = FormSizeUnitRow;
+const PricingSideNote = FormSideNote;
 
 const SectionTitle = styled(Typography)(({ theme }) => ({
   fontWeight: 600,
@@ -313,36 +444,21 @@ const SectionTitle = styled(Typography)(({ theme }) => ({
   paddingBottom: '8px',
 }));
 
-// const StyledRadioGroup = styled(RadioGroup)(({ theme }) => ({
-//   '& .MuiFormControlLabel-root': {
-//     backgroundColor: '#ffffff',
-//     margin: '4px',
-//     borderRadius: '12px',
-//     border: '2px solid #e8f5e8',
-//     padding: '8px 16px',
-//     transition: 'all 0.3s ease',
-//     '&:hover': {
-//       borderColor: '#c8e6c9',
-//       boxShadow: '0 4px 12px rgba(76, 175, 80, 0.1)',
-//     },
-//   },
-//   '& .MuiRadio-root.Mui-checked + .MuiFormControlLabel-label': {
-//     color: '#4caf50',
-//     fontWeight: 600,
-//   },
-// }));
-
-// const InfoBox = styled(Box)(({ theme }) => ({
-//   backgroundColor: '#f8fffe',
-//   border: '1px solid #e8f5e8',
-//   borderRadius: '12px',
-//   padding: '16px',
-//   marginBottom: '16px',
-//   '& .MuiTypography-root': {
-//     color: '#4a5568',
-//     fontSize: '0.875rem',
-//   },
-// }));
+const FormSection = styled(Paper)(({ theme }) => ({
+  padding: '24px',
+  marginBottom: '24px',
+  borderRadius: '16px',
+  backgroundColor: '#ffffff',
+  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+  border: '1px solid #e8f5e8',
+  width: '100%',
+  boxSizing: 'border-box',
+  '@media (max-width: 768px)': {
+    padding: '16px',
+    marginBottom: '16px',
+    borderRadius: '12px',
+  },
+}));
 
 const StyledDialogActions = styled(DialogActions)(({ theme, isMobile }) => ({
   padding: isMobile ? '16px 20px' : '24px 32px',
@@ -354,15 +470,6 @@ const StyledDialogActions = styled(DialogActions)(({ theme, isMobile }) => ({
   '& .MuiButton-root': {
     width: isMobile ? '100%' : 'auto',
   }
-}));
-
-const FormSection = styled(Paper)(({ theme }) => ({
-  padding: '24px',
-  marginBottom: '24px',
-  borderRadius: '16px',
-  backgroundColor: '#ffffff',
-  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
-  border: '1px solid #e8f5e8',
 }));
 
 /** Wrapper + descendant styles when commercial fields are read-only (pending orders). */
@@ -952,15 +1059,23 @@ const CreateFieldForm = ({
         }
       }
       const cityRows = sd
-        .filter((item) => item.type === 'city' && item.countryCode && item.city)
+        .filter(
+          (item) =>
+            (item.type === 'city' && item.countryCode && item.city)
+            || (item.type === 'region' && item.countryCode && (item.region || item.regionCode))
+        )
         .map((item) => ({
           countryCode: item.countryCode,
-          city: item.city,
+          city: item.type === 'city' ? item.city : '',
           region: item.region || '',
           regionCode: item.regionCode || '',
-          mapboxId: item.mapboxId || '',
-          label: item.label || (item.region ? `${item.city}, ${item.region}` : item.city),
-          center: item.center || null,
+          mapboxId: item.type === 'city' ? (item.mapboxId || '') : '',
+          label:
+            item.label
+            || (item.type === 'region'
+              ? (item.region || item.regionCode || '')
+              : (item.region ? `${item.city}, ${item.region}` : item.city)),
+          center: item.type === 'city' ? (item.center || null) : null,
         }));
       setShippingCountryCodes(countryCodes);
       setShippingCityRows(cityRows.length > 0 ? cityRows : [emptyShippingCityRow()]);
@@ -1260,17 +1375,23 @@ const CreateFieldForm = ({
       const r = rows[i];
       const cc = (r?.countryCode || '').toString().trim();
       const ct = (r?.city || '').toString().trim();
-      const hasPlace = Boolean(r?.mapboxId || r?.label);
-      if ((cc && !ct) || (!cc && ct)) {
-        newErrors.shippingCityRows = `City rule ${i + 1}: select country and city, or clear the row`;
+      const hasRegion = Boolean((r?.regionCode || '').toString().trim() || (r?.region || '').toString().trim());
+      const hasPlace = Boolean(r?.mapboxId || (r?.label && ct));
+      if (!cc && !ct && !hasRegion) continue;
+      if (!cc && (ct || hasRegion)) {
+        newErrors.shippingCityRows = `Place rule ${i + 1}: select a country, or clear the row`;
         break;
       }
-      if (cc === 'US' && ct && !r?.regionCode && !(r?.region || '').trim()) {
-        newErrors.shippingCityRows = `City rule ${i + 1}: select state (e.g. Florida) before the city`;
+      if (cc && !ct && !hasRegion) {
+        newErrors.shippingCityRows = `Place rule ${i + 1}: select state/province (city optional), or clear the row`;
+        break;
+      }
+      if (cc === 'US' && ct && !hasRegion) {
+        newErrors.shippingCityRows = `Place rule ${i + 1}: select state (e.g. Florida) before the city`;
         break;
       }
       if (cc && ct && !hasPlace) {
-        newErrors.shippingCityRows = `City rule ${i + 1}: pick the city from search suggestions (not typed manually)`;
+        newErrors.shippingCityRows = `Place rule ${i + 1}: pick the city from search suggestions (not typed manually)`;
         break;
       }
     }
@@ -1632,38 +1753,22 @@ const CreateFieldForm = ({
               {/* Basic Information Section */}
               <FormSection>
                 <SectionTitle sx={{ fontSize: isMobile ? '16px' : '1.5rem' }}>Basic Information</SectionTitle>
-                <Box sx={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: isMobile ? '16px' : '24px',
-                  justifyContent: 'flex-start'
-                }}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: isMobile ? '16px' : '24px',
-                      width: '100%',
-                      alignItems: 'flex-start',
-                      ...(lockCommercial ? { ...lockedCommercialWrapSx, mb: 2 } : {}),
-                    }}
-                  >
-                    {lockCommercial ? (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          width: '100%',
-                          mb: 0.5,
-                          color: '#475569',
-                          fontWeight: 700,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                        }}
-                      >
-                        Farm &amp; crop type — read-only while orders are open
-                      </Typography>
-                    ) : null}
-                  {/* Farm Selection Dropdown */}
+                <FormStack isMobile={isMobile}>
+                  {lockCommercial ? (
+                    <Typography
+                      className="form-full"
+                      variant="caption"
+                      sx={{
+                        color: '#475569',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      Farm &amp; crop type — read-only while orders are open
+                    </Typography>
+                  ) : null}
+
                   <StyledFormControl error={!!errors.farmId} isMobile={isMobile}>
                     <InputLabel sx={{ fontWeight: 500 }}>Select Farm</InputLabel>
                     <Select
@@ -1718,7 +1823,7 @@ const CreateFieldForm = ({
                         >
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, width: '100%' }}>
                             <Box sx={{ fontSize: '1rem' }}>{getFarmIcon(farm.farmIcon || 'agriculture')}</Box>
-                            <Box sx={{ flex: 1 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography variant="body2" sx={{ fontWeight: 500, color: '#2d3748', lineHeight: 1.2 }}>
                                 {farm.farmName || 'Unnamed Farm'}
                               </Typography>
@@ -1737,7 +1842,6 @@ const CreateFieldForm = ({
                     )}
                   </StyledFormControl>
 
-                  {/* Category Dropdown */}
                   <StyledFormControl error={!!errors.category} isMobile={isMobile}>
                     <InputLabel sx={{ fontWeight: 500 }}>Select Category</InputLabel>
                     <Select
@@ -1745,11 +1849,7 @@ const CreateFieldForm = ({
                       onChange={(e) => {
                         const selectedCategory = e.target.value;
                         handleInputChange('category', selectedCategory);
-                        if (selectedCategory === 'Select Category' || selectedCategory === '') {
-                          handleInputChange('subcategory', '');
-                        } else {
-                          handleInputChange('subcategory', '');
-                        }
+                        handleInputChange('subcategory', '');
                       }}
                       label="Select Category"
                       disabled={lockCommercial}
@@ -1764,7 +1864,6 @@ const CreateFieldForm = ({
                     </Select>
                   </StyledFormControl>
 
-                  {/* Sub Category Dropdown */}
                   <StyledFormControl
                     error={!!errors.subcategory}
                     disabled={lockCommercial || !formData.category || formData.category === 'Select Category'}
@@ -1796,49 +1895,47 @@ const CreateFieldForm = ({
                       }
                     </Select>
                   </StyledFormControl>
-                  </Box>
 
-                  {/* Product image (same resolver as map: admin overrides + public/icons) */}
-                  <Box sx={{
-                    width: isMobile ? '100%' : '320px',
-                    minHeight: isMobile ? '56px' : '64px',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}>
+                  <Box
+                    sx={{
+                      minHeight: isMobile ? 48 : 56,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                    }}
+                  >
                     {formData.subcategory ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                      <Box
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          border: '2px solid #4CAF50',
+                          borderRadius: 1.25,
+                          p: 0.5,
+                          bgcolor: 'rgba(76,175,80,0.08)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
                         <Box
-                          sx={{
-                            width: 48,
-                            height: 48,
-                            border: '2px solid #4CAF50',
-                            borderRadius: 1.25,
-                            p: 0.5,
-                            bgcolor: 'rgba(76,175,80,0.08)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Box
-                            component="img"
-                            src={subcategoryProductImageSrc}
-                            alt={formData.subcategory}
-                            sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                          />
-                        </Box>
-                       
+                          component="img"
+                          src={subcategoryProductImageSrc}
+                          alt={formData.subcategory}
+                          sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
                       </Box>
                     ) : (
-                      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', color: 'text.secondary', fontStyle: 'italic', pl: 1 }}>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
                         Select a subcategory to preview the product image
-                      </Box>
+                      </Typography>
                     )}
                   </Box>
 
-                  {/* Product Name - Wider fixed width */}
                   <StyledTextField
+                    className="form-full"
+                    fullWidth
                     label="Product Name"
                     placeholder="The Name of The Product"
                     value={formData.productName}
@@ -1846,11 +1943,11 @@ const CreateFieldForm = ({
                     error={!!errors.productName}
                     helperText={errors.productName}
                     isMobile={isMobile}
-                    sx={{ width: isMobile ? '100%' : '664px !important' }}
                   />
 
-                  {/* Product Description - Wider fixed width */}
                   <StyledTextField
+                    className="form-full"
+                    fullWidth
                     label="Description"
                     placeholder="The Description of The Product"
                     value={formData.description}
@@ -1858,10 +1955,11 @@ const CreateFieldForm = ({
                     error={!!errors.description}
                     helperText={errors.description}
                     isMobile={isMobile}
-                    sx={{ width: isMobile ? '100%' : '664px !important' }}
                   />
 
                   <StyledTextField
+                    className="form-full"
+                    fullWidth
                     label="Short description (map popup)"
                     placeholder="One or two lines for the map card"
                     value={formData.shortDescription}
@@ -1869,10 +1967,9 @@ const CreateFieldForm = ({
                     isMobile={isMobile}
                     multiline
                     minRows={2}
-                    sx={{ width: isMobile ? '100%' : '664px !important' }}
                   />
 
-                  <Box sx={{ width: isMobile ? '100%' : '664px' }}>
+                  <Box className="form-full">
                     <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: 'text.secondary' }}>
                       Gallery images (max 5)
                     </Typography>
@@ -1955,7 +2052,7 @@ const CreateFieldForm = ({
                       />
                     </Button>
                   </Box>
-                </Box>
+                </FormStack>
               </FormSection>
 
               {/* Field Details Section */}
@@ -1980,287 +2077,161 @@ const CreateFieldForm = ({
                       Read-only while orders are open
                     </Typography>
                   ) : null}
-                <Grid container spacing={isMobile ? 2 : 3}>
-                  {/* Field Size with Unit */}
-                  {/* Field Size with Unit */}
-                  <Grid item xs={12} md={6}>
-                    <CombinedInputContainer isMobile={isMobile}>
-                      <StyledTextField
-                        label="Field Size"
-                        placeholder="How big is your field"
-                        value={formData.fieldSize}
-                        onChange={(e) => handleInputChange('fieldSize', e.target.value)}
-                        error={!!errors.fieldSize}
-                        helperText={errors.fieldSize || ''}
-                        isMobile={isMobile}
-                        type="number"
-                        inputProps={{ min: 0, step: 'any' }}
-                        disabled={lockCommercial}
-                      />
-                      <StyledFormControl isMobile={isMobile}>
-                        <InputLabel>Unit</InputLabel>
-                        <Select
-                          value={formData.fieldSizeUnit}
-                          onChange={(e) => handleInputChange('fieldSizeUnit', e.target.value)}
-                          label="Unit"
-                          disabled={lockCommercial}
-                        >
-                          <MenuItem value="sqm">m²</MenuItem>
-                          <MenuItem value="sqft">sq. ft</MenuItem>
-                          <MenuItem value="acres">acres</MenuItem>
-                          <MenuItem value="hectares">hectares</MenuItem>
-                        </Select>
-                      </StyledFormControl>
-                    </CombinedInputContainer>
-                  </Grid>
-
-
-                  {/* Location Selection - Single field */}
-                  <Grid item xs={12}>
+                <FormStack isMobile={isMobile}>
+                  <FormSizeUnitRow isMobile={isMobile}>
                     <StyledTextField
                       fullWidth
-                      label="Select Location"
-                      placeholder="Click the pin icon to select your field location"
-                      value={locationAddress}
-                      InputProps={{
-                        readOnly: true,
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              onClick={() => setLocationPickerOpen(true)}
-                              disabled={lockCommercial}
-                              sx={{
-                                color: '#4CAF50',
-                                padding: isMobile ? '6px' : '8px',
-                                '& .MuiSvgIcon-root': {
-                                  fontSize: isMobile ? '20px' : '20px'
-                                },
-                                '&:hover': {
-                                  backgroundColor: 'rgba(76, 175, 80, 0.1)'
-                                }
-                              }}
-                            >
-                              <LocationOn />
-                            </IconButton>
-                          </InputAdornment>
-                        )
-                      }}
-                      error={!!errors.latitude || !!errors.longitude}
-                      helperText={errors.latitude || errors.longitude || "Select your field location using the map"}
-                      sx={{
-                        '& .MuiInputBase-input': {
-                          cursor: 'pointer'
-                        }
-                      }}
-                      onClick={() => { if (!lockCommercial) setLocationPickerOpen(true); }}
+                      label="Field Size"
+                      placeholder="How big is your field"
+                      value={formData.fieldSize}
+                      onChange={(e) => handleInputChange('fieldSize', e.target.value)}
+                      error={!!errors.fieldSize}
+                      helperText={errors.fieldSize || ''}
                       isMobile={isMobile}
+                      type="number"
+                      inputProps={{ min: 0, step: 'any' }}
                       disabled={lockCommercial}
                     />
-                  </Grid>
+                    <StyledFormControl isMobile={isMobile} sx={{ width: '100% !important' }}>
+                      <InputLabel>Unit</InputLabel>
+                      <Select
+                        value={formData.fieldSizeUnit}
+                        onChange={(e) => handleInputChange('fieldSizeUnit', e.target.value)}
+                        label="Unit"
+                        disabled={lockCommercial}
+                      >
+                        <MenuItem value="sqm">m²</MenuItem>
+                        <MenuItem value="sqft">sq. ft</MenuItem>
+                        <MenuItem value="acres">acres</MenuItem>
+                        <MenuItem value="hectares">hectares</MenuItem>
+                      </Select>
+                    </StyledFormControl>
+                  </FormSizeUnitRow>
 
-                  {/* Harvest Dates */}
-                  <Grid item xs={12}>
-                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, color: '#2d3748', fontSize: isMobile ? '14px' : '0.875rem' }} >
+                  <StyledTextField
+                    fullWidth
+                    label="Select Location"
+                    placeholder="Click the pin icon to select your field location"
+                    value={locationAddress}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setLocationPickerOpen(true)}
+                            disabled={lockCommercial}
+                            sx={{
+                              color: '#4CAF50',
+                              padding: isMobile ? '6px' : '8px',
+                              '&:hover': { backgroundColor: 'rgba(76, 175, 80, 0.1)' }
+                            }}
+                          >
+                            <LocationOn />
+                          </IconButton>
+                        </InputAdornment>
+                      )
+                    }}
+                    error={!!errors.latitude || !!errors.longitude}
+                    helperText={errors.latitude || errors.longitude || 'Select your field location using the map'}
+                    sx={{ '& .MuiInputBase-input': { cursor: 'pointer' } }}
+                    onClick={() => { if (!lockCommercial) setLocationPickerOpen(true); }}
+                    isMobile={isMobile}
+                    disabled={lockCommercial}
+                  />
+
+                  <Box className="form-full">
+                    <Typography variant="body2" sx={{ mb: 1.5, fontWeight: 600, color: '#2d3748' }}>
                       Estimated Harvest Dates
                     </Typography>
                     {(formData.harvestDates || []).map((harvestDate, index) => (
-                      <Box key={index} sx={{
-                        mb: 2,
-                        p: isMobile ? 0 : 2,
-                        border: isMobile ? 'none' : '1px solid #e2e8f0',
-                        borderRadius: isMobile ? 0 : '8px'
-                      }}>
-                        {isMobile ? (
-                          // Mobile Layout - Clean vertical stack without outer box
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                            {/* Date field - full width */}
-                            <StyledTextField
-                              fullWidth
-                              type="date"
-                              label="Date"
-                              value={formatDateForInput(harvestDate?.date)}
-                              onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
-                              InputLabelProps={{ shrink: true }}
-                              inputProps={{ min: minSelectableDate }}
-                              isMobile={isMobile}
+                      <HarvestDateRow key={index} isMobile={isMobile}>
+                        <StyledTextField
+                          fullWidth
+                          type="date"
+                          label="Date"
+                          value={formatDateForInput(harvestDate?.date)}
+                          onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          inputProps={{ min: minSelectableDate }}
+                          isMobile={isMobile}
+                          disabled={lockCommercial}
+                        />
+                        <StyledTextField
+                          fullWidth
+                          label="Label (optional)"
+                          placeholder="e.g., First harvest, Main crop"
+                          value={harvestDate?.label ?? ''}
+                          onChange={(e) => handleHarvestDateChange(index, 'label', e.target.value)}
+                          isMobile={isMobile}
+                          disabled={lockCommercial}
+                        />
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: isMobile ? 'flex-end' : 'flex-start' }}>
+                          {index === (formData.harvestDates || []).length - 1 && (
+                            <IconButton
+                              onClick={addHarvestDate}
                               disabled={lockCommercial}
-                            />
-
-                            {/* Label field with icons positioned at bottom right */}
-                            <Box sx={{ position: 'relative' }}>
-                              <StyledTextField
-                                fullWidth
-                                label="Label (optional)"
-                                placeholder="e.g., First harvest, Main crop"
-                                value={harvestDate?.label ?? ''}
-                                onChange={(e) => handleHarvestDateChange(index, 'label', e.target.value)}
-                                isMobile={isMobile}
-                                disabled={lockCommercial}
-                              />
-
-                              {/* Icons positioned at bottom right of label field */}
-                              <Box sx={{
-                                position: 'absolute',
-                                top: 40,
-                                right: 8,
-                                display: 'flex',
-                                gap: 0.5,
-                                zIndex: 1
-                              }}>
-                                {index === (formData.harvestDates || []).length - 1 && (
-                                  <IconButton
-                                    onClick={addHarvestDate}
-                                    size="small"
-                                    disabled={lockCommercial}
-                                    sx={{
-                                      color: '#4caf50',
-                                      backgroundColor: '#e8f5e8',
-                                      '&:hover': { backgroundColor: '#c8e6c9' },
-                                      width: 28,
-                                      height: 28,
-                                      minWidth: 28
-                                    }}
-                                  >
-                                    <Add sx={{ fontSize: 16 }} />
-                                  </IconButton>
-                                )}
-                                {(formData.harvestDates || []).length > 1 && (
-                                  <IconButton
-                                    onClick={() => removeHarvestDate(index)}
-                                    size="small"
-                                    disabled={lockCommercial}
-                                    sx={{
-                                      color: '#f44336',
-                                      backgroundColor: '#ffebee',
-                                      '&:hover': { backgroundColor: '#ffcdd2' },
-                                      width: 28,
-                                      height: 28,
-                                      minWidth: 28
-                                    }}
-                                  >
-                                    <Remove sx={{ fontSize: 16 }} />
-                                  </IconButton>
-                                )}
-                              </Box>
-                            </Box>
-                          </Box>
-                        ) : (
-                          // Desktop Layout - Horizontal
-                          <Grid container spacing={2} alignItems="flex-end">
-                            <Grid item xs={12} md={5}>
-                              <StyledTextField
-                                fullWidth
-                                type="date"
-                                label="Date"
-                                value={formatDateForInput(harvestDate?.date)}
-                                onChange={(e) => handleHarvestDateChange(index, 'date', e.target.value)}
-                                InputLabelProps={{ shrink: true }}
-                                inputProps={{ min: minSelectableDate }}
-                                isMobile={isMobile}
-                                sx={{ width: '100%' }}
-                                disabled={lockCommercial}
-                              />
-                            </Grid>
-                            <Grid item xs={12} md={5}>
-                              <StyledTextField
-                                fullWidth
-                                label="Label (optional)"
-                                placeholder="e.g., First harvest, Main crop"
-                                value={harvestDate?.label ?? ''}
-                                onChange={(e) => handleHarvestDateChange(index, 'label', e.target.value)}
-                                isMobile={isMobile}
-                                sx={{ width: '100%' }}
-                                disabled={lockCommercial}
-                              />
-                            </Grid>
-                            <Grid item xs={12} md={2}>
-                              <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-                                {index === (formData.harvestDates || []).length - 1 && (
-                                  <IconButton
-                                    onClick={addHarvestDate}
-                                    disabled={lockCommercial}
-                                    sx={{
-                                      color: '#4caf50',
-                                      backgroundColor: '#e8f5e8',
-                                      '&:hover': { backgroundColor: '#c8e6c9' }
-                                    }}
-                                  >
-                                    <Add />
-                                  </IconButton>
-                                )}
-                                {(formData.harvestDates || []).length > 1 && (
-                                  <IconButton
-                                    onClick={() => removeHarvestDate(index)}
-                                    disabled={lockCommercial}
-                                    sx={{
-                                      color: '#f44336',
-                                      backgroundColor: '#ffebee',
-                                      '&:hover': { backgroundColor: '#ffcdd2' }
-                                    }}
-                                  >
-                                    <Remove />
-                                  </IconButton>
-                                )}
-                              </Box>
-                            </Grid>
-                          </Grid>
-                        )}
-                      </Box>
+                              sx={{
+                                color: '#4caf50',
+                                backgroundColor: '#e8f5e8',
+                                '&:hover': { backgroundColor: '#c8e6c9' }
+                              }}
+                            >
+                              <Add />
+                            </IconButton>
+                          )}
+                          {(formData.harvestDates || []).length > 1 && (
+                            <IconButton
+                              onClick={() => removeHarvestDate(index)}
+                              disabled={lockCommercial}
+                              sx={{
+                                color: '#f44336',
+                                backgroundColor: '#ffebee',
+                                '&:hover': { backgroundColor: '#ffcdd2' }
+                              }}
+                            >
+                              <Remove />
+                            </IconButton>
+                          )}
+                        </Box>
+                      </HarvestDateRow>
                     ))}
                     {errors.harvestDates && (
-                      <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                      <Typography variant="caption" color="error" sx={{ display: 'block' }}>
                         {errors.harvestDates}
                       </Typography>
                     )}
-                  </Grid>
+                  </Box>
 
-                  {/* Webcam Option */}
-                  <Grid item xs={12}>
-                    <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, color: '#2d3748', fontSize: isMobile ? '14px' : '0.875rem' }}>
+                  <Box className="form-full">
+                    <Typography variant="body2" sx={{ mb: 1.5, fontWeight: 600, color: '#2d3748' }}>
                       Do you have a Webcam on the field?
                     </Typography>
-                    <RadioGroup
-                      row
+                    <FormChoiceRow
+                      row={!isMobile}
+                      columns={2}
+                      isMobile={isMobile}
                       value={formData.hasWebcam ? 'Yes' : 'No'}
                       onChange={(e) => handleInputChange('hasWebcam', e.target.value === 'Yes')}
                       disabled={lockCommercial}
                       sx={{
-                        gap: isMobile ? 1.5 : 3,
-                        justifyContent: 'center',
-                        '& .MuiFormControlLabel-root': {
-                          margin: 0,
-                          padding: isMobile ? '8px 16px' : '12px 24px',
-                          paddingLeft: '8px',
-                          borderRadius: '12px',
-                          border: '2px solid #e2e8f0',
-                          backgroundColor: '#f8fafc',
-                          transition: 'all 0.2s ease',
-                          minWidth: isMobile ? 'auto' : 'unset',
-                          flex: isMobile ? '0 0 auto' : 'unset',
-                          ...(!lockCommercial
-                            ? {
-                                '&:hover': {
-                                  backgroundColor: '#e8f5e8',
-                                  borderColor: '#4caf50'
-                                },
-                              }
-                            : {
+                        ...(!lockCommercial
+                          ? {
+                              '& .MuiFormControlLabel-root:hover': {
+                                backgroundColor: '#e8f5e8',
+                                borderColor: '#4caf50',
+                              },
+                            }
+                          : {
+                              '& .MuiFormControlLabel-root': {
                                 borderColor: '#cbd5e1',
                                 backgroundColor: '#e8edf3',
-                                '&:hover': {
-                                  backgroundColor: '#e8edf3',
-                                  borderColor: '#cbd5e1',
-                                },
-                              }),
-                          '& .MuiTypography-root': {
-                            fontSize: isMobile ? '14px' : '1rem'
-                          }
-                        }
+                              },
+                            }),
                       }}
                     >
                       <FormControlLabel value="Yes" control={<Radio sx={{ color: '#4caf50' }} />} label="Yes" />
                       <FormControlLabel value="No" control={<Radio sx={{ color: '#4caf50' }} />} label="No" />
-                    </RadioGroup>
+                    </FormChoiceRow>
                     {formData.hasWebcam && (
                       <Box sx={{ mt: 2 }}>
                         <StyledTextField
@@ -2270,14 +2241,14 @@ const CreateFieldForm = ({
                           value={formData.webcamUrl || ''}
                           onChange={(e) => handleInputChange('webcamUrl', e.target.value)}
                           error={!!errors.webcamUrl}
-                          helperText={errors.webcamUrl || "Provide a direct streaming URL (e.g., YouTube Live link)"}
+                          helperText={errors.webcamUrl || 'Provide a direct streaming URL (e.g., YouTube Live link)'}
                           isMobile={isMobile}
                           disabled={lockCommercial}
                         />
                       </Box>
                     )}
-                  </Grid>
-                </Grid>
+                  </Box>
+                </FormStack>
               </FormSection>
               </Box>
 
@@ -2303,50 +2274,27 @@ const CreateFieldForm = ({
                       Read-only while orders are open
                     </Typography>
                   ) : null}
-                <Grid container spacing={3}>
-                  {/* Total production row: most grid width; amount field grows more than unit */}
-                  <Grid item xs={12} md={9}>
-                    <CombinedInputContainer
-                      isMobile={isMobile}
-                      sx={
-                        isMobile
-                          ? undefined
-                          : {
-                              '& .MuiTextField-root': {
-                                flex: '1 1 0%',
-                                minWidth: 300,
-                              },
-                              '& .MuiFormControl-root': {
-                                flex: '0 0 118px',
-                                width: '118px !important',
-                                minWidth: '118px !important',
-                                maxWidth: '118px !important',
-                              },
-                            }
-                      }
-                    >
+                <PricingStack isMobile={isMobile}>
+                  <div className="pricing-full">
+                    <PricingProdUnitRow isMobile={isMobile}>
                       <StyledTextField
                         fullWidth
-                        label="Total production per harvest"
+                        label="Total production"
                         placeholder="e.g. 200"
                         type="number"
                         inputProps={{ min: 0, step: 'any' }}
                         value={formData.totalProduction}
                         onChange={(e) => handleInputChange('totalProduction', e.target.value)}
                         error={!!errors.totalProduction}
-                        helperText={errors.totalProduction || 'Amount expected for one harvest'}
-                        InputLabelProps={{
-                          shrink: true,
-                          sx: {
-                            whiteSpace: 'normal',
-                            lineHeight: 1.25,
-                            '&.MuiInputLabel-shrink': { maxWidth: 'calc(100% + 8px)' },
-                          },
-                        }}
+                        helperText={errors.totalProduction || 'Expected amount for one harvest'}
+                        InputLabelProps={{ shrink: true }}
                         isMobile={isMobile}
                         disabled={lockCommercial}
                       />
-                      <StyledFormControl isMobile={isMobile}>
+                      <StyledFormControl
+                        isMobile={isMobile}
+                        sx={{ width: '100% !important', maxWidth: '100%' }}
+                      >
                         <InputLabel id="total-prod-unit-label" shrink>
                           Unit
                         </InputLabel>
@@ -2364,241 +2312,182 @@ const CreateFieldForm = ({
                           <MenuItem value="units">units</MenuItem>
                         </Select>
                       </StyledFormControl>
-                    </CombinedInputContainer>
-                  </Grid>
+                    </PricingProdUnitRow>
+                  </div>
 
-                  {/* Linked area — compact column */}
-                  <Grid item xs={12} md={3}>
-                    <StyledTextField
-                      fullWidth
-                      label="Linked Field Area"
-                      value={`${formData.fieldSize} ${formatFieldAreaUnitLabel(formData.fieldSizeUnit)}`}
-                      isSuggested={true}
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        readOnly: true,
-                        endAdornment: <InputAdornment position="end">📍</InputAdornment>
-                      }}
-                      sx={{
-                        opacity: 0.8,
-                        '& .MuiInputLabel-root': { whiteSpace: 'normal', lineHeight: 1.25 },
-                      }}
-                      helperText="Size linked from Field Details section"
-                      isMobile={isMobile}
-                    />
-                  </Grid>
+                  <StyledTextField
+                    fullWidth
+                    label="Wholesale / Distribution Price"
+                    placeholder="e.g. 4.00"
+                    value={formData.distributionPrice}
+                    onChange={(e) => handleInputChange('distributionPrice', e.target.value)}
+                    error={!!errors.distributionPrice}
+                    helperText={errors.distributionPrice}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                      ),
+                    }}
+                    inputProps={{ min: 0, step: 'any' }}
+                    type="number"
+                    isMobile={isMobile}
+                    disabled={lockCommercial}
+                  />
+                  <StyledTextField
+                    fullWidth
+                    label="Retail Supermarket Price"
+                    placeholder="e.g. 8.00"
+                    value={formData.retailPrice}
+                    onChange={(e) => handleInputChange('retailPrice', e.target.value)}
+                    error={!!errors.retailPrice}
+                    helperText={errors.retailPrice}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                      ),
+                    }}
+                    inputProps={{ min: 0, step: 'any' }}
+                    type="number"
+                    isMobile={isMobile}
+                    disabled={lockCommercial}
+                  />
 
-                  {/* Production per Area */}
-                  <Grid item xs={12} md={6}>
-                    <Box>
-                      <StyledTextField
-                        fullWidth
-                        label="Production per Area"
-                        value={formData.productionPerArea}
-                        isSuggested={true}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          readOnly: true,
-                          endAdornment: (
-                            <InputAdornment position="end">{productionPerAreaSuffix}</InputAdornment>
-                          ),
-                        }}
-                        helperText={`Calculated from total production ÷ field size (${formatFieldAreaUnitLabel(fieldAreaUnit)})`}
-                        isMobile={isMobile}
-                      />
-                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                        ✨ Suggested by Sharecrop
-                      </Typography>
-                    </Box>
-                  </Grid>
+                  <Typography
+                    className="pricing-full"
+                    component="div"
+                    sx={{
+                      color: '#d32f2f',
+                      fontWeight: 700,
+                      fontStyle: 'italic',
+                      fontSize: isMobile ? '0.85rem' : '0.95rem',
+                      lineHeight: 1.2,
+                      m: 0,
+                    }}
+                  >
+                    ✨ Suggested by Sharecrop
+                  </Typography>
 
-                  {/* Distribution Price */}
-                  <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="Wholesale / Distribution Price"
-                      placeholder="e.g. 4.00"
-                      value={formData.distributionPrice}
-                      onChange={(e) => handleInputChange('distributionPrice', e.target.value)}
-                      error={!!errors.distributionPrice}
-                      helperText={errors.distributionPrice}
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
-                        ),
-                      }}
-                      inputProps={{ min: 0, step: 'any' }}
-                      type="number"
-                      isMobile={isMobile}
-                      disabled={lockCommercial}
-                    />
-                  </Grid>
+                  <StyledTextField
+                    fullWidth
+                    label="Production per Area"
+                    value={formData.productionPerArea}
+                    isSuggested={true}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: (
+                        <InputAdornment position="end">{productionPerAreaSuffix}</InputAdornment>
+                      ),
+                    }}
+                    isMobile={isMobile}
+                  />
+                  <StyledTextField
+                    fullWidth
+                    label="Suggested Price on App"
+                    value={formData.suggestedPrice}
+                    isSuggested={true}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: (
+                        <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                      ),
+                    }}
+                    isMobile={isMobile}
+                  />
+                  <StyledTextField
+                    fullWidth
+                    label="Total Virtual Cost"
+                    value={formData.virtualCostPerUnit || ''}
+                    isSuggested={true}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: <InputAdornment position="end">{pricePerAreaSuffix}</InputAdornment>
+                    }}
+                    isMobile={isMobile}
+                  />
+                  <StyledTextField
+                    fullWidth
+                    label="Sharecrop Platform Fees"
+                    value={formData.appFees || ''}
+                    isSuggested={true}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: <InputAdornment position="end">$</InputAdornment>
+                    }}
+                    isMobile={isMobile}
+                  />
 
-                  {/* Retail Price */}
-                  <Grid item xs={12} md={6}>
-                    <StyledTextField
-                      fullWidth
-                      label="Retail Supermarket Price"
-                      placeholder="e.g. 8.00"
-                      value={formData.retailPrice}
-                      onChange={(e) => handleInputChange('retailPrice', e.target.value)}
-                      error={!!errors.retailPrice}
-                      helperText={errors.retailPrice}
-                      InputLabelProps={{ shrink: true }}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
-                        ),
-                      }}
-                      inputProps={{ min: 0, step: 'any' }}
-                      type="number"
-                      isMobile={isMobile}
-                      disabled={lockCommercial}
-                    />
-                  </Grid>
-
-                  {/* Suggested Sharecrop Price */}
-                  <Grid item xs={12} md={6}>
-                    <Box>
-                      <StyledTextField
-                        fullWidth
-                        label="Suggested Price on App"
-                        value={formData.suggestedPrice}
-                        isSuggested={true}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          readOnly: true,
-                          endAdornment: (
-                            <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
-                          ),
-                        }}
-                        helperText="Calculated: (Wholesale + Retail) / 2"
-                        isMobile={isMobile}
-                      />
-                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                        ✨ Suggested by Sharecrop
-                      </Typography>
-                    </Box>
-                  </Grid>
-
-                  {/* Your Sharecrop Price */}
-                  <Grid item xs={12} md={12}>
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-                      <StyledTextField
-                        fullWidth={isMobile}
-                        label="Your App Selling Price"
-                        placeholder="e.g. 7.00"
-                        value={formData.sellingPrice}
-                        onChange={(e) => handleInputChange('sellingPrice', e.target.value)}
-                        error={!!errors.sellingPrice}
-                        helperText={errors.sellingPrice}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
-                          ),
-                        }}
-                        inputProps={{ min: 0, step: 'any' }}
-                        type="number"
-                        isMobile={isMobile}
-                        disabled={lockCommercial}
-                      />
-                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
-                        <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
-                          {formData.userAreaVirtualRentPrice} <span style={{ color: '#4caf50' }}>{pricePerAreaSuffix}</span>
-                        </Typography>
+                  <StyledTextField
+                    fullWidth
+                    label="Your App Selling Price"
+                    placeholder="e.g. 7.00"
+                    value={formData.sellingPrice}
+                    onChange={(e) => handleInputChange('sellingPrice', e.target.value)}
+                    error={!!errors.sellingPrice}
+                    helperText={errors.sellingPrice}
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
+                      ),
+                    }}
+                    inputProps={{ min: 0, step: 'any' }}
+                    type="number"
+                    isMobile={isMobile}
+                    disabled={lockCommercial}
+                  />
+                  <PricingSideNote isMobile={isMobile}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontStyle: 'italic', lineHeight: 1.3 }}>
+                      equal to:{' '}
+                      <Box component="span" sx={{ fontWeight: 700, fontStyle: 'normal', color: '#2e7d32' }}>
+                        {formData.userAreaVirtualRentPrice}{' '}
+                        <Box component="span" sx={{ color: '#4caf50' }}>{pricePerAreaSuffix}</Box>
                       </Box>
-                    </Box>
-                  </Grid>
+                    </Typography>
+                  </PricingSideNote>
 
-                  {/* Virtual Cost (distribution price × production per field area unit) */}
-                  <Grid item xs={12} md={6}>
-                    <Box>
-                      <StyledTextField
-                        fullWidth
-                        label="Total Virtual Cost"
-                        placeholder="Virtual cost per unit"
-                        value={formData.virtualCostPerUnit || ''}
-                        isSuggested={true}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          readOnly: true,
-                          endAdornment: <InputAdornment position="end">{pricePerAreaSuffix}</InputAdornment>
-                        }}
-                        helperText={`Wholesale price × production per ${formatFieldAreaUnitLabel(fieldAreaUnit)}`}
-                        isMobile={isMobile}
-                      />
-                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                        ✨ Suggested by Sharecrop
-                      </Typography>
-                    </Box>
-                  </Grid>
-
-                  {/* % of harvest to sell (Excel FIELD SETUP) */}
-                  <Grid item xs={12} md={12}>
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap', mt: 1 }}>
-                      <StyledTextField
-                        fullWidth={isMobile}
-                        label="% of harvest to sell in the app"
-                        placeholder="e.g. 80"
-                        value={formData.sellingAmount}
-                        onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
-                        error={!!errors.sellingAmount}
-                        helperText={
-                          errors.sellingAmount
-                            || `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
-                        }
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">%</InputAdornment>
-                          ),
-                        }}
-                        inputProps={{ min: 0, max: 100, step: 'any' }}
-                        type="number"
-                        isMobile={isMobile}
-                        disabled={lockCommercial}
-                      />
-                      <Box sx={{ display: 'flex', minWidth: 'fit-content', flexDirection: 'column', alignItems: 'flex-start' }}>
-                        <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', ml: 2 }}>potential TOTAL APP income</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
-                          <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
-                            {formData.potentialIncome} <span style={{ color: '#4caf50' }}>$</span>
-                          </Typography>
-                          <Typography variant="body2" sx={{ mx: 2, color: '#64748b', fontStyle: 'italic' }}>equal to:</Typography>
-                          <Typography variant="body1" sx={{ fontWeight: 700, color: '#2e7d32' }}>
-                            {formData.potentialIncome} <span style={{ color: '#64748b' }}>USD</span>
-                          </Typography>
-                        </Box>
+                  <StyledTextField
+                    fullWidth
+                    label="% of harvest to sell in the app"
+                    placeholder="e.g. 80"
+                    value={formData.sellingAmount}
+                    onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
+                    error={!!errors.sellingAmount}
+                    helperText={
+                      errors.sellingAmount
+                        || `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
+                    }
+                    InputLabelProps={{ shrink: true }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">%</InputAdornment>
+                      ),
+                    }}
+                    inputProps={{ min: 0, max: 100, step: 'any' }}
+                    type="number"
+                    isMobile={isMobile}
+                    disabled={lockCommercial}
+                  />
+                  <PricingSideNote isMobile={isMobile}>
+                    <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', lineHeight: 1.2 }}>
+                      potential TOTAL APP income
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#2e7d32', lineHeight: 1.3 }}>
+                      {formData.potentialIncome}{' '}
+                      <Box component="span" sx={{ color: '#4caf50' }}>$</Box>
+                      <Box component="span" sx={{ mx: 1, fontWeight: 400, fontStyle: 'italic', color: '#64748b' }}>
+                        equal to:
                       </Box>
-                    </Box>
-                  </Grid>
-
-                  {/* App Fees */}
-                  <Grid item xs={12} md={6}>
-                    <Box>
-                      <StyledTextField
-                        fullWidth
-                        label="Sharecrop Platform Fees"
-                        placeholder="Platform fees"
-                        value={formData.appFees || ''}
-                        isSuggested={true}
-                        InputLabelProps={{ shrink: true }}
-                        InputProps={{
-                          readOnly: true,
-                          endAdornment: <InputAdornment position="end">$</InputAdornment>
-                        }}
-                        helperText="Estimated platform service fees (5%)"
-                        isMobile={isMobile}
-                      />
-                      <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                        ✨ Calculated by Sharecrop
-                      </Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
+                      {formData.potentialIncome}{' '}
+                      <Box component="span" sx={{ fontWeight: 500, color: '#64748b' }}>USD</Box>
+                    </Typography>
+                  </PricingSideNote>
+                </PricingStack>
               </FormSection>
               </Box>
 
@@ -2624,78 +2513,48 @@ const CreateFieldForm = ({
                       Read-only while orders are open
                     </Typography>
                   ) : null}
-                <Grid container spacing={3}>
-                  {/* Shipping Options */}
-                  <Grid item xs={12}>
-                    <Typography variant="body2" sx={{ mb: 1.5, color: 'text.secondary', maxWidth: 560 }}>
+                <FormStack isMobile={isMobile}>
+                  <Box className="form-full">
+                    <Typography variant="body2" sx={{ mb: 1.5, color: 'text.secondary' }}>
                       Can buyers get this harvest sent to them, pick it up at the farm, or both?
                     </Typography>
-                    <RadioGroup
-                      row
+                    <FormChoiceRow
+                      row={!isMobile}
+                      columns={3}
+                      isMobile={isMobile}
                       value={formData.shippingOption}
                       onChange={(e) => handleInputChange('shippingOption', e.target.value)}
                       disabled={lockCommercial}
                       sx={{
-                        display: 'flex',
-                        gap: 2,
-                        flexWrap: 'wrap',
-                        '& .MuiFormControlLabel-root': {
-                          flex: '1 1 auto',
-                          margin: 0,
-                          padding: '12px',
-                          border: '1px solid #e0e0e0',
-                          borderRadius: 2,
-                          justifyContent: 'center',
-                          transition: 'all 0.2s',
-                          ...(!lockCommercial
-                            ? {
-                                '&:hover': {
-                                  backgroundColor: '#f5f5f5',
-                                  borderColor: '#4caf50'
-                                },
-                              }
-                            : {
+                        ...(!lockCommercial
+                          ? {
+                              '& .MuiFormControlLabel-root:hover': {
+                                backgroundColor: '#e8f5e8',
+                                borderColor: '#4caf50',
+                              },
+                            }
+                          : {
+                              '& .MuiFormControlLabel-root': {
                                 backgroundColor: '#e8edf3',
                                 borderColor: '#cbd5e1',
-                                '&:hover': {
-                                  backgroundColor: '#e8edf3',
-                                  borderColor: '#cbd5e1',
-                                },
-                              }),
-                          '& .MuiTypography-root': {
-                            fontWeight: 500,
-                            fontSize: isMobile ? '0.875rem' : '1rem'
-                          }
-                        }
+                              },
+                            }),
                       }}
                     >
-                      <FormControlLabel
-                        value="Shipping"
-                        control={<Radio sx={{ color: '#4caf50' }} />}
-                        label="Shipping"
-                      />
-                      <FormControlLabel
-                        value="Pickup"
-                        control={<Radio sx={{ color: '#4caf50' }} />}
-                        label="Pickup"
-                      />
-                      <FormControlLabel
-                        value="Both"
-                        control={<Radio sx={{ color: '#4caf50' }} />}
-                        label="Both"
-                      />
-                    </RadioGroup>
+                      <FormControlLabel value="Shipping" control={<Radio sx={{ color: '#4caf50' }} />} label="Shipping" />
+                      <FormControlLabel value="Pickup" control={<Radio sx={{ color: '#4caf50' }} />} label="Pickup" />
+                      <FormControlLabel value="Both" control={<Radio sx={{ color: '#4caf50' }} />} label="Both" />
+                    </FormChoiceRow>
                     {formData.shippingOption === 'Pickup' ? (
                       <Typography variant="caption" sx={{ display: 'block', mt: 1.5, color: 'text.secondary' }}>
                         Delivery timing and delivery-area settings are hidden because you chose pickup only.
                       </Typography>
                     ) : null}
-                  </Grid>
+                  </Box>
 
-                  {/* Estimated delivery — only when home delivery is offered */}
                   {offersHomeDelivery ? (
-                  <Grid item xs={12} md={6}>
                     <StyledTextField
+                      className="form-full"
                       fullWidth
                       type="text"
                       inputMode="numeric"
@@ -2709,62 +2568,47 @@ const CreateFieldForm = ({
                       isMobile={isMobile}
                       disabled={lockCommercial}
                     />
-                  </Grid>
                   ) : null}
 
-                  {/* Where delivery is allowed — only when home delivery is offered */}
                   {offersHomeDelivery ? (
-                  <Grid item xs={12}>
+                  <Box className="form-full">
                     <Typography variant="subtitle1" sx={{ mb: 0.5, fontWeight: 600, color: '#2d3748' }}>
                       Where home delivery is allowed
                     </Typography>
-                    <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary', maxWidth: 640 }}>
+                    <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
                       {deliveryAreaIntro}
                     </Typography>
 
                     {!showDestinationEditor ? (
                       <Box>
-                        <RadioGroup
-                          row
+                        <FormChoiceRow
+                          row={!isMobile}
+                          columns={3}
+                          isMobile={isMobile}
                           value={formData.shippingScope}
                           onChange={(e) => handleInputChange('shippingScope', e.target.value)}
                           disabled={lockCommercial}
                           sx={{
-                            gap: 2,
                             mb: 2,
-                            '& .MuiFormControlLabel-root': {
-                              margin: 0,
-                              padding: '10px 20px',
-                              borderRadius: '12px',
-                              border: '2px solid #e2e8f0',
-                              backgroundColor: '#f8fafc',
-                              transition: 'all 0.2s ease',
-                              ...(!lockCommercial
-                                ? {
-                                    '&:hover': {
-                                      backgroundColor: '#e8f5e8',
-                                      borderColor: '#4caf50'
-                                    },
-                                  }
-                                : {
+                            ...(!lockCommercial
+                              ? {
+                                  '& .MuiFormControlLabel-root:hover': {
+                                    backgroundColor: '#e8f5e8',
+                                    borderColor: '#4caf50',
+                                  },
+                                }
+                              : {
+                                  '& .MuiFormControlLabel-root': {
                                     backgroundColor: '#e8edf3',
                                     borderColor: '#cbd5e1',
-                                    '&:hover': {
-                                      backgroundColor: '#e8edf3',
-                                      borderColor: '#cbd5e1',
-                                    },
-                                  }),
-                              '& .MuiTypography-root': {
-                                fontWeight: 500,
-                                fontSize: isMobile ? '0.875rem' : '1rem'
-                              }
-                            }
+                                  },
+                                }),
                           }}
                         >
                           <FormControlLabel value="Global" control={<Radio sx={{ color: '#4caf50' }} />} label="Worldwide" />
                           <FormControlLabel value="Country" control={<Radio sx={{ color: '#4caf50' }} />} label="My country only" />
                           <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="My city only" />
-                        </RadioGroup>
+                        </FormChoiceRow>
                         {formData.shippingScope === 'Global' ? (
                           <Typography variant="caption" sx={{ display: 'block', mb: 2, color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
                             Rates at checkout depend on destination and weight.
@@ -2848,34 +2692,11 @@ const CreateFieldForm = ({
                         />
 
                         <Typography variant="caption" sx={{ display: 'block', mb: 1, color: 'text.secondary' }}>
-                          Or specific cities — choose country, then state/province, then city from suggestions:
+                          Or specific places — choose country, then state/province (city optional):
                         </Typography>
                         {(shippingCityRows || []).map((row, index) => (
-                          <Box
-                            key={index}
-                            sx={{
-                              display: 'flex',
-                              flexDirection: isMobile ? 'column' : 'row',
-                              gap: 1,
-                              flexWrap: 'wrap',
-                              mb: 1.5,
-                              alignItems: isMobile ? 'flex-start' : 'center',
-                              width: '100%',
-                              ...(isMobile
-                                ? {
-                                    '& > *': { flex: '0 0 auto', width: '100%', maxWidth: '100%' },
-                                    '& .MuiAutocomplete-root': { flex: '0 0 auto', width: '100%' },
-                                  }
-                                : {}),
-                            }}
-                          >
+                          <ShippingPlaceRow key={index} isMobile={isMobile}>
                             <Autocomplete
-                              sx={{
-                                flex: isMobile ? '0 0 auto' : '1 1 200px',
-                                minWidth: 0,
-                                width: '100%',
-                                maxWidth: '100%',
-                              }}
                               options={ISO2_COUNTRY_OPTIONS}
                               getOptionLabel={(o) => `${o.name} (${o.code})`}
                               isOptionEqualToValue={(a, b) => a.code === b.code}
@@ -2943,13 +2764,13 @@ const CreateFieldForm = ({
                                     prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)
                                   )
                                 }
-                                aria-label="Remove this city row"
-                                sx={{ mt: 0.5 }}
+                                aria-label="Remove this place row"
+                                sx={{ justifySelf: isMobile ? 'end' : 'center', mt: isMobile ? 0 : 1 }}
                               >
                                 <Remove fontSize="small" />
                               </IconButton>
-                            ) : null}
-                          </Box>
+                            ) : <span />}
+                          </ShippingPlaceRow>
                         ))}
                         {!lockCommercial ? (
                           <Button
@@ -2958,7 +2779,7 @@ const CreateFieldForm = ({
                             onClick={() => setShippingCityRows((prev) => [...prev, emptyShippingCityRow()])}
                             sx={{ mt: 0.5, mb: 1, textTransform: 'none' }}
                           >
-                            Add another city
+                            Add another place
                           </Button>
                         ) : null}
                         {errors.shippingCityRows ? (
@@ -2970,49 +2791,36 @@ const CreateFieldForm = ({
                         {!hasDestinationRules ? (
                           <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
                             <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: '#2d3748' }}>
-                              Simple rule (until you add countries or cities above)
+                              Simple rule (until you add countries or places above)
                             </Typography>
-                            <RadioGroup
-                              row
+                            <FormChoiceRow
+                              row={!isMobile}
+                              columns={3}
+                              isMobile={isMobile}
                               value={formData.shippingScope}
                               onChange={(e) => handleInputChange('shippingScope', e.target.value)}
                               disabled={lockCommercial}
                               sx={{
-                                gap: 2,
                                 mb: formData.shippingScope === 'Global' ? 1 : 0,
-                                '& .MuiFormControlLabel-root': {
-                                  margin: 0,
-                                  padding: '10px 20px',
-                                  borderRadius: '12px',
-                                  border: '2px solid #e2e8f0',
-                                  backgroundColor: '#f8fafc',
-                                  transition: 'all 0.2s ease',
-                                  ...(!lockCommercial
-                                    ? {
-                                        '&:hover': {
-                                          backgroundColor: '#e8f5e8',
-                                          borderColor: '#4caf50'
-                                        },
-                                      }
-                                    : {
+                                ...(!lockCommercial
+                                  ? {
+                                      '& .MuiFormControlLabel-root:hover': {
+                                        backgroundColor: '#e8f5e8',
+                                        borderColor: '#4caf50',
+                                      },
+                                    }
+                                  : {
+                                      '& .MuiFormControlLabel-root': {
                                         backgroundColor: '#e8edf3',
                                         borderColor: '#cbd5e1',
-                                        '&:hover': {
-                                          backgroundColor: '#e8edf3',
-                                          borderColor: '#cbd5e1',
-                                        },
-                                      }),
-                                  '& .MuiTypography-root': {
-                                    fontWeight: 500,
-                                    fontSize: isMobile ? '0.875rem' : '1rem'
-                                  }
-                                }
+                                      },
+                                    }),
                               }}
                             >
                               <FormControlLabel value="Global" control={<Radio sx={{ color: '#4caf50' }} />} label="Worldwide" />
                               <FormControlLabel value="Country" control={<Radio sx={{ color: '#4caf50' }} />} label="My country only" />
                               <FormControlLabel value="City" control={<Radio sx={{ color: '#4caf50' }} />} label="My city only" />
-                            </RadioGroup>
+                            </FormChoiceRow>
                             {formData.shippingScope === 'Global' ? (
                               <Typography variant="caption" sx={{ display: 'block', color: '#64748b', fontStyle: 'italic', backgroundColor: '#f1f5f9', p: 1, borderRadius: 1 }}>
                                 Rates at checkout depend on destination and weight.
@@ -3036,82 +2844,87 @@ const CreateFieldForm = ({
                         )}
                       </Box>
                     )}
-                  </Grid>
+                  </Box>
                   ) : null}
 
-                  {/* Delivery Charges */}
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: '#2d3748' }}>
+                  <Box className="form-full">
+                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 600, color: '#2d3748' }}>
                       Delivery Charges configuration
                     </Typography>
-                    {/* Pricing Guidelines */}
-                    <Box sx={{ 
-                      mt: 2, 
-                      mb: 2, 
-                      p: 2, 
-                      borderRadius: '12px', 
-                      backgroundColor: '#fff5f5', 
+                    <Box sx={{
+                      mb: 2,
+                      p: 2,
+                      borderRadius: '12px',
+                      backgroundColor: '#fff5f5',
                       border: '1px solid #feb2b2',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 1
                     }}>
-                      <Typography variant="subtitle2" sx={{ color: '#c53030', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        ✨ Suggested Delivery Rates by Sharecrop:
+                      <Typography
+                        variant="subtitle2"
+                        sx={{ color: '#c53030', fontWeight: 800, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 1 }}
+                      >
+                        ✨ Suggested Delivery Rates by Sharecrop
                       </Typography>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
-                          0–12 {productionUnitLabel(formData.totalProductionUnit)}:
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '6px 16px', width: '100%' }}>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontStyle: 'italic' }}>
+                          0–12 {productionUnitLabel(formData.totalProductionUnit)}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$15.00 USD</Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
-                          13–36 {productionUnitLabel(formData.totalProductionUnit)}:
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700, fontStyle: 'italic', textAlign: 'right' }}>
+                          $15.00 USD
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00 USD</Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a' }}>
-                          37–1000 {productionUnitLabel(formData.totalProductionUnit)}:
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontStyle: 'italic' }}>
+                          13–36 {productionUnitLabel(formData.totalProductionUnit)}
                         </Typography>
-                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700 }}>$25.00+ (tiered)</Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700, fontStyle: 'italic', textAlign: 'right' }}>
+                          $25.00 USD
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontStyle: 'italic' }}>
+                          37–1000 {productionUnitLabel(formData.totalProductionUnit)}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#742a2a', fontWeight: 700, fontStyle: 'italic', textAlign: 'right' }}>
+                          $25.00 USD
+                        </Typography>
                       </Box>
                     </Box>
 
                     {(formData.deliveryCharges || []).map((charge, index) => (
-                      <Box key={index} sx={{ display: 'flex', flexDirection: 'column', mb: 2 }}>
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Box key={index} sx={{ mb: 1.5 }}>
+                        <DeliveryTierRow isMobile={isMobile}>
                           <StyledTextField
+                            fullWidth
                             label={`Upto (${productionUnitLabel(formData.totalProductionUnit)})`}
                             placeholder={productionUnitLabel(formData.totalProductionUnit)}
                             value={charge?.upto ?? ''}
                             onChange={(e) => updateDeliveryCharge(index, 'upto', e.target.value)}
                             isMobile={isMobile}
-                            size="small"
                             type="number"
                             inputProps={{ min: 0, step: 'any' }}
                             disabled={lockCommercial}
                           />
                           <StyledTextField
+                            fullWidth
                             label="Amount ($)"
                             placeholder="$"
                             value={charge?.amount ?? ''}
                             onChange={(e) => updateDeliveryCharge(index, 'amount', e.target.value)}
                             isMobile={isMobile}
-                            size="small"
                             type="number"
                             inputProps={{ min: 0, step: 'any' }}
                             disabled={lockCommercial}
                           />
-                          {(formData.deliveryCharges || []).length > 1 && (
-                            <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error" disabled={lockCommercial}>
+                          {(formData.deliveryCharges || []).length > 1 ? (
+                            <IconButton size="small" onClick={() => removeDeliveryCharge(index)} color="error" disabled={lockCommercial} sx={{ justifySelf: isMobile ? 'end' : 'center' }}>
                               <Remove fontSize="small" />
                             </IconButton>
-                          )}
-                        </Box>
-                        <Typography variant="caption" sx={{ mt: 0.5, color: '#d32f2f', fontWeight: 'bold' }}>
+                          ) : <span />}
+                        </DeliveryTierRow>
+                        <Typography variant="caption" sx={{ color: '#d32f2f', fontWeight: 'bold', fontStyle: 'italic' }}>
                           ✨ Value Suggestion by Sharecrop
                         </Typography>
-                        {/* Status message for weight depth */}
                         {parseFloat(charge?.upto) >= 37 && (
-                          <Typography variant="caption" sx={{ mt: 0.2, color: '#d32f2f', fontWeight: 500, fontStyle: 'italic' }}>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.2, color: '#d32f2f', fontWeight: 500, fontStyle: 'italic' }}>
                             ⚠️ For 37kg+, cost is more than $25 and increases with weight.
                           </Typography>
                         )}
@@ -3139,11 +2952,11 @@ const CreateFieldForm = ({
                           '&:hover': { backgroundColor: '#fff9e6', borderColor: '#d4a017' }
                         }}
                       >
-                         Apply Recommended Rates
+                        Apply Recommended Rates
                       </Button>
                     </Box>
-                  </Grid>
-                </Grid>
+                  </Box>
+                </FormStack>
               </FormSection>
               </Box>
             </Box>

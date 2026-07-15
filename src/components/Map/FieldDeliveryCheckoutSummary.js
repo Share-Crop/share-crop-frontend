@@ -33,7 +33,7 @@ export default function FieldDeliveryCheckoutSummary({
   isMobile,
 }) {
   const [showCoverage, setShowCoverage] = useState(false);
-  const { countries, cities, total } = summarizeShippingDestinations(destinations);
+  const { countries, cities, regions, total } = summarizeShippingDestinations(destinations);
   const tiers = getDeliveryFeeTiers(deliveryCharges);
   const minFee = getMinDeliveryFee(deliveryCharges);
   const coverageLabel = shippingCoverageShortLabel(destinations, shippingScope);
@@ -142,13 +142,25 @@ export default function FieldDeliveryCheckoutSummary({
       {showCoverage && total > 0 && (
         <div style={{ marginTop: 8 }}>
           {countries.length > 0 && (
-            <div style={{ marginBottom: cities.length ? 6 : 0 }}>
+            <div style={{ marginBottom: regions.length || cities.length ? 6 : 0 }}>
               <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                 Countries
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {countries.map((c) => (
                   <span key={c} style={chipStyle} title={c}>{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {regions.length > 0 && (
+            <div style={{ marginBottom: cities.length ? 6 : 0 }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                States / provinces
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {regions.map((r) => (
+                  <span key={r} style={chipStyle} title={r}>{r}</span>
                 ))}
               </div>
             </div>

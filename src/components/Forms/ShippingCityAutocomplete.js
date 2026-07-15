@@ -124,10 +124,10 @@ const ShippingCityAutocomplete = ({
         onChange={(_, opt) => {
           if (!opt) {
             onChange({
-              countryCode: countryCode || '',
+              countryCode: countryCode || value?.countryCode || '',
               city: '',
-              region: '',
-              regionCode: '',
+              region: regionName || value?.region || '',
+              regionCode: regionCode || value?.regionCode || '',
               mapboxId: '',
               label: '',
               center: null,
@@ -160,13 +160,13 @@ const ShippingCityAutocomplete = ({
           <TextField
             {...params}
             sx={fieldSx(isMobile)}
-            label="City"
+            label="City (optional)"
             placeholder={
               !countryCode
                 ? 'Select country first'
                 : String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName
                   ? 'Select state first'
-                  : 'Search city (e.g. Miami)'
+                  : 'Optional — e.g. Miami'
             }
             error={error}
             size={isMobile ? 'small' : 'medium'}
@@ -182,7 +182,7 @@ const ShippingCityAutocomplete = ({
           />
         )}
       />
-      {value?.label ? (
+      {value?.city && value?.label ? (
         <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}>
           {value.label}
         </Typography>

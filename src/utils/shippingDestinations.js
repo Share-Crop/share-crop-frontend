@@ -35,29 +35,49 @@ export function buildShippingDestinationsFromUi(countryCodes, cityRows) {
   }
   for (const row of cityRows || []) {
     const c = normalizeIso2(row?.countryCode);
+    if (!c) continue;
     const city = (row?.city || '').trim();
-    if (!c || !city) continue;
     const region = (row?.region || '').trim();
+    const regionCode = row?.regionCode != null ? String(row.regionCode).trim() : '';
     const mapboxId = (row?.mapboxId || row?.mapbox_id || '').trim();
     const label = (row?.label || '').trim();
-    const key = mapboxId
-      ? `id:${mapboxId}`
-      : `t:${c}:${city.toLowerCase()}:${region.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const entry = {
-      type: 'city',
-      countryCode: c,
-      city: city.slice(0, 120),
-    };
-    if (region) entry.region = region.slice(0, 120);
-    if (row?.regionCode) entry.regionCode = String(row.regionCode).trim().slice(0, 20);
-    if (mapboxId) entry.mapboxId = mapboxId.slice(0, 120);
-    if (label) entry.label = label.slice(0, 200);
-    if (Array.isArray(row?.center) && row.center.length >= 2) {
-      entry.center = [Number(row.center[0]), Number(row.center[1])];
+
+    if (city) {
+      const key = mapboxId
+        ? `id:${mapboxId}`
+        : `t:${c}:${city.toLowerCase()}:${region.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const entry = {
+        type: 'city',
+        countryCode: c,
+        city: city.slice(0, 120),
+      };
+      if (region) entry.region = region.slice(0, 120);
+      if (regionCode) entry.regionCode = regionCode.slice(0, 20);
+      if (mapboxId) entry.mapboxId = mapboxId.slice(0, 120);
+      if (label) entry.label = label.slice(0, 200);
+      if (Array.isArray(row?.center) && row.center.length >= 2) {
+        entry.center = [Number(row.center[0]), Number(row.center[1])];
+      }
+      out.push(entry);
+      continue;
     }
-    out.push(entry);
+
+    if (region || regionCode) {
+      const key = `r:${c}:${(regionCode || region).toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const countryName = ISO2_NAME_BY_CODE.get(c) || c;
+      const entry = {
+        type: 'region',
+        countryCode: c,
+      };
+      if (region) entry.region = region.slice(0, 120);
+      if (regionCode) entry.regionCode = regionCode.slice(0, 20);
+      entry.label = (label || `${region || regionCode}, ${countryName}`).slice(0, 200);
+      out.push(entry);
+    }
   }
   return out.slice(0, 50);
 }
@@ -100,6 +120,14 @@ export function normalizeShippingDestinations(raw) {
         ...(mapboxId ? { mapboxId } : {}),
         ...(center ? { center } : {}),
       });
+    } else if (type === 'region' && countryCode && (region || regionCode)) {
+      out.push({
+        type: 'region',
+        countryCode,
+        ...(region ? { region } : {}),
+        ...(regionCode ? { regionCode } : {}),
+        ...(label ? { label } : {}),
+      });
     }
   }
   return out;
@@ -112,9 +140,9 @@ export function deriveShippingScopeEnum(destinations, fallbackScope) {
     return ['City', 'Country', 'Global'].includes(s) ? s : 'Global';
   }
   const countryOnly = d.every((x) => x.type === 'country');
-  const cityOnly = d.every((x) => x.type === 'city');
+  const placeOnly = d.every((x) => x.type === 'city' || x.type === 'region');
   if (countryOnly && d.length === 1) return 'Country';
-  if (cityOnly && d.length === 1) return 'City';
+  if (placeOnly && d.length === 1) return 'City';
   return 'Global';
 }
 
@@ -161,6 +189,35 @@ function cityDestinationMatchesUser(dest, userLocationStr, uCountry, u) {
   );
 }
 
+function regionDestinationMatchesUser(dest, userLocationStr, uCountry, u) {
+  const locLower = String(userLocationStr || '').toLowerCase();
+  const destRegion = String(dest.region || '').trim().toLowerCase();
+  const destCode = String(dest.regionCode || '').trim().toLowerCase();
+  const countryOk = uCountry && dest.countryCode === uCountry;
+
+  if (!countryOk) {
+    const nm = ISO2_NAME_BY_CODE.get(dest.countryCode);
+    if (!nm || !locLower.includes(nm.toLowerCase())) return false;
+  }
+
+  if (dest.label && locLower.includes(String(dest.label).trim().toLowerCase())) {
+    return true;
+  }
+
+  if (destRegion) {
+    if (locLower.includes(destRegion)) return true;
+    if (u.region && u.region === destRegion) return true;
+    if ((u.parts || []).some((p) => p.toLowerCase() === destRegion)) return true;
+  }
+
+  if (destCode) {
+    if (locLower.includes(destCode)) return true;
+    if (String(u.region || '').toLowerCase() === destCode) return true;
+  }
+
+  return false;
+}
+
 function inferUserCountryCode(userLocationStr) {
   const { country } = splitLocationParts(userLocationStr);
   if (!country) return '';
@@ -193,6 +250,9 @@ export function deliveryMatchesShippingDestinations(destinations, userLocationSt
     if (dest.type === 'city' && dest.countryCode && dest.city) {
       if (cityDestinationMatchesUser(dest, userLocationStr, uCountry, u)) return true;
     }
+    if (dest.type === 'region' && dest.countryCode && (dest.region || dest.regionCode)) {
+      if (regionDestinationMatchesUser(dest, userLocationStr, uCountry, u)) return true;
+    }
   }
   return false;
 }
@@ -207,6 +267,11 @@ export function shippingDestinationsSummary(destinations) {
       if (x.region) return `${x.city}, ${x.region} (${x.countryCode})`;
       return `${x.city} (${x.countryCode})`;
     }
+    if (x.type === 'region') {
+      if (x.label) return x.label;
+      const countryName = ISO2_NAME_BY_CODE.get(x.countryCode) || x.countryCode;
+      return `${x.region || x.regionCode}, ${countryName}`;
+    }
     return '';
   });
   return parts.filter(Boolean).join(', ');
@@ -217,6 +282,7 @@ export function summarizeShippingDestinations(destinations) {
   const d = normalizeShippingDestinations(destinations);
   const countries = [];
   const cities = [];
+  const regions = [];
   for (const x of d) {
     if (x.type === 'country') {
       const name = ISO2_NAME_BY_CODE.get(x.countryCode) || x.countryCode;
@@ -228,19 +294,28 @@ export function summarizeShippingDestinations(destinations) {
         label = x.region ? `${x.city}, ${x.region}` : `${x.city}, ${countryName}`;
       }
       if (label) cities.push(label);
+    } else if (x.type === 'region') {
+      let label = x.label;
+      if (!label) {
+        const countryName = ISO2_NAME_BY_CODE.get(x.countryCode) || x.countryCode;
+        label = `${x.region || x.regionCode}, ${countryName}`;
+      }
+      if (label) regions.push(label);
     }
   }
   return {
     countries,
     cities,
+    regions,
     countryCount: countries.length,
     cityCount: cities.length,
-    total: countries.length + cities.length,
+    regionCount: regions.length,
+    total: countries.length + cities.length + regions.length,
   };
 }
 
 export function shippingCoverageShortLabel(destinations, shippingScope) {
-  const { countryCount, cityCount, total } = summarizeShippingDestinations(destinations);
+  const { countryCount, cityCount, regionCount, total } = summarizeShippingDestinations(destinations);
   if (total === 0) {
     const scope = String(shippingScope || 'Global').toLowerCase();
     if (scope === 'global') return 'Worldwide';
@@ -248,6 +323,7 @@ export function shippingCoverageShortLabel(destinations, shippingScope) {
   }
   const bits = [];
   if (countryCount) bits.push(`${countryCount} ${countryCount === 1 ? 'country' : 'countries'}`);
+  if (regionCount) bits.push(`${regionCount} ${regionCount === 1 ? 'state/province' : 'states/provinces'}`);
   if (cityCount) bits.push(`${cityCount} ${cityCount === 1 ? 'city' : 'cities'}`);
   return bits.join(' · ');
 }
