@@ -33,6 +33,7 @@ import {
   deliveryMatchesShippingDestinations,
   normalizeShippingDestinations,
   shippingDestinationsSummary,
+  buildLocationStringFromAddress,
   shortenLocationLabel,
 } from '../../utils/shippingDestinations';
 import FieldDeliveryCheckoutSummary from './FieldDeliveryCheckoutSummary';
@@ -1306,9 +1307,14 @@ const EnhancedFarmMap = forwardRef(({
   );
 
   const handleSaveDeliveryAddress = useCallback(async () => {
-    const syntheticLoc = `${newDeliveryAddress.city || ''}, ${newDeliveryAddress.country || ''}`.trim();
+    const syntheticLoc = buildLocationStringFromAddress(newDeliveryAddress);
     const destRaw = selectedProduct?.shipping_destinations ?? selectedProduct?.shippingDestinations;
-    const explicit = deliveryMatchesShippingDestinations(destRaw, syntheticLoc, false);
+    const explicit = deliveryMatchesShippingDestinations(
+      destRaw,
+      syntheticLoc,
+      false,
+      newDeliveryAddress
+    );
     let valid = true;
     if (explicit !== null) {
       valid = explicit;
@@ -1323,7 +1329,11 @@ const EnhancedFarmMap = forwardRef(({
           valid = Boolean(p.city && rCity && p.city.toLowerCase() === rCity);
         } else if (scope === 'country') {
           const rCountry = (newDeliveryAddress.country || '').trim().toLowerCase();
-          valid = Boolean(p.country && rCountry && p.country.toLowerCase() === rCountry);
+          const rCode = String(newDeliveryAddress.countryCode || '').trim().toUpperCase();
+          valid = Boolean(
+            (p.country && rCountry && p.country.toLowerCase() === rCountry)
+            || (rCode && p.country && p.country.toLowerCase().includes('united states') && rCode === 'US')
+          );
         }
       }
     }

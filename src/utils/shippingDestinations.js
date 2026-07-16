@@ -153,8 +153,28 @@ function splitLocationParts(s) {
     .filter(Boolean);
   const city = (parts[0] || '').toLowerCase();
   const country = (parts[parts.length - 1] || '').toLowerCase();
-  const region = parts.length >= 3 ? (parts[1] || '').toLowerCase() : '';
+  // Prefer middle geographic segment as region (city, state, …, country).
+  let region = '';
+  if (parts.length >= 3) {
+    region = (parts[1] || '').toLowerCase();
+  } else if (parts.length === 2) {
+    // "Florida, United States" style
+    region = '';
+  }
   return { city, country, region, parts };
+}
+
+/** Build a comma location string that includes state so region destinations can match. */
+export function buildLocationStringFromAddress(addr = {}) {
+  const city = String(addr.city || '').trim();
+  const state = String(addr.state || addr.region || '').trim();
+  const stateCode = String(addr.stateCode || addr.regionCode || '').trim();
+  const zip = String(addr.zip || addr.postal || '').trim();
+  const country = String(addr.country || '').trim();
+  const countryCode = normalizeIso2(addr.countryCode || addr.country_code);
+  const regionBit = state || stateCode;
+  const countryBit = country || countryCode;
+  return [city, regionBit, zip, countryBit].filter(Boolean).join(', ');
 }
 
 function cityDestinationMatchesUser(dest, userLocationStr, uCountry, u) {
@@ -213,6 +233,7 @@ function regionDestinationMatchesUser(dest, userLocationStr, uCountry, u) {
   if (destCode) {
     if (locLower.includes(destCode)) return true;
     if (String(u.region || '').toLowerCase() === destCode) return true;
+    if (String(u.regionCode || '').toLowerCase() === destCode) return true;
   }
 
   return false;
@@ -233,25 +254,43 @@ function inferUserCountryCode(userLocationStr) {
 /**
  * When destinations list is non-empty: true if buyer location matches at least one rule.
  * When empty: returns null (caller should use legacy shipping_scope rules).
+ * @param {object} [addressHint] optional structured address { countryCode, state, stateCode, city }
  */
-export function deliveryMatchesShippingDestinations(destinations, userLocationStr, orderForSomeoneElse) {
+export function deliveryMatchesShippingDestinations(destinations, userLocationStr, orderForSomeoneElse, addressHint) {
   if (orderForSomeoneElse) return true;
   const d = normalizeShippingDestinations(destinations);
   if (!d.length) return null;
-  const u = splitLocationParts(userLocationStr);
-  const uCountry = inferUserCountryCode(userLocationStr);
+
+  const locStr = String(userLocationStr || '').trim()
+    || (addressHint ? buildLocationStringFromAddress(addressHint) : '');
+  const u = splitLocationParts(locStr);
+  if (addressHint) {
+    if (!u.region) {
+      const st = String(addressHint.state || addressHint.region || '').trim().toLowerCase();
+      const sc = String(addressHint.stateCode || addressHint.regionCode || '').trim().toLowerCase();
+      if (st) u.region = st;
+      else if (sc) u.region = sc;
+    }
+    u.regionCode = String(addressHint.stateCode || addressHint.regionCode || '').trim().toLowerCase();
+    if (!u.city && addressHint.city) u.city = String(addressHint.city).trim().toLowerCase();
+  }
+
+  let uCountry = inferUserCountryCode(locStr);
+  if (!uCountry && addressHint) {
+    uCountry = normalizeIso2(addressHint.countryCode || addressHint.country_code);
+  }
 
   for (const dest of d) {
     if (dest.type === 'country' && dest.countryCode) {
       if (uCountry && dest.countryCode === uCountry) return true;
       const nm = ISO2_NAME_BY_CODE.get(dest.countryCode);
-      if (nm && userLocationStr && userLocationStr.toLowerCase().includes(nm.toLowerCase())) return true;
+      if (nm && locStr && locStr.toLowerCase().includes(nm.toLowerCase())) return true;
     }
     if (dest.type === 'city' && dest.countryCode && dest.city) {
-      if (cityDestinationMatchesUser(dest, userLocationStr, uCountry, u)) return true;
+      if (cityDestinationMatchesUser(dest, locStr, uCountry, u)) return true;
     }
     if (dest.type === 'region' && dest.countryCode && (dest.region || dest.regionCode)) {
-      if (regionDestinationMatchesUser(dest, userLocationStr, uCountry, u)) return true;
+      if (regionDestinationMatchesUser(dest, locStr, uCountry, u)) return true;
     }
   }
   return false;
