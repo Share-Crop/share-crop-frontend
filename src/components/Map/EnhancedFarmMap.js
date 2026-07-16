@@ -193,6 +193,8 @@ const EnhancedFarmMap = forwardRef(({
     line1: '',
     line2: '',
     city: '',
+    cityMapboxId: '',
+    cityLabel: '',
     state: '',
     stateCode: '',
     zip: '',

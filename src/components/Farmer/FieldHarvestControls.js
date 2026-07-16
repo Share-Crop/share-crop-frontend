@@ -14,6 +14,7 @@ import {
   TableHead,
   TableRow,
   CircularProgress,
+  InputAdornment,
 } from '@mui/material';
 import fieldsService from '../../services/fields';
 import {
@@ -71,23 +72,21 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
   const [operationalStatus, setOperationalStatus] = useState(field?.operational_status || 'growing');
   const [harvestOpen, setHarvestOpen] = useState(false);
   const [totalQty, setTotalQty] = useState('');
-  const [unit, setUnit] = useState(
-    () => productionUnitLabel(field?.totalProductionUnit || field?.total_production_unit || 'kg')
-  );
   const [notes, setNotes] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [events, setEvents] = useState([]);
   const [loadingHarvest, setLoadingHarvest] = useState(false);
 
+  // Locked to field setup unit (not editable in harvest dialog).
+  const harvestUnit = useMemo(
+    () => productionUnitLabel(field?.totalProductionUnit || field?.total_production_unit || 'kg'),
+    [field?.totalProductionUnit, field?.total_production_unit]
+  );
+
   useEffect(() => {
     setOperationalStatus(field?.operational_status || 'growing');
   }, [field?.operational_status, field?.id]);
-
-  useEffect(() => {
-    const u = productionUnitLabel(field?.totalProductionUnit || field?.total_production_unit || 'kg');
-    setUnit(u);
-  }, [field?.totalProductionUnit, field?.total_production_unit, field?.id]);
 
   const activeOrdersOnField = getFieldHarvestOrders(farmerOrders, field.id);
 
@@ -128,7 +127,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
     try {
       const res = await fieldsService.completeHarvest(field.id, {
         total_quantity: totalQty,
-        unit,
+        unit: harvestUnit,
         notes,
       });
       setOperationalStatus('harvested');
@@ -274,7 +273,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
                 <strong>
                   {formatTotalProductionWithUnit(
                     fieldEstPreview,
-                    field?.totalProductionUnit || field?.total_production_unit || unit
+                    field?.totalProductionUnit || field?.total_production_unit || harvestUnit
                   )}
                 </strong>
               </>
@@ -295,8 +294,12 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
             margin="dense"
             required
             inputProps={{ min: 0, step: 'any' }}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">{harvestUnit}</InputAdornment>
+              ),
+            }}
           />
-          <TextField fullWidth label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} margin="dense" />
           <TextField
             fullWidth
             label="Notes (optional)"

@@ -5,20 +5,21 @@ import {
   mapboxFeatureToShippingCityRow,
   shippingCityRowToOption,
 } from '../../utils/mapboxPlaces';
+import { deliveryAutocompletePopperSlot } from './deliveryAutocompletePopper';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_ACCESS_TOKEN;
 
-const fieldSx = (isMobile) => ({
+const fieldSx = (isMobile, size) => ({
   width: '100%',
   '& .MuiOutlinedInput-root': {
-    borderRadius: isMobile ? '8px' : '12px',
+    borderRadius: isMobile ? '8px' : size === 'small' ? '8px' : '12px',
     fontSize: '16px',
-    minHeight: isMobile ? 48 : 56,
+    minHeight: isMobile || size === 'small' ? 48 : 56,
   },
   '& .MuiInputBase-input': {
     fontSize: '16px',
     lineHeight: 1.5,
-    padding: isMobile ? '12px 14px !important' : undefined,
+    padding: isMobile || size === 'small' ? '12px 14px !important' : undefined,
   },
 });
 
@@ -34,16 +35,24 @@ const ShippingCityAutocomplete = ({
   disabled = false,
   isMobile = false,
   error = false,
+  label = 'City (optional)',
+  placeholder,
+  optional = true,
+  freeSolo = false,
+  size,
+  popperZIndex = 15000,
+  showSelectedCaption = true,
 }) => {
-  const [inputValue, setInputValue] = useState(() => value?.label || value?.city || '');
+  const [inputValue, setInputValue] = useState(() => value?.city || value?.label || '');
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const searchTimer = useRef(null);
+  const inputSize = size || (isMobile ? 'small' : 'medium');
 
   const selectedOption = useMemo(() => shippingCityRowToOption(value), [value]);
 
   useEffect(() => {
-    setInputValue(value?.label || value?.city || '');
+    setInputValue(value?.city || value?.label || '');
   }, [value?.mapboxId, value?.label, value?.city, value?.region]);
 
   const runSearch = (query) => {
@@ -79,16 +88,24 @@ const ShippingCityAutocomplete = ({
     }, 320);
   };
 
+  const defaultPlaceholder = !countryCode
+    ? 'Select country first'
+    : String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName
+      ? 'Select state first'
+      : optional
+        ? 'Search city (e.g. Miami)'
+        : 'Search city (e.g. Miami)';
+
   if (!MAPBOX_TOKEN) {
     return (
       <TextField
         fullWidth
-        sx={fieldSx(isMobile)}
-        label="City (Mapbox token missing)"
+        sx={fieldSx(isMobile, inputSize)}
+        label={label || 'City (Mapbox token missing)'}
         value={value?.city || ''}
         disabled
         helperText="Add REACT_APP_MAPBOX_ACCESS_TOKEN to enable city search"
-        size={isMobile ? 'small' : 'medium'}
+        size={inputSize}
       />
     );
   }
@@ -102,12 +119,18 @@ const ShippingCityAutocomplete = ({
           width: '100%',
         }}
         disabled={disabled || !countryCode || (String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName)}
+        freeSolo={freeSolo}
         options={options}
         loading={loading}
         filterOptions={(x) => x}
-        getOptionLabel={(opt) => opt?.label || opt?.place_name || opt?.city || ''}
+        getOptionLabel={(opt) =>
+          typeof opt === 'string' ? opt : (opt?.city || opt?.label || opt?.place_name || '')
+        }
         isOptionEqualToValue={(a, b) => {
           if (!a || !b) return false;
+          if (typeof a === 'string' || typeof b === 'string') {
+            return String(a?.city || a) === String(b?.city || b);
+          }
           if (a.mapboxId && b.mapboxId) return a.mapboxId === b.mapboxId;
           return (
             a.countryCode === b.countryCode &&
@@ -119,7 +142,20 @@ const ShippingCityAutocomplete = ({
         inputValue={inputValue}
         onInputChange={(_, newInput, reason) => {
           setInputValue(newInput);
-          if (reason === 'input') runSearch(newInput);
+          if (reason === 'input') {
+            runSearch(newInput);
+            if (freeSolo) {
+              onChange({
+                countryCode: countryCode || value?.countryCode || '',
+                city: newInput,
+                region: regionName || value?.region || '',
+                regionCode: regionCode || value?.regionCode || '',
+                mapboxId: '',
+                label: '',
+                center: null,
+              });
+            }
+          }
         }}
         onChange={(_, opt) => {
           if (!opt) {
@@ -135,18 +171,31 @@ const ShippingCityAutocomplete = ({
             setInputValue('');
             return;
           }
+          if (typeof opt === 'string') {
+            onChange({
+              countryCode: countryCode || value?.countryCode || '',
+              city: opt,
+              region: regionName || value?.region || '',
+              regionCode: regionCode || value?.regionCode || '',
+              mapboxId: '',
+              label: '',
+              center: null,
+            });
+            setInputValue(opt);
+            return;
+          }
           onChange({
             countryCode: opt.countryCode || countryCode || '',
             city: opt.city || '',
-            region: opt.region || '',
-            regionCode: opt.regionCode || '',
+            region: opt.region || regionName || '',
+            regionCode: opt.regionCode || regionCode || '',
             mapboxId: opt.mapboxId || '',
             label: opt.label || opt.place_name || '',
             center: opt.center || null,
           });
-          setInputValue(opt.label || opt.place_name || opt.city || '');
+          setInputValue(opt.city || opt.label || opt.place_name || '');
         }}
-        slotProps={{ popper: { sx: { zIndex: 15000 } } }}
+        slotProps={deliveryAutocompletePopperSlot(popperZIndex)}
         noOptionsText={
           !countryCode
             ? 'Select a country first'
@@ -159,17 +208,12 @@ const ShippingCityAutocomplete = ({
         renderInput={(params) => (
           <TextField
             {...params}
-            sx={fieldSx(isMobile)}
-            label="City (optional)"
-            placeholder={
-              !countryCode
-                ? 'Select country first'
-                : String(countryCode).toUpperCase() === 'US' && !regionCode && !regionName
-                  ? 'Select state first'
-                  : 'Optional — e.g. Miami'
-            }
+            sx={fieldSx(isMobile, inputSize)}
+            label={label}
+            placeholder={placeholder || defaultPlaceholder}
             error={error}
-            size={isMobile ? 'small' : 'medium'}
+            size={inputSize}
+            inputProps={{ ...params.inputProps, autoComplete: 'address-level2' }}
             InputProps={{
               ...params.InputProps,
               endAdornment: (
@@ -182,7 +226,7 @@ const ShippingCityAutocomplete = ({
           />
         )}
       />
-      {value?.city && value?.label ? (
+      {showSelectedCaption && value?.city && value?.label && value.label !== value.city ? (
         <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}>
           {value.label}
         </Typography>

@@ -92,5 +92,7 @@ export const setSunPosition = (map, azimuth = 220, polar = 35) => {
 
 
 /* Base styles */
-export const DARK_MAP_STYLE = 'mapbox://styles/mapbox/satellite-v9';
+// Satellite alone intentionally has no geographic labels. Satellite Streets
+// keeps the imagery while restoring country, region, city, and road names.
+export const DARK_MAP_STYLE = 'mapbox://styles/mapbox/satellite-streets-v12';
 

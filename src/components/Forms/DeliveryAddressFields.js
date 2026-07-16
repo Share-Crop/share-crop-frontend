@@ -3,6 +3,7 @@ import { Autocomplete, TextField, Box, Typography } from '@mui/material';
 import { ISO2_COUNTRY_OPTIONS } from '../../data/isoCountryOptions';
 import { findUsStateByCode, findUsStateByName } from '../../data/usStates';
 import ShippingStateAutocomplete from './ShippingStateAutocomplete';
+import ShippingCityAutocomplete from './ShippingCityAutocomplete';
 import {
   searchMapboxAddressesWithFallback,
   mapboxFeatureToAddressSuggestion,
@@ -203,6 +204,8 @@ const DeliveryAddressFields = ({
             state: '',
             stateCode: '',
             city: '',
+            cityMapboxId: '',
+            cityLabel: '',
           });
         }}
         slotProps={deliveryAutocompletePopperSlot(popperZIndex)}
@@ -229,6 +232,8 @@ const DeliveryAddressFields = ({
             state: row.region || '',
             stateCode: row.regionCode || '',
             city: '',
+            cityMapboxId: '',
+            cityLabel: '',
           });
         }}
       />
@@ -351,14 +356,44 @@ const DeliveryAddressFields = ({
       />
 
       <Box sx={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? 1.5 : 1.25 }}>
-        <TextField
-          label="City"
+        <ShippingCityAutocomplete
+          countryCode={geoRow.countryCode}
+          regionCode={geoRow.regionCode}
+          regionName={geoRow.region}
+          value={{
+            countryCode: geoRow.countryCode,
+            city: value.city || '',
+            region: value.state || '',
+            regionCode: value.stateCode || '',
+            mapboxId: value.cityMapboxId || '',
+            label: value.cityLabel || value.city || '',
+            center: null,
+          }}
+          onChange={(row) => {
+            onChange({
+              ...value,
+              city: row.city || '',
+              cityMapboxId: row.mapboxId || '',
+              cityLabel: row.label || '',
+              // Keep existing state unless the city pick includes a clearer region.
+              state: row.region || value.state || '',
+              stateCode: row.regionCode || value.stateCode || '',
+            });
+          }}
+          isMobile={isMobile}
           size="small"
-          fullWidth
-          value={value.city}
-          onChange={(e) => setGeo({ city: e.target.value })}
-          sx={fieldSx(isMobile)}
-          inputProps={{ autoComplete: 'address-level2' }}
+          label="City"
+          optional={false}
+          freeSolo
+          showSelectedCaption={false}
+          popperZIndex={popperZIndex}
+          placeholder={
+            !geoRow.countryCode
+              ? 'Select country first'
+              : String(geoRow.countryCode).toUpperCase() === 'US' && !geoRow.regionCode && !geoRow.region
+                ? 'Select state first'
+                : 'Type to search cities'
+          }
         />
         <TextField
           label="ZIP / postal code"
