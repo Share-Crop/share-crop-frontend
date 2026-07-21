@@ -1,33 +1,90 @@
-import React, { useMemo } from 'react';
-import { Alert, AlertTitle, Typography } from '@mui/material';
-import { Agriculture, LocalShipping, ExpandMore } from '@mui/icons-material';
-import FieldHarvestControls from './FieldHarvestControls';
-import {
-  getFieldHarvestOrders,
-} from '../../utils/farmerOrderOccupancy';
-import { areaDisplay } from '../../utils/fieldAreaDisplay';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Alert, AlertTitle } from '@mui/material';
+import { ExpandMore, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import FarmerFieldStatusCard from './FarmerFieldStatusCard';
+import { getFieldHarvestOrders } from '../../utils/farmerOrderOccupancy';
+import { hasUpcomingHarvestOnRecord } from '../../utils/harvestProgress';
 
-function activeRentalsOnField(fieldId, farmerOrders) {
-  return getFieldHarvestOrders(farmerOrders, fieldId);
-}
+const FIELDS_PER_PAGE = 6;
 
 function fieldNeedsAction(field, farmerOrders) {
   const status = (field.operational_status || 'growing').toLowerCase();
-  const rentals = activeRentalsOnField(field.id, farmerOrders);
-  if (status === 'growing' && rentals.length > 0) return 'harvest';
+  const rentals = getFieldHarvestOrders(farmerOrders, field.id);
+  const harvestPast = status === 'growing' && !hasUpcomingHarvestOnRecord(field);
+  if (status === 'growing' && (rentals.length > 0 || harvestPast)) return 'harvest';
   if (status === 'harvested') return 'ship';
+  if (status === 'shipped') return 'list';
   return null;
 }
 
-const statusChip = (status) => {
-  const v = (status || 'growing').toLowerCase();
-  if (v === 'harvested') return { label: 'Harvested', cls: 'bg-amber-100 text-amber-800' };
-  if (v === 'shipped') return { label: 'Shipped', cls: 'bg-blue-100 text-blue-800' };
-  return { label: 'Growing', cls: 'bg-emerald-100 text-emerald-800' };
-};
+function FieldCardsGrid({ fields, farmerOrders, onFieldUpdated }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(fields.length / FIELDS_PER_PAGE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [fields.length]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageFields = useMemo(() => {
+    const start = (page - 1) * FIELDS_PER_PAGE;
+    return fields.slice(start, start + FIELDS_PER_PAGE);
+  }, [fields, page]);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {pageFields.map((field) => (
+          <FarmerFieldStatusCard
+            key={field.id}
+            compact
+            field={field}
+            farmerOrders={farmerOrders}
+            onFieldUpdated={onFieldUpdated}
+          />
+        ))}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2">
+          <span className="text-xs text-slate-500">
+            {(page - 1) * FIELDS_PER_PAGE + 1}–{Math.min(page * FIELDS_PER_PAGE, fields.length)} of{' '}
+            {fields.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Previous page"
+            >
+              <ChevronLeft sx={{ fontSize: 18 }} />
+            </button>
+            <span className="min-w-[4.5rem] text-center text-xs font-semibold text-slate-700">
+              {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Next page"
+            >
+              <ChevronRight sx={{ fontSize: 18 }} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
- * Primary farmer UX: farms with fields visible inline + harvest / ship actions (no buried modal).
+ * Primary farmer UX: farms with clear field status cards + harvest / ship actions.
  */
 export default function FarmHarvestDashboard({
   farms = [],
@@ -56,7 +113,7 @@ export default function FarmHarvestDashboard({
   const actionFields = useMemo(() => {
     return fields
       .map((f) => ({ field: f, action: fieldNeedsAction(f, farmerOrders) }))
-      .filter((x) => x.action);
+      .filter((x) => x.action === 'harvest' || x.action === 'ship');
   }, [fields, farmerOrders]);
 
   const farmsWithFields = useMemo(() => {
@@ -72,53 +129,56 @@ export default function FarmHarvestDashboard({
 
   if (fields.length === 0) {
     return (
-      <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
-        <AlertTitle>No fields yet</AlertTitle>
-        Switch to <strong>Create & edit fields</strong> to add a field, then come back here to manage harvest.
+      <Alert severity="info" sx={{ mb: 2, borderRadius: 2, py: 1 }}>
+        <AlertTitle sx={{ mb: 0, fontSize: '0.9rem' }}>No fields yet</AlertTitle>
+        Use <strong>Create & edit</strong> above to add a field.
       </Alert>
     );
   }
 
   return (
-    <div className="mb-6 space-y-4">
-      <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#065f46', mb: 0.5 }}>
-          Harvest & ship — quick guide
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 0 }}>
-          1) When crop is ready → <strong>Mark harvested</strong> and enter total kg for that field.
-          <br />
-          2) When you send product → <strong>Mark shipped</strong>. Renters see their share on the map.
-        </Typography>
-      </div>
-
+    <div className="mb-4 space-y-3">
       {actionFields.length > 0 && (
-        <Alert severity="warning" sx={{ borderRadius: 2 }}>
-          <AlertTitle sx={{ fontWeight: 700 }}>
-            {actionFields.length} field{actionFields.length > 1 ? 's' : ''} need your action
-          </AlertTitle>
-          Scroll to the field below — buttons are on each field row (no need to open View details).
-        </Alert>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">
+            {actionFields.length}
+          </span>
+          <span className="font-semibold">
+            field{actionFields.length > 1 ? 's' : ''} need action
+          </span>
+          <span className="text-amber-800/80">— open a farm below</span>
+        </div>
       )}
 
       {farmsWithFields.map(({ farm, fields: farmFields }) => {
         if (farmFields.length === 0) return null;
-        const hasAction = farmFields.some((f) => fieldNeedsAction(f, farmerOrders));
+        const hasAction = farmFields.some((f) => {
+          const a = fieldNeedsAction(f, farmerOrders);
+          return a === 'harvest' || a === 'ship';
+        });
         return (
           <details
             key={farm.id}
             open={hasAction || farmsWithFields.length === 1}
             className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
           >
-            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5 hover:bg-slate-50 sm:px-4 [&::-webkit-details-marker]:hidden">
               <ExpandMore
-                sx={{ fontSize: 22, color: '#64748b', transition: 'transform 0.2s' }}
+                sx={{ fontSize: 20, color: '#64748b', transition: 'transform 0.2s' }}
                 className="group-open:rotate-180"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold text-slate-900">{farm.name}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate text-sm font-bold text-slate-900 sm:text-base">{farm.name}</div>
+                  {hasAction ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold text-amber-800">
+                      Needs action
+                    </span>
+                  ) : null}
+                </div>
                 <div className="text-xs text-slate-500">
-                  {farm.location} · {farmFields.length} field{farmFields.length !== 1 ? 's' : ''}
+                  {farm.location ? `${farm.location} · ` : ''}
+                  {farmFields.length} field{farmFields.length !== 1 ? 's' : ''}
                 </div>
               </div>
               {onOpenFarmDetail && (
@@ -129,64 +189,19 @@ export default function FarmHarvestDashboard({
                     e.stopPropagation();
                     onOpenFarmDetail(farm);
                   }}
-                  className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[0.65rem] font-semibold text-slate-600 hover:bg-slate-100"
+                  className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[0.7rem] font-semibold text-slate-600 hover:bg-slate-100"
                 >
-                  Farm info
+                  Details
                 </button>
               )}
             </summary>
 
-            <div className="space-y-3 border-t border-slate-100 bg-slate-50/50 p-3">
-              {farmFields.map((field) => {
-                const chip = statusChip(field.operational_status);
-                const rentals = activeRentalsOnField(field.id, farmerOrders);
-                const need = fieldNeedsAction(field, farmerOrders);
-                return (
-                  <div
-                    key={field.id}
-                    className={`rounded-xl border bg-white p-3 shadow-sm ${
-                      need ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'
-                    }`}
-                  >
-                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold text-slate-900">{field.name}</div>
-                        <div className="text-xs text-slate-500">
-                          {field.cropType || 'Crop'} · {field.total_area_display || areaDisplay(field).text}
-                          {rentals.length > 0 && (
-                            <span className="ml-2 font-medium text-emerald-700">
-                              · {rentals.length} active rental{rentals.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${chip.cls}`}>
-                        {chip.label}
-                      </span>
-                    </div>
-
-                    {need === 'harvest' && (
-                      <div className="mb-2 flex items-center gap-1 text-xs font-medium text-amber-800">
-                        <Agriculture sx={{ fontSize: 16 }} />
-                        Ready to harvest — enter total kg below
-                      </div>
-                    )}
-                    {need === 'ship' && (
-                      <div className="mb-2 flex items-center gap-1 text-xs font-medium text-blue-800">
-                        <LocalShipping sx={{ fontSize: 16 }} />
-                        Harvest recorded — mark as shipped when sent
-                      </div>
-                    )}
-
-                    <FieldHarvestControls
-                      prominent
-                      field={field}
-                      farmerOrders={farmerOrders}
-                      onFieldUpdated={refreshFields}
-                    />
-                  </div>
-                );
-              })}
+            <div className="border-t border-slate-100 bg-slate-50/60 p-3">
+              <FieldCardsGrid
+                fields={farmFields}
+                farmerOrders={farmerOrders}
+                onFieldUpdated={refreshFields}
+              />
             </div>
           </details>
         );
@@ -194,21 +209,15 @@ export default function FarmHarvestDashboard({
 
       {orphanFields.length > 0 && (
         <details open className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+          <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-800">
             Fields not linked to a farm ({orphanFields.length})
           </summary>
-          <div className="space-y-3 border-t border-slate-100 p-3">
-            {orphanFields.map((field) => (
-              <div key={field.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="mb-2 text-sm font-semibold">{field.name}</div>
-                <FieldHarvestControls
-                  prominent
-                  field={field}
-                  farmerOrders={farmerOrders}
-                  onFieldUpdated={refreshFields}
-                />
-              </div>
-            ))}
+          <div className="border-t border-slate-100 bg-slate-50/60 p-3">
+            <FieldCardsGrid
+              fields={orphanFields}
+              farmerOrders={farmerOrders}
+              onFieldUpdated={refreshFields}
+            />
           </div>
         </details>
       )}

@@ -483,6 +483,9 @@ const EnhancedHeader = forwardRef(({
         const orders = Array.isArray(res?.data) ? res.data : (res?.data?.orders || []);
         const byField = new Map();
         orders.forEach((o) => {
+          const status = String(o.status || '').toLowerCase();
+          // Only current-season stake can trigger pickup/delivery reminders.
+          if (!['pending', 'active', 'confirmed'].includes(status)) return;
           const fid = o.field_id || o.fieldId || o.field?.id;
           if (!fid) return;
           const prev = byField.get(fid) || { created_at: null, selected_harvest_date: null, mode: null, purchased: false, field: o.field };
@@ -494,8 +497,14 @@ const EnhancedHeader = forwardRef(({
           if (curTs >= prevTs) {
             const purchased = (o.purchased === true)
               || (() => { const q = o.quantity ?? o.area_rented ?? o.area; const v = typeof q === 'string' ? parseFloat(q) : q; return Number.isFinite(v) && v > 0; })()
-              || (() => { const s = String(o.status || '').toLowerCase(); return s === 'active' || s === 'pending'; })();
-            byField.set(fid, { created_at: createdAt, selected_harvest_date: o.selected_harvest_date || null, mode: canon, purchased, field: o.field });
+              || true;
+            byField.set(fid, {
+              created_at: createdAt,
+              selected_harvest_date: o.selected_harvest_date || null,
+              mode: canon,
+              purchased,
+              field: o.field,
+            });
           }
         });
         const withinGrace = (val, days = 4) => {

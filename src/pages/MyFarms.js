@@ -65,7 +65,7 @@ import {
   fieldBlocksDeletion,
 } from '../utils/fieldEditRestrictions';
 import FarmerOwnedFieldsSection from '../components/Farmer/FarmerOwnedFieldsSection';
-import FieldHarvestControls from '../components/Farmer/FieldHarvestControls';
+import FarmerFieldStatusCard from '../components/Farmer/FarmerFieldStatusCard';
 import FarmHarvestDashboard from '../components/Farmer/FarmHarvestDashboard';
 import { FIELD_OCCUPYING_ORDER_STATUSES, orderQuantityM2, normalizeOrderFieldId } from '../utils/farmerOrderOccupancy';
 import { Park as FarmIcon } from '@mui/icons-material';
@@ -446,6 +446,16 @@ const MyFarms = () => {
               production_rate: field.production_rate,
               production_rate_unit: field.production_rate_unit,
               operational_status: field.operational_status || 'growing',
+              quantity_sell_percent: field.quantity_sell_percent,
+              last_season_yield: field.last_season_yield,
+              last_season_yield_unit: field.last_season_yield_unit,
+              last_season_harvested_at: field.last_season_harvested_at,
+              shipping_destinations: field.shipping_destinations,
+              shipping_scope: field.shipping_scope,
+              shipping_option: field.shipping_option,
+              shipping_pickup: field.shipping_pickup,
+              shipping_delivery: field.shipping_delivery,
+              delivery_charges: field.delivery_charges,
               isFarmerCreated: true
             };
           });
@@ -729,114 +739,110 @@ const MyFarms = () => {
     <Box sx={{
       minHeight: '100vh',
       backgroundColor: '#f8fafc',
-      p: 3
+      p: { xs: 2, sm: 3 }
     }}>
-      {/* Header Section */}
       <Box sx={{
         maxWidth: '1400px',
         mx: 'auto',
-        mb: 4
+        mb: 2
       }}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-          justifyContent="space-between"
-          sx={{ mb: 2.5, gap: { xs: 1.5, sm: 0 } }}
-        >
-          <Box>
-            <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 700,
-                color: '#1e293b',
-                mb: 0.5,
-                fontSize: '1.75rem'
-              }}
-            >
-              My Farms
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.9rem' }}>
+        {/* Compact dashboard header */}
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">My Farms</h1>
+            <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
               {pageTab === MY_FARMS_TAB
-                ? 'Mark harvest and shipping per field — fields are listed under each farm below'
-                : 'Add new fields, edit prices, harvest dates, and photos'}
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+                ? `${totalFarms} farm${totalFarms !== 1 ? 's' : ''} · ${myFields.length} field${myFields.length !== 1 ? 's' : ''}`
+                : 'Create and edit your field listings'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             {pageTab === MY_FARMS_TAB && (
               <>
                 <Button
+                  size="small"
                   variant="outlined"
-                  startIcon={<Agriculture />}
+                  startIcon={<Agriculture sx={{ fontSize: 18 }} />}
                   onClick={handleAddFarmOpen}
                   sx={{
-                    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                    color: '#2196F3',
-                    border: '1px solid rgba(33, 150, 243, 0.3)',
-                    '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.2)', transform: 'scale(1.05)' },
-                    transition: 'all 0.2s ease-in-out',
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    borderColor: '#93c5fd',
+                    color: '#1d4ed8',
+                    bgcolor: '#eff6ff',
                     borderRadius: 2,
-                    px: 2,
-                    py: 1
+                    '&:hover': { bgcolor: '#dbeafe', borderColor: '#60a5fa' },
                   }}
                 >
-                  Add New Farm
+                  Add farm
                 </Button>
                 <Button
+                  size="small"
                   variant="contained"
-                  startIcon={<Assessment />}
+                  startIcon={<Assessment sx={{ fontSize: 18 }} />}
                   onClick={handleReportClick}
                   sx={{
-                    backgroundColor: '#4caf50',
-                    color: '#ffffff',
-                    '&:hover': { backgroundColor: '#059669' },
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    bgcolor: '#059669',
                     borderRadius: 2,
-                    px: 2.5,
-                    py: 1
+                    '&:hover': { bgcolor: '#047857' },
                   }}
                 >
-                  Farm Report
+                  Report
                 </Button>
               </>
             )}
-          </Box>
-        </Stack>
+          </div>
+        </div>
 
-        {/* Main navigation — large tabs so harvest vs create/edit is obvious */}
-        <div className="mb-6 grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setPageTab(MY_FARMS_TAB)}
-            className={`rounded-2xl border-2 p-4 text-left transition-all ${
-              pageTab === MY_FARMS_TAB
-                ? 'border-emerald-500 bg-emerald-50 shadow-md'
-                : 'border-slate-200 bg-white hover:border-slate-300'
-            }`}
-          >
-            <div className="mb-1 flex items-center gap-2">
-              <Agriculture sx={{ fontSize: 22, color: pageTab === MY_FARMS_TAB ? '#059669' : '#64748b' }} />
-              <span className="text-sm font-bold text-slate-900">Harvest & ship fields</span>
+        {/* Pill tabs + quick stats */}
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPageTab(MY_FARMS_TAB)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                pageTab === MY_FARMS_TAB
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Harvest & ship
+            </button>
+            <button
+              type="button"
+              onClick={() => setPageTab(MY_FIELDS_TAB)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                pageTab === MY_FIELDS_TAB
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Create & edit
+            </button>
+          </div>
+
+          {pageTab === MY_FARMS_TAB && (
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-w-[7rem]">
+                <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">Farms</div>
+                <div className="text-lg font-bold text-slate-900">{totalFarms}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-w-[7rem]">
+                <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">Fields</div>
+                <div className="text-lg font-bold text-slate-900">{myFields.length}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-w-[7rem]">
+                <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">Active farms</div>
+                <div className="text-lg font-bold text-emerald-700">{activeFarms}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-w-[8rem]">
+                <div className="text-[0.65rem] font-semibold uppercase tracking-wide text-slate-500">Potential</div>
+                <div className="text-lg font-bold text-slate-900">{formatCurrency(totalPotentialIncome)}</div>
+              </div>
             </div>
-            <p className="text-xs leading-relaxed text-slate-600">
-              See every field under your farms. <strong>Mark harvested</strong> (total kg) and <strong>Mark shipped</strong> — no need to open View details.
-            </p>
-          </button>
-          <button
-            type="button"
-            onClick={() => setPageTab(MY_FIELDS_TAB)}
-            className={`rounded-2xl border-2 p-4 text-left transition-all ${
-              pageTab === MY_FIELDS_TAB
-                ? 'border-emerald-500 bg-emerald-50 shadow-md'
-                : 'border-slate-200 bg-white hover:border-slate-300'
-            }`}
-          >
-            <div className="mb-1 flex items-center gap-2">
-              <FarmIcon sx={{ fontSize: 22, color: pageTab === MY_FIELDS_TAB ? '#059669' : '#64748b' }} />
-              <span className="text-sm font-bold text-slate-900">Create & edit fields</span>
-            </div>
-            <p className="text-xs leading-relaxed text-slate-600">
-              Add fields to a farm, set m², prices, harvest dates, and photos. After saving, use <strong>Harvest & ship</strong> for daily workflow.
-            </p>
-          </button>
+          )}
         </div>
 
         {pageTab === MY_FIELDS_TAB && (
@@ -854,8 +860,8 @@ const MyFarms = () => {
         />
 
         <details className="mb-4 rounded-xl border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
-            Farm overview cards (optional)
+          <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-600">
+            Farm cards (optional)
           </summary>
           <div className="border-t border-slate-100 p-3">
         <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
@@ -1249,156 +1255,78 @@ const MyFarms = () => {
                 </div>
               </div>
 
-              {/* Affiliated fields */}
-              <div className="mt-3">
-                <h3 className="mb-2 text-sm font-semibold text-slate-900">
-                  Affiliated Fields ({myFields.filter(field => field.farm_id === selectedFarm?.id).length})
+              {/* Fields on this farm */}
+              <div className="mt-4">
+                <h3 className="mb-1 text-base font-bold text-slate-900">
+                  Fields on this farm
                 </h3>
-                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-                  {myFields.filter(field => field.farm_id === selectedFarm?.id).length > 0 ? (
+                <p className="mb-3 text-xs text-slate-500">
+                  Status and next step for each field — harvest, ship, or list again.
+                </p>
+                <div className="space-y-3">
+                  {myFields.filter((field) => field.farm_id === selectedFarm?.id).length > 0 ? (
                     myFields
-                      .filter(field => field.farm_id === selectedFarm?.id)
-                      .map((field) => {
-                        const formatDate = (d) => {
-                          if (!d) return null;
-                          const date = new Date(d);
-                          if (isNaN(date.getTime())) return d;
-                          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                        };
-                        return (
-                          <div
-                            id={`my-farm-field-${field.id}`}
-                            key={field.id}
-                            className={`flex flex-col rounded-xl border bg-white p-3 shadow-sm ${
-                              String(highlightFieldId) === String(field.id)
-                                ? 'border-amber-400 ring-2 ring-amber-200'
-                                : 'border-slate-200'
-                            }`}
-                          >
-                            {/* Header */}
-                            <div className="mb-2 flex items-start justify-between gap-1">
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-semibold text-slate-900">
-                                  {field.name}
-                                </div>
-                                <div className="text-xs text-slate-500">{field.cropType}</div>
-                              </div>
-                              <span className="shrink-0 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-700">
-                                {field.status || 'Active'}
-                              </span>
-                            </div>
-
-                            {/* Area & Production */}
-                            <div className="mb-2 grid grid-cols-2 gap-2">
-                              <div className="rounded-lg bg-slate-50 p-1.5 text-center">
-                                <div className="text-[0.6rem] text-slate-500">Area</div>
-                                <div className="text-xs font-semibold text-slate-700">{field.total_area_display || areaDisplay(field, field.totalAreaM2).text}</div>
-                              </div>
-                              <div className="rounded-lg bg-amber-50 p-1.5 text-center">
-                                <div className="text-[0.6rem] text-slate-500">Production</div>
-                                <div className="text-xs font-semibold text-amber-700">
-                                  {formatTotalProductionWithUnit(
-                                    Math.round(field.totalProduction || 0),
-                                    field.totalProductionUnit
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Dates */}
-                            <div className="mb-2 space-y-1">
-                              {field.plantingDate && (
-                                <div className="flex items-center gap-1 text-[0.65rem] text-slate-600">
-                                  <span className="text-emerald-500 font-medium">Plant:</span>
-                                  <span>{formatDate(field.plantingDate)}</span>
-                                </div>
-                              )}
-                              {field.harvestDates?.length > 0 && (
-                                <div className="flex items-center gap-1 text-[0.65rem] text-slate-600">
-                                  <span className="text-amber-500 font-medium">Harvest:</span>
-                                  {field.harvestDates.length === 1 ? (
-                                    <span>{formatDate(field.harvestDates[0])}</span>
-                                  ) : (
-                                    <span>{field.harvestDates.length} dates</span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Shipping */}
-                            {field.shippingModes?.length > 0 && (
-                              <div className="mb-2 flex flex-wrap gap-1">
-                                {field.shippingModes.map((mode, idx) => (
-                                  <span key={idx} className="inline-flex items-center rounded-full bg-blue-50 px-1.5 py-0.5 text-[0.6rem] font-medium text-blue-600">
-                                    {mode}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Price & Income */}
-                            <div className="mt-auto flex items-center justify-between border-t border-slate-100 pt-2">
-                              <div className="text-[0.65rem] text-slate-500">
-                                {field.price_per_m2 > 0 ? (
-                                  <span>{field.price_per_unit_display || priceAreaDisplay(field).text}</span>
-                                ) : field.price > 0 ? (
-                                  <span>{formatCurrency(field.price)}</span>
-                                ) : (
-                                  <span className="text-slate-400">No price</span>
-                                )}
-                              </div>
-                              <div className="text-right">
-                                {field.potentialIncome > 0 ? (
-                                  <span className="text-sm font-bold text-emerald-600">{formatCurrency(field.potentialIncome)}</span>
-                                ) : (
-                                  <span className="text-xs text-slate-400">No income</span>
-                                )}
-                              </div>
-                            </div>
-                            <FieldHarvestControls
-                              field={field}
-                              farmerOrders={farmerOrdersList}
-                              onFieldUpdated={async () => {
-                                try {
-                                  const fieldsRes = await fieldsService.getAll();
-                                  const raw = fieldsRes.data || [];
-                                  setMyFields((prev) =>
-                                    prev.map((f) => {
-                                      const updated = raw.find((r) => String(r.id) === String(f.id));
-                                      if (!updated) return f;
-                                      return {
-                                        ...f,
-                                        operational_status: updated.operational_status || f.operational_status,
-                                      };
-                                    })
-                                  );
-                                } catch {
-                                  /* ignore */
-                                }
-                              }}
-                            />
-                            <div className="mt-2 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteFieldCard(field)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[0.65rem] font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                title={
-                                  fieldBlocksDeletion(field, farmerOrdersList)
-                                    ? 'Cannot delete while there is a pending/active order or committed area'
-                                    : 'Delete field'
-                                }
-                                disabled={fieldBlocksDeletion(field, farmerOrdersList)}
-                              >
-                                <DeleteOutline sx={{ fontSize: 14 }} />
-                                Delete field
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
+                      .filter((field) => field.farm_id === selectedFarm?.id)
+                      .map((field) => (
+                        <FarmerFieldStatusCard
+                          id={`my-farm-field-${field.id}`}
+                          key={field.id}
+                          field={field}
+                          farmerOrders={farmerOrdersList}
+                          highlighted={String(highlightFieldId) === String(field.id)}
+                          onFieldUpdated={async (updated) => {
+                            try {
+                              const fieldsRes = await fieldsService.getAll();
+                              const raw = fieldsRes.data || [];
+                              setMyFields((prev) =>
+                                prev.map((f) => {
+                                  const row = raw.find((r) => String(r.id) === String(f.id));
+                                  if (!row && String(updated?.id) !== String(f.id)) return f;
+                                  const src = row || updated || {};
+                                  const harvestDates = src.harvest_dates
+                                    ? (Array.isArray(src.harvest_dates)
+                                      ? src.harvest_dates.map((h) => (typeof h === 'object' ? h.date : h))
+                                      : [src.harvest_dates])
+                                    : f.harvestDates;
+                                  return {
+                                    ...f,
+                                    operational_status: src.operational_status || f.operational_status,
+                                    totalProduction: src.total_production != null
+                                      ? parseFloat(src.total_production)
+                                      : f.totalProduction,
+                                    totalProductionUnit: src.total_production_unit || f.totalProductionUnit,
+                                    price: src.price != null ? parseFloat(src.price) : f.price,
+                                    harvestDates: harvestDates || f.harvestDates,
+                                    harvestDate: (harvestDates && harvestDates[0]) || f.harvestDate,
+                                    last_season_yield: src.last_season_yield ?? f.last_season_yield,
+                                    last_season_yield_unit: src.last_season_yield_unit ?? f.last_season_yield_unit,
+                                    available_area_m2: src.available_area_m2 ?? f.available_area_m2,
+                                    available_area: src.available_area ?? f.available_area,
+                                    quantity_sell_percent: src.quantity_sell_percent ?? f.quantity_sell_percent,
+                                    shipping_destinations: src.shipping_destinations ?? f.shipping_destinations,
+                                    shipping_scope: src.shipping_scope ?? f.shipping_scope,
+                                    shipping_option: src.shipping_option ?? f.shipping_option,
+                                    shipping_pickup: src.shipping_pickup ?? f.shipping_pickup,
+                                    shipping_delivery: src.shipping_delivery ?? f.shipping_delivery,
+                                  };
+                                })
+                              );
+                            } catch {
+                              /* ignore */
+                            }
+                          }}
+                          onDelete={() => handleDeleteFieldCard(field)}
+                          deleteDisabled={fieldBlocksDeletion(field, farmerOrdersList)}
+                          deleteTitle={
+                            fieldBlocksDeletion(field, farmerOrdersList)
+                              ? 'Cannot remove while buyers still have an open order'
+                              : 'Remove this field'
+                          }
+                        />
+                      ))
                   ) : (
-                    <p className="col-span-full text-xs text-slate-500">
-                      No fields associated with this farm yet.
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      No fields on this farm yet. Use <strong>Create & edit fields</strong> to add one.
                     </p>
                   )}
                 </div>

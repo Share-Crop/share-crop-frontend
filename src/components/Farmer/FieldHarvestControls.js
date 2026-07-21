@@ -8,11 +8,6 @@ import {
   TextField,
   Alert,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   CircularProgress,
   InputAdornment,
 } from '@mui/material';
@@ -22,6 +17,8 @@ import {
   harvestEligibilityMessage,
 } from '../../utils/farmerOrderOccupancy';
 import { formatTotalProductionWithUnit, productionUnitLabel } from '../../utils/fieldProductionUnits';
+import FieldListAgainDialog from './FieldListAgainDialog';
+import RelistedFieldBadge from './RelistedFieldBadge';
 
 const statusLabel = (s) => {
   const v = (s || 'growing').toLowerCase();
@@ -68,7 +65,13 @@ function getFieldHarvestComparison(field, events) {
   };
 }
 
-const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, prominent = false }) => {
+const FieldHarvestControls = ({
+  field,
+  farmerOrders = [],
+  onFieldUpdated,
+  prominent = false,
+  hideStatusBadge = false,
+}) => {
   const [operationalStatus, setOperationalStatus] = useState(field?.operational_status || 'growing');
   const [harvestOpen, setHarvestOpen] = useState(false);
   const [totalQty, setTotalQty] = useState('');
@@ -77,6 +80,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
   const [busy, setBusy] = useState(false);
   const [events, setEvents] = useState([]);
   const [loadingHarvest, setLoadingHarvest] = useState(false);
+  const [listAgainOpen, setListAgainOpen] = useState(false);
 
   // Locked to field setup unit (not editable in harvest dialog).
   const harvestUnit = useMemo(
@@ -90,12 +94,7 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
 
   const activeOrdersOnField = getFieldHarvestOrders(farmerOrders, field.id);
 
-  const eligibility = harvestEligibilityMessage(
-    farmerOrders,
-    field.id,
-    field.totalAreaM2 ?? field.total_area,
-    field.available_area ?? field.availableAreaM2
-  );
+  const eligibility = harvestEligibilityMessage(farmerOrders, field.id);
 
   const loadHarvestSummary = useCallback(async () => {
     if (!field?.id) return;
@@ -173,27 +172,30 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
   return (
     <div className={prominent ? 'mt-1' : 'mt-2 border-t border-slate-100 pt-2'}>
       <div className={`mb-2 flex flex-wrap items-center gap-2 ${prominent ? 'justify-start' : ''}`}>
-        {!prominent && (
+        {!prominent && !hideStatusBadge && (
         <span
           className="inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-semibold"
           style={{ color: badge.color, backgroundColor: badge.bg }}
         >
-          Field: {badge.text}
+          {badge.text}
         </span>
+        )}
+        {!hideStatusBadge && (
+          <RelistedFieldBadge field={{ ...field, operational_status: operationalStatus }} />
         )}
         {operationalStatus === 'growing' && (
           <Button
             size={prominent ? 'medium' : 'small'}
             variant="contained"
             color="warning"
-            disabled={busy || activeOrdersOnField.length === 0}
+            disabled={busy}
             onClick={() => {
               setError(null);
               setHarvestOpen(true);
             }}
             sx={btnSx}
           >
-            {prominent ? 'Mark field harvested (enter total kg)' : 'Mark harvested'}
+            Mark harvested
           </Button>
         )}
         {operationalStatus === 'harvested' && (
@@ -205,12 +207,24 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
             onClick={submitShipped}
             sx={btnSx}
           >
-            {prominent ? 'Mark field as shipped' : 'Mark shipped'}
+            {prominent ? 'Mark shipped' : 'Mark shipped'}
+          </Button>
+        )}
+        {(operationalStatus === 'harvested' || operationalStatus === 'shipped') && (
+          <Button
+            size={prominent ? 'medium' : 'small'}
+            variant="outlined"
+            color="success"
+            disabled={busy}
+            onClick={() => setListAgainOpen(true)}
+            sx={btnSx}
+          >
+            {prominent ? 'List again on map' : 'List again'}
           </Button>
         )}
       </div>
 
-      {operationalStatus === 'growing' && activeOrdersOnField.length === 0 && (
+      {operationalStatus === 'growing' && (
         <Typography variant="caption" color="text.secondary" display="block" sx={{ lineHeight: 1.4 }}>
           {eligibility.text}
         </Typography>
@@ -221,43 +235,19 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
           {loadingHarvest ? (
             <CircularProgress size={16} />
           ) : comparison.declared || comparison.estimated != null ? (
-            <Table size="small" sx={{ '& td, & th': { fontSize: '0.7rem', py: 0.5 } }}>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Field harvest</TableCell>
-                  <TableCell align="right">Est.</TableCell>
-                  <TableCell align="right">Actual</TableCell>
-                  <TableCell align="right">+/-</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                <TableRow>
-                  <TableCell>Whole field</TableCell>
-                  <TableCell align="right">
-                    {comparison.estimatedText || '—'}
-                  </TableCell>
-                  <TableCell align="right">
-                    {comparison.actualText || '—'}
-                  </TableCell>
-                  <TableCell
-                    align="right"
-                    sx={{
-                      color:
-                        comparison.delta == null
-                          ? 'inherit'
-                          : comparison.delta >= 0
-                            ? '#059669'
-                            : '#dc2626',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {comparison.delta == null
-                      ? '—'
-                      : `${comparison.delta >= 0 ? '+' : ''}${Number(comparison.delta).toFixed(1)} ${comparison.unit}`}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              <div className="mb-1 font-semibold text-slate-800">This season harvest</div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span>Expected: <strong>{comparison.estimatedText || '—'}</strong></span>
+                <span>Actual: <strong>{comparison.actualText || '—'}</strong></span>
+                {comparison.delta != null ? (
+                  <span style={{ color: comparison.delta >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
+                    {comparison.delta >= 0 ? '+' : ''}
+                    {Number(comparison.delta).toFixed(1)} {comparison.unit}
+                  </span>
+                ) : null}
+              </div>
+            </div>
           ) : null}
         </div>
       )}
@@ -279,6 +269,9 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
               </>
             ) : null}
             .
+            {activeOrdersOnField.length > 0
+              ? ' Active buyers will get their share by rented area.'
+              : ' No active buyers — this records your total only (nothing to distribute).'}
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -319,6 +312,20 @@ const FieldHarvestControls = ({ field, farmerOrders = [], onFieldUpdated, promin
           </Button>
         </DialogActions>
       </Dialog>
+
+      <FieldListAgainDialog
+        open={listAgainOpen}
+        onClose={() => setListAgainOpen(false)}
+        field={field}
+        lastSeasonYield={comparison.actual ?? field?.last_season_yield}
+        lastSeasonUnit={
+          events[0]?.unit || field?.last_season_yield_unit || field?.total_production_unit
+        }
+        onListed={(updated) => {
+          setOperationalStatus(updated?.operational_status || 'growing');
+          if (onFieldUpdated) onFieldUpdated(updated);
+        }}
+      />
     </div>
   );
 };

@@ -42,16 +42,29 @@ const ProductSummaryBar = ({
     (purchasedProducts || []).forEach(p => {
       const fieldId = p.field_id ?? p.fieldId ?? p.id;
       const fieldRow = (visibleFarms || []).find((f) => String(f.id) === String(fieldId));
-      const harvestSource = fieldRow ? { ...fieldRow, ...p } : p;
+      // Only show stake for fields currently on the map (avoids ghost 0kg cards from past seasons).
+      if (!fieldRow) return;
+      const orderYmd = p.order_selected_harvest_date || p.last_order_selected_date || p.selected_harvest_date;
+      const lockedHarvest = orderYmd
+        ? {
+            order_selected_harvest_date: orderYmd,
+            selected_harvest_date: orderYmd,
+            harvest_dates: [{ date: orderYmd, label: '' }],
+            selected_harvests: Array.isArray(p.selected_harvests) && p.selected_harvests.length
+              ? p.selected_harvests
+              : [{ date: orderYmd, label: '' }],
+            lock_order_harvest: true,
+          }
+        : { lock_order_harvest: true, harvest_dates: p.selected_harvests || [] };
+      const harvestSource = { ...fieldRow, ...p, ...lockedHarvest };
       if (!hasUpcomingHarvestOnRecord(harvestSource)) return;
+      const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
+      if (!(Number.isFinite(purchasedArea) && purchasedArea > 0)) return;
 
-      const k = toKey(p.subcategory || p.category || p.category_key || p.id);
+      const k = toKey(p.subcategory || p.category || p.category_key || fieldRow.subcategory || fieldRow.category || p.id);
       const prev = map.get(k);
       const harvestInfo = getHarvestProgressInfo(harvestSource);
-      const purchasedArea = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
-      const totalKg = fieldRow
-        ? productionAmountForField({ ...fieldRow, ...p }, purchasedArea)
-        : productionAmountForField(p, purchasedArea);
+      const totalKg = productionAmountForField({ ...fieldRow, ...p }, purchasedArea);
       
       const base = {
         id: k,

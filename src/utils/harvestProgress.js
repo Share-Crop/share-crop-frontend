@@ -122,6 +122,19 @@ export function collectHarvestDateStrings(item) {
       pushRaw(raw);
     }
   };
+
+  // Order/rental rows locked to their own season must ignore live field schedules.
+  const locked = Boolean(item.lock_order_harvest || item.order_selected_harvest_date);
+  if (locked) {
+    pushRaw(item.order_selected_harvest_date);
+    fromList(item.selected_harvests || item.selectedHarvests);
+    fromList(item.harvest_dates || item.harvestDates);
+    pushRaw(item.selected_harvest_date);
+    pushRaw(item.delivery_date || item.deliveryDate);
+    pushRaw(item.harvest_date || item.harvestDate);
+    return [...new Set(strings)];
+  }
+
   fromList(item.selected_harvests || item.selectedHarvests);
   fromList(item.harvest_dates || item.harvestDates);
   fromList(item.field_harvest_dates || item.fieldHarvestDates);
@@ -173,6 +186,16 @@ function getMostRecentPastHarvestDay(item) {
 export function resolveHarvestDate(item) {
   if (!item || typeof item !== 'object') return null;
 
+  // Locked order harvest — keep past-season dates after a field is listed again.
+  const orderLockedRaw = parseHarvestDate(item.order_selected_harvest_date);
+  if (orderLockedRaw) return normalizeDay(orderLockedRaw);
+  if (item.lock_order_harvest) {
+    const locked = parseHarvestDate(
+      item.delivery_date ?? item.selected_harvest_date ?? item.harvest_date
+    );
+    if (locked) return normalizeDay(locked);
+  }
+
   const explicitRaw = parseHarvestDate(
     item.selected_harvest_date ??
     item.selectedHarvestDate?.date ??
@@ -199,12 +222,15 @@ export function getHarvestProgressInfo(item) {
   if (!harvestDate) {
     if (!hasUpcomingHarvestOnRecord(item)) {
       const pastDay = getMostRecentPastHarvestDay(item);
+      const today = normalizeDay(new Date());
+      const daysPast = pastDay ? diffCalendarDays(pastDay, today) : null;
       return {
         harvestDate: pastDay,
         progress: 1,
         progressPercent: 100,
-        daysLeft: 0,
-        daysUntil: 0,
+        // Negative = days past harvest (UI must not show "Today")
+        daysLeft: daysPast != null ? -Math.abs(daysPast) : null,
+        daysUntil: daysPast != null ? -Math.abs(daysPast) : null,
         totalCycleDays: HARVEST_DEFAULT_CYCLE_DAYS,
         daysElapsed: HARVEST_DEFAULT_CYCLE_DAYS,
         hasHarvestDate: Boolean(pastDay),
@@ -262,7 +288,7 @@ export function getHarvestProgressInfo(item) {
     totalCycleDays,
     daysElapsed,
     hasHarvestDate: true,
-    isExpiredSeason: false,
+    isExpiredSeason: daysLeft < 0,
   };
 }
 

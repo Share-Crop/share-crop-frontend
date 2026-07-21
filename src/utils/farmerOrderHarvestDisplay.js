@@ -44,10 +44,13 @@ function formatAmt(amount, order) {
  */
 export function hasDeclaredFieldHarvest(order) {
   if (!order) return false;
-  if (toNum(order.field_harvest_total) != null && toNum(order.field_harvest_total) > 0) return true;
   if (toNum(order.harvest_allocated_qty) != null && toNum(order.harvest_allocated_qty) > 0) return true;
-  const op = String(order.operational_status || '').toLowerCase();
-  return op === 'harvested' || op === 'shipped';
+  if (toNum(order.field_harvest_total) != null && toNum(order.field_harvest_total) > 0) return true;
+  if (toNum(order.harvest_estimated_qty) != null && toNum(order.harvest_estimated_qty) > 0) {
+    // Allocation row exists for this order (season-scoped).
+    return toNum(order.field_harvest_total) != null;
+  }
+  return false;
 }
 
 export function harvestUnitLabel(order) {
@@ -96,40 +99,58 @@ export function getEstimatedOrderYield(order) {
   };
 }
 
+function isClosedOrderStatus(order) {
+  const s = String(order?.status || '').toLowerCase();
+  return s === 'completed' || s === 'shipped' || s === 'cancelled';
+}
+
 /**
  * Simple farmer-facing numbers for one order:
- * - estimated = setup total × (order area / field area)
- * - actual    = harvest entered × (order area / field area)
- * Show only those two as Est vs Actual.
+ * - Prefer season-scoped allocation columns from API when present (safe after list-again)
+ * - Else estimated = setup total × (order area / field area)
+ * - actual = harvest entered × share (only when this order has an allocation / declared harvest)
  */
 export function getDeliverableHarvest(order) {
   const unit = harvestUnitLabel(order);
   const share = getOrderAreaShare(order);
+  const allocatedQty = toNum(order?.harvest_allocated_qty);
+  const estimatedQty = toNum(order?.harvest_estimated_qty);
   const fieldSetupTotal = toNum(order?.total_production ?? order?.totalProduction);
   const fieldHarvestTotal = toNum(order?.field_harvest_total);
+  const closed = isClosedOrderStatus(order);
 
-  const declared = hasDeclaredFieldHarvest(order) && fieldHarvestTotal != null && fieldHarvestTotal > 0;
+  // Prefer DB allocation for this order (tied to the harvest event this order belonged to).
+  let estimated = estimatedQty != null && estimatedQty >= 0 ? estimatedQty : null;
+  let actual = allocatedQty != null && allocatedQty > 0 ? allocatedQty : null;
 
-  let estimated = null;
-  if (fieldSetupTotal != null && fieldSetupTotal >= 0 && share != null) {
+  if (estimated == null && !closed && fieldSetupTotal != null && fieldSetupTotal >= 0 && share != null) {
     estimated = fieldSetupTotal * share;
   }
+  // Closed/past-season without allocation: do not recompute Est from live (relisted) total_production.
+  if (estimated == null && closed && estimatedQty == null && allocatedQty == null) {
+    estimated = null;
+  }
 
-  let actual = null;
-  if (declared && share != null) {
-    actual = fieldHarvestTotal * share;
+  const declared =
+    (actual != null && actual > 0) ||
+    (hasDeclaredFieldHarvest(order) && fieldHarvestTotal != null && fieldHarvestTotal > 0);
+
+  if (actual == null && declared && share != null && fieldHarvestTotal != null) {
+    // Only apply live field harvest share for open (current-season) orders.
+    if (!closed) {
+      actual = fieldHarvestTotal * share;
+    }
   }
 
   const estimatedText = estimated != null ? formatAmt(estimated, order) : null;
   const actualText = actual != null ? formatAmt(actual, order) : null;
 
-  // Primary = what to deliver (actual once entered)
   const primaryLine = actualText;
   const secondaryLine = estimatedText ? `Est. ${estimatedText}` : null;
   const tableSecondaryLine = estimatedText ? `Est ${estimatedText}` : null;
 
   return {
-    declared,
+    declared: Boolean(actual != null && actual > 0),
     unit,
     share,
     orderArea: toNum(order?.quantity),
@@ -140,11 +161,10 @@ export function getDeliverableHarvest(order) {
     actual,
     estimatedText,
     actualText,
-    // aliases used by existing UI
     planned: estimatedText
       ? { amount: estimated, unit, text: estimatedText }
       : null,
-    fieldPlan: fieldSetupTotal != null
+    fieldPlan: fieldSetupTotal != null && !closed
       ? { amount: fieldSetupTotal, unit, text: formatAmt(fieldSetupTotal, order) }
       : null,
     fieldTotal: fieldHarvestTotal,
@@ -159,7 +179,7 @@ export function getDeliverableHarvest(order) {
 }
 
 /**
- * Urgency relative to this order's harvest date until status becomes shipped.
+ * Urgency relative to this order's harvest date until status becomes shipped/completed.
  */
 export function getHarvestUrgency(order) {
   const status = String(order?.status || '').toLowerCase();
@@ -168,6 +188,9 @@ export function getHarvestUrgency(order) {
   }
   if (status === 'shipped') {
     return { kind: 'shipped', label: 'Shipped', tone: 'success' };
+  }
+  if (status === 'completed') {
+    return { kind: 'completed', label: 'Completed', tone: 'success' };
   }
 
   const ymd = getOrderHarvestYmd(order);

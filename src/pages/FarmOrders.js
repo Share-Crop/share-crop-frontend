@@ -72,9 +72,26 @@ import {
   getHarvestUrgency,
   urgencyChipSx,
 } from '../utils/farmerOrderHarvestDisplay';
+import { isPastSeasonOrder, pastSeasonOrderLabel } from '../utils/pastSeasonOrder';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
+
+/** Progress bar must use the order's locked harvest date, never the relisted field schedule. */
+const orderHarvestProgressItem = (order) => {
+  const ymd = order?.order_selected_harvest_date || order?.delivery_date || null;
+  const label = order?.selected_harvest_label || '';
+  return {
+    ...order,
+    lock_order_harvest: true,
+    order_selected_harvest_date: ymd,
+    selected_harvest_date: ymd,
+    harvest_date: ymd,
+    delivery_date: ymd,
+    selected_harvests: ymd ? [{ date: ymd, label }] : [],
+    harvest_dates: ymd ? [{ date: ymd, label }] : [],
+  };
+};
 
 /**
  * Extract delivery address from order notes (map checkout: `Shipping: Delivery | Address: ...`
@@ -334,7 +351,9 @@ const FarmOrders = () => {
 
       const formattedOrders = apiOrders.map((order) => {
         const mergedField = ownFieldById.get(String(order.field_id)) || {};
-        const rawLeadDays = mergedField.estimated_delivery_days ?? order.estimated_delivery_days;
+        const rawLeadDays =
+          order.estimated_delivery_days ??
+          mergedField.estimated_delivery_days;
         const parsedLeadDays =
           rawLeadDays != null && rawLeadDays !== ''
             ? parseInt(String(rawLeadDays), 10)
@@ -342,8 +361,21 @@ const FarmOrders = () => {
         const estimated_delivery_days =
           Number.isFinite(parsedLeadDays) && parsedLeadDays >= 1 ? parsedLeadDays : null;
 
+        // Always lock to the order's own harvest selection — never live field harvest_dates
+        // (list-again rewrites the field for a new season).
+        const orderHarvestDate = order.selected_harvest_date || null;
+        const orderHarvestLabel = order.selected_harvest_label || null;
+        const fieldHarvestDates =
+          order.field_harvest_dates ??
+          mergedField.harvest_dates ??
+          mergedField.harvestDates ??
+          null;
+
         return {
-        ...mergedField,
+        // Safe field metadata only (no harvest schedule / live production overwrite for past seasons)
+        name: mergedField.name || order.field_name,
+        image: mergedField.image || order.image_url,
+        category: order.crop_type || mergedField.category,
         id: order.id,
         field_name: order.field_name || 'Unknown Field',
         buyer_name: order.buyer_name || 'Unknown Buyer',
@@ -352,59 +384,36 @@ const FarmOrders = () => {
         quantity: Number(order.quantity) || 0,
         total_cost: Number(order.total_price) || 0,
         status: normalizeOrderStatus(order.status),
-        created_at:
-          ownFieldById.get(String(order.field_id))?.created_at ||
-          ownFieldById.get(String(order.field_id))?.createdAt ||
-          order.created_at,
+        created_at: order.created_at,
         order_created_at: order.created_at,
         field_created_at:
           order.field_created_at ||
           order.fieldCreatedAt ||
-          order.field_created_date ||
-          order.fieldCreatedDate ||
-          ownFieldById.get(String(order.field_id))?.created_at ||
-          ownFieldById.get(String(order.field_id))?.createdAt ||
+          mergedField.created_at ||
+          mergedField.createdAt ||
           null,
         crop_type: order.crop_type || 'Mixed',
-        subcategory: order.subcategory || order.sub_category || null,
+        subcategory: order.subcategory || order.sub_category || mergedField.subcategory || null,
         price_per_unit: Number(order.price_per_m2) || 0,
-        location: order.location || 'Unknown',
-        delivery_date: order.selected_harvest_date || null,
+        location: order.location || mergedField.location || 'Unknown',
+        delivery_date: orderHarvestDate,
         estimated_delivery_days,
-        order_selected_harvest_date: order.selected_harvest_date || null,
-        selected_harvest_date:
-          ownFieldById.get(String(order.field_id))?.selected_harvest_date ||
-          ownFieldById.get(String(order.field_id))?.selectedHarvestDate?.date ||
-          ownFieldById.get(String(order.field_id))?.harvest_date ||
-          ownFieldById.get(String(order.field_id))?.harvestDate ||
-          order.selected_harvest_date ||
-          null,
-        selected_harvests:
-          ownFieldById.get(String(order.field_id))?.selected_harvests ||
-          ownFieldById.get(String(order.field_id))?.selectedHarvests ||
-          ownFieldById.get(String(order.field_id))?.harvest_dates ||
-          ownFieldById.get(String(order.field_id))?.harvestDates ||
-          order.selected_harvests ||
-          order.selectedHarvests ||
-          [],
-        harvest_date:
-          ownFieldById.get(String(order.field_id))?.harvest_date ||
-          ownFieldById.get(String(order.field_id))?.harvestDate ||
-          order.harvest_date ||
-          order.harvestDate ||
-          order.selected_harvest_date ||
-          null,
-        harvest_dates:
-          ownFieldById.get(String(order.field_id))?.harvest_dates ||
-          ownFieldById.get(String(order.field_id))?.harvestDates ||
-          order.harvest_dates ||
-          order.harvestDates ||
-          [],
+        order_selected_harvest_date: orderHarvestDate,
+        selected_harvest_date: orderHarvestDate,
+        selected_harvest_label: orderHarvestLabel,
+        selected_harvests: orderHarvestDate
+          ? [{ date: orderHarvestDate, label: orderHarvestLabel || '' }]
+          : [],
+        harvest_date: orderHarvestDate,
+        harvest_dates: orderHarvestDate
+          ? [{ date: orderHarvestDate, label: orderHarvestLabel || '' }]
+          : [],
+        field_harvest_dates: fieldHarvestDates,
+        current_field_harvest_dates: fieldHarvestDates,
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         field_id: order.field_id,
         farm_id: order.farm_id || mergedField.farm_id || mergedField.farmId || null,
         notes: order.notes ?? null,
-        selected_harvest_label: order.selected_harvest_label || null,
         total_production:
           order.total_production ??
           mergedField.total_production ??
@@ -426,6 +435,10 @@ const FarmOrders = () => {
           order.operational_status ||
           mergedField.operational_status ||
           'growing',
+        last_season_yield:
+          order.last_season_yield ??
+          mergedField.last_season_yield ??
+          null,
         field_harvest_total: order.field_harvest_total ?? null,
         harvest_unit: order.harvest_unit || null,
         harvest_declared_at: order.harvest_declared_at || null,
@@ -434,8 +447,13 @@ const FarmOrders = () => {
         delivery_address: parseDeliveryAddressFromNotes(order.notes),
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
+        lock_order_harvest: true,
+        is_past_season: false,
       };
-      });
+      }).map((row) => ({
+        ...row,
+        is_past_season: isPastSeasonOrder(row),
+      }));
 
       setOrders(formattedOrders);
     } catch (err) {
@@ -1051,20 +1069,36 @@ const FarmOrders = () => {
                       />
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
-                          <Typography
-                            variant="body2"
-                            sx={{
-                              fontWeight: 700,
-                              fontSize: '0.9rem',
-                              color: '#0f172a',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              minWidth: 0,
-                            }}
-                          >
-                            {order.field_name}
-                          </Typography>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.9rem',
+                                color: '#0f172a',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {order.field_name}
+                            </Typography>
+                            {order.is_past_season ? (
+                              <Chip
+                                size="small"
+                                label={pastSeasonOrderLabel(order)}
+                                sx={{
+                                  mt: 0.5,
+                                  height: 20,
+                                  bgcolor: '#f5f3ff',
+                                  color: '#6d28d9',
+                                  border: '1px solid #ddd6fe',
+                                  fontWeight: 700,
+                                  '& .MuiChip-label': { fontSize: '0.62rem', px: 0.75 },
+                                }}
+                              />
+                            ) : null}
+                          </Box>
                           <Chip
                             size="small"
                             label={urgency.shortLabel || urgency.label}
@@ -1084,7 +1118,13 @@ const FarmOrders = () => {
                     </Stack>
 
                     <Box sx={{ mb: 1.25, minWidth: 0, overflow: 'hidden' }}>
-                      <HarvestProgressBar item={order} compact showDate={false} daysShort label="" />
+                      {order.is_past_season ? (
+                        <Typography variant="caption" sx={{ color: '#7c3aed', fontWeight: 600 }}>
+                          Past season order — harvest date locked to this rental
+                        </Typography>
+                      ) : (
+                        <HarvestProgressBar item={orderHarvestProgressItem(order)} compact showDate={false} daysShort label="" />
+                      )}
                     </Box>
 
                     <Stack spacing={1} sx={{ mb: 1.25 }}>
@@ -1376,8 +1416,29 @@ const FarmOrders = () => {
                             >
                               {order.field_name}
                             </Typography>
+                            {order.is_past_season ? (
+                              <Chip
+                                size="small"
+                                label={pastSeasonOrderLabel(order)}
+                                sx={{
+                                  mb: 0.5,
+                                  height: 18,
+                                  bgcolor: '#f5f3ff',
+                                  color: '#6d28d9',
+                                  border: '1px solid #ddd6fe',
+                                  fontWeight: 700,
+                                  '& .MuiChip-label': { fontSize: '0.58rem', px: 0.6 },
+                                }}
+                              />
+                            ) : null}
                             <Box sx={{ maxWidth: '100%', overflow: 'hidden' }}>
-                              <HarvestProgressBar item={order} compact showDate={false} daysShort label="" />
+                              {order.is_past_season ? (
+                                <Typography variant="caption" sx={{ color: '#7c3aed', fontWeight: 600, fontSize: '0.65rem' }}>
+                                  Season closed
+                                </Typography>
+                              ) : (
+                                <HarvestProgressBar item={orderHarvestProgressItem(order)} compact showDate={false} daysShort label="" />
+                              )}
                             </Box>
                           </Box>
                         </Stack>
@@ -1672,9 +1733,25 @@ const FarmOrders = () => {
               <Typography variant="h6" sx={{ fontWeight: 600 }}>
                 Order Details
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                #{selectedOrder?.id}
-              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                <Typography variant="body2" color="text.secondary">
+                  #{selectedOrder?.id}
+                </Typography>
+                {selectedOrder?.is_past_season ? (
+                  <Chip
+                    size="small"
+                    label={pastSeasonOrderLabel(selectedOrder)}
+                    sx={{
+                      height: 22,
+                      bgcolor: '#f5f3ff',
+                      color: '#6d28d9',
+                      border: '1px solid #ddd6fe',
+                      fontWeight: 700,
+                      '& .MuiChip-label': { fontSize: '0.68rem', px: 0.75 },
+                    }}
+                  />
+                ) : null}
+              </Stack>
             </Box>
           </Stack>
         </DialogTitle>
@@ -1971,6 +2048,11 @@ const FarmOrders = () => {
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
                         {selectedOrder.field_name}
                       </Typography>
+                      {selectedOrder.is_past_season ? (
+                        <Typography variant="caption" sx={{ color: '#7c3aed', fontWeight: 600, display: 'block', mt: 0.5 }}>
+                          This rental is from a previous season. New sales on the relisted field are separate orders.
+                        </Typography>
+                      ) : null}
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
@@ -2005,7 +2087,14 @@ const FarmOrders = () => {
                       </Typography>
                     </Box>
                     <Box>
-                      <HarvestProgressBar item={selectedOrder} />
+                      {selectedOrder.is_past_season ? (
+                        <Alert severity="info" sx={{ borderRadius: 2 }}>
+                          Past season — harvest date stays on this order ({harvestDateDisplay(selectedOrder).dateText || 'locked'}).
+                          Relisted field dates do not apply here.
+                        </Alert>
+                      ) : (
+                        <HarvestProgressBar item={orderHarvestProgressItem(selectedOrder)} />
+                      )}
                     </Box>
                   </Stack>
                 </Paper>

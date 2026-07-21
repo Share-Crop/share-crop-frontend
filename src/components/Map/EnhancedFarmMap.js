@@ -36,6 +36,7 @@ import {
   buildLocationStringFromAddress,
   shortenLocationLabel,
 } from '../../utils/shippingDestinations';
+import { isActiveBuyerOrderStatus } from '../../utils/buyerOrderStake';
 import FieldDeliveryCheckoutSummary from './FieldDeliveryCheckoutSummary';
 import DeliveryAddressDialog from '../Forms/DeliveryAddressDialog';
 import { findUsStateByName } from '../../data/usStates';
@@ -228,23 +229,20 @@ const EnhancedFarmMap = forwardRef(({
   const [weatherLayerPanelOpen, setWeatherLayerPanelOpen] = useState(true);
   const notifiedInFlightRef = useRef(new Set());
 
-  // Define isProductPurchased early to avoid TDZ errors
+  // Buyer "owns/rents this" for map UX — only active stake, not past-season orders or others' occupancy.
   const isProductPurchased = useCallback((prod) => {
     if (!prod) return false;
-    if (stablePurchasedIdsRef.current.has(prod.id)) return true;
-    const occupied = typeof prod.occupied_area === 'string' ? parseFloat(prod.occupied_area) : prod.occupied_area;
-    const purchasedArea = typeof prod.purchased_area === 'string' ? parseFloat(prod.purchased_area) : prod.purchased_area;
-    const totalArea = typeof prod.total_area === 'string' ? parseFloat(prod.total_area) : prod.total_area;
-    const availableArea = typeof prod.available_area === 'string' ? parseFloat(prod.available_area) : prod.available_area;
-    const derived = Boolean(
-      prod.isPurchased || prod.is_purchased || prod.purchased ||
-      (typeof prod.purchase_status === 'string' && prod.purchase_status.toLowerCase() === 'purchased') ||
-      (Number.isFinite(occupied) && occupied > 0) ||
-      (Number.isFinite(purchasedArea) && purchasedArea > 0) ||
-      (Number.isFinite(totalArea) && Number.isFinite(availableArea) && totalArea > 0 && availableArea < totalArea)
-    );
-    return derived || purchasedFarms.has(prod.id) || purchasedProductIds.includes(prod.id);
-  }, [purchasedFarms, purchasedProductIds]);
+    const key = String(prod.id ?? prod.field_id ?? '');
+    if (!key) return false;
+    if (purchasedProducts.some((p) => String(p.id ?? p.field_id) === key)) return true;
+    if (stablePurchasedIdsRef.current.has(prod.id) || stablePurchasedIdsRef.current.has(key)) return true;
+    if (purchasedFarms.has(prod.id) || purchasedFarms.has(key)) return true;
+    if (purchasedProductIds.some((x) => String(x) === key)) return true;
+    if (prod.isPurchased === true || prod.is_purchased === true || prod.purchased === true) return true;
+    if (typeof prod.purchase_status === 'string' && prod.purchase_status.toLowerCase() === 'purchased') return true;
+    // Do NOT treat global occupancy (available < total / occupied > 0) as "I purchased this".
+    return false;
+  }, [purchasedFarms, purchasedProductIds, purchasedProducts]);
 
   /** Harvest ring + occupancy wedge: only for fields this viewer rents/owns — not other users' partial occupancy. */
   const showMapOccupancyOverlay = useCallback((prod) => {
@@ -1247,7 +1245,19 @@ const EnhancedFarmMap = forwardRef(({
         const fieldRow = Array.isArray(farms) && fieldId != null
           ? farms.find(f => String(f.id) === String(fieldId))
           : null;
-        const merged = fieldRow ? { ...fieldRow, ...p } : p;
+        const orderYmd = p.last_order_selected_date || p.order_selected_harvest_date || p.selected_harvest_date;
+        const locked = orderYmd
+          ? {
+              order_selected_harvest_date: orderYmd,
+              selected_harvest_date: orderYmd,
+              harvest_dates: [{ date: orderYmd, label: '' }],
+              selected_harvests: Array.isArray(p.selected_harvests) && p.selected_harvests.length
+                ? p.selected_harvests
+                : [{ date: orderYmd, label: '' }],
+              lock_order_harvest: true,
+            }
+          : p;
+        const merged = fieldRow ? { ...fieldRow, ...p, ...locked } : locked;
         return hasUpcomingHarvestOnRecord(merged);
       });
 
@@ -1457,10 +1467,8 @@ const EnhancedFarmMap = forwardRef(({
     const availableArea = typeof availCandidateRaw === 'string' ? parseFloat(availCandidateRaw) : availCandidateRaw;
     const isPurchasedDerived = Boolean(
       f.isPurchased || f.is_purchased || f.purchased ||
-      (typeof f.purchase_status === 'string' && f.purchase_status.toLowerCase() === 'purchased') ||
-      (Number.isFinite(occupied) && occupied > 0) ||
-      (Number.isFinite(purchasedArea) && purchasedArea > 0) ||
-      (Number.isFinite(totalAreaM2) && Number.isFinite(availableArea) && totalAreaM2 > 0 && availableArea < totalAreaM2)
+      (typeof f.purchase_status === 'string' && f.purchase_status.toLowerCase() === 'purchased')
+      // Do not derive from occupied/available — that reflects any buyer, not the current user.
     );
     const shippingDestRaw = f.shipping_destinations ?? f.shippingDestinations;
     const deliveryChargesRaw = f.delivery_charges ?? f.deliveryCharges;
@@ -1871,7 +1879,6 @@ const EnhancedFarmMap = forwardRef(({
       setFarms(normalizedExternal);
       setFilteredFarms(filteredExternal);
       setSelectedIcons(new Set());
-      normalizedExternal.forEach(f => { if (f.isPurchased) stablePurchasedIdsRef.current.add(f.id); });
     } else {
       const loadFarms = async () => {
         try {
@@ -1897,8 +1904,7 @@ const EnhancedFarmMap = forwardRef(({
           // Note: Purchase status and rented fields are now managed via API
           // In a full implementation, we would fetch user orders and rented fields from API
 
-          // Set fields directly (purchase status managed via API)
-          allFields.forEach(f => { if (f.isPurchased) stablePurchasedIdsRef.current.add(f.id); });
+          // Set fields directly (buyer purchase stake is loaded separately from active orders)
           const filteredFields = allFields.filter(
             (f) => !shouldFilterOutByOccupiedArea(f) && hasUpcomingHarvestOnRecord(f)
           );
@@ -2324,32 +2330,47 @@ const EnhancedFarmMap = forwardRef(({
 
   const getHarvestDateObj = useCallback((prod) => {
     const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
-    return sharedResolveHarvestDate({
-      ...prod,
-      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
-      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
-    });
+    if (entry) {
+      const ymd = entry.last_order_selected_date || entry.order_selected_harvest_date || entry.selected_harvest_date;
+      return sharedResolveHarvestDate({
+        order_selected_harvest_date: ymd,
+        selected_harvest_date: ymd,
+        selected_harvests: ymd ? [{ date: ymd, label: '' }] : (entry.selected_harvests || []),
+        harvest_dates: ymd ? [{ date: ymd, label: '' }] : [],
+        lock_order_harvest: true,
+      });
+    }
+    return sharedResolveHarvestDate(prod);
   }, [purchasedProducts]);
 
 
 
   const getDaysUntilHarvest = useCallback((prod) => {
     const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
-    const info = sharedGetHarvestProgressInfo({
-      ...prod,
-      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
-      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
-    });
+    const info = entry
+      ? sharedGetHarvestProgressInfo({
+          order_selected_harvest_date: entry.last_order_selected_date || entry.order_selected_harvest_date || entry.selected_harvest_date,
+          selected_harvest_date: entry.last_order_selected_date || entry.order_selected_harvest_date || entry.selected_harvest_date,
+          selected_harvests: entry.selected_harvests || [],
+          harvest_dates: entry.selected_harvests || [],
+          lock_order_harvest: true,
+        })
+      : sharedGetHarvestProgressInfo(prod);
     return typeof info.daysLeft === 'number' ? info.daysLeft : null;
   }, [purchasedProducts]);
 
   const getHarvestProgressInfo = useCallback((prod) => {
     const entry = purchasedProducts.find(p => String(p.id ?? p.field_id) === String(prod.id ?? prod.field_id));
-    return sharedGetHarvestProgressInfo({
-      ...prod,
-      selected_harvest_date: entry?.selected_harvest_date || prod?.selected_harvest_date,
-      selected_harvests: Array.isArray(entry?.selected_harvests) && entry.selected_harvests.length ? entry.selected_harvests : prod?.selected_harvests,
-    });
+    if (entry) {
+      return sharedGetHarvestProgressInfo({
+        order_selected_harvest_date: entry.last_order_selected_date || entry.order_selected_harvest_date || entry.selected_harvest_date,
+        selected_harvest_date: entry.last_order_selected_date || entry.order_selected_harvest_date || entry.selected_harvest_date,
+        selected_harvests: entry.selected_harvests || [],
+        harvest_dates: entry.selected_harvests || [],
+        lock_order_harvest: true,
+      });
+    }
+    return sharedGetHarvestProgressInfo(prod);
   }, [purchasedProducts]);
 
   const bottomBarItems = React.useMemo(() => {
@@ -3009,11 +3030,13 @@ const EnhancedFarmMap = forwardRef(({
             const orders = Array.isArray(res?.data) ? res.data : (res?.data?.orders || []);
             const byField = new Map();
             for (const o of orders) {
+              if (!isActiveBuyerOrderStatus(o.status)) continue;
               const fid = o.field_id || o.fieldId || o.field?.id;
               if (!fid) continue;
               const prev = byField.get(fid) || { purchased_area: 0, selected_harvests: [], last_order_selected_date: null, last_order_shipping_mode: null, last_order_created_at: null };
               const qtyRaw = o.quantity ?? o.area_rented ?? o.area ?? 0;
               const qty = typeof qtyRaw === 'string' ? parseFloat(qtyRaw) : qtyRaw;
+              if (!(Number.isFinite(qty) && qty > 0)) continue;
               const field = o.field || farms.find(f => f.id === fid) || {};
               const name = field.name || o.product_name || o.name;
               const category = field.subcategory || field.category || o.crop_type;
@@ -3041,45 +3064,14 @@ const EnhancedFarmMap = forwardRef(({
                 last_order_selected_date: (curTs >= prevTs) ? (o.selected_harvest_date || null) : prev.last_order_selected_date || null,
                 last_order_shipping_mode: (curTs >= prevTs) ? mCanon : prev.last_order_shipping_mode || null,
                 last_order_created_at: (curTs >= prevTs) ? createdAt : prev.last_order_created_at || null,
-                last_order_purchased: (curTs >= prevTs)
-                  ? ((o.purchased === true)
-                    || (() => { const q = o.quantity ?? o.area_rented ?? o.area; const v = typeof q === 'string' ? parseFloat(q) : q; return Number.isFinite(v) && v > 0; })()
-                    || (() => { const s = String(o.status || '').toLowerCase(); return s === 'active' || s === 'pending'; })())
-                  : (prev.last_order_purchased === true)
+                last_order_purchased: true,
+                order_status: o.status || 'active',
               });
             }
             const list = Array.from(byField.values());
-            setPurchasedProducts(prev => {
-              const map = new Map();
-              list.forEach(item => map.set(String(item.id ?? item.field_id), { ...item }));
-              prev.forEach(p => {
-                const key = String(p.id ?? p.field_id);
-                const existing = map.get(key);
-                if (existing) {
-                  const ex = typeof existing.purchased_area === 'string' ? parseFloat(existing.purchased_area) : (existing.purchased_area || 0);
-                  const pv = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
-                  existing.purchased_area = Math.max(ex, pv);
-                  existing.production_rate = existing.production_rate || p.production_rate || 0;
-                  const shPrev = Array.isArray(existing.selected_harvests) ? existing.selected_harvests : [];
-                  const shIncoming = Array.isArray(p.selected_harvests) ? p.selected_harvests : [];
-                  const combined = [...shPrev, ...shIncoming];
-                  const s = new Set();
-                  existing.selected_harvests = combined.filter(it => { const d = (() => { if (!it?.date) return ''; try { const nd = new Date(it.date); if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0]; } catch { } return typeof it.date === 'string' ? it.date : ''; })(); const k = `${d}|${(it?.label || '').trim().toLowerCase()}`; if (s.has(k)) return false; s.add(k); return true; });
-                  const prevTs = p.last_order_created_at ? new Date(p.last_order_created_at).getTime() : -Infinity;
-                  const curTs = existing.last_order_created_at ? new Date(existing.last_order_created_at).getTime() : -Infinity;
-                  if (prevTs > curTs) {
-                    existing.last_order_selected_date = p.last_order_selected_date || existing.last_order_selected_date || null;
-                    existing.last_order_shipping_mode = p.last_order_shipping_mode || existing.last_order_shipping_mode || null;
-                    existing.last_order_created_at = p.last_order_created_at || existing.last_order_created_at || null;
-                    existing.last_order_purchased = (p.last_order_purchased === true) || existing.last_order_purchased === true;
-                  }
-                } else {
-                  map.set(key, { ...p });
-                }
-              });
-              return Array.from(map.values());
-            });
-            list.forEach(p => stablePurchasedIdsRef.current.add(p.id));
+            setPurchasedProducts(list);
+            setPurchasedFarms(new Set(list.map((p) => p.id).filter(Boolean)));
+            stablePurchasedIdsRef.current = new Set(list.map((p) => p.id).filter(Boolean));
             setRefreshTrigger(prev => prev + 1);
           } catch { }
         })());
@@ -3257,172 +3249,139 @@ const EnhancedFarmMap = forwardRef(({
   }, [farms]);
 
   useEffect(() => {
+    const applyActiveStakeList = (list) => {
+      const active = Array.isArray(list) ? list : [];
+      setPurchasedProducts(active);
+      setPurchasedFarms(new Set(active.map((p) => p.id).filter(Boolean)));
+      stablePurchasedIdsRef.current = new Set(active.map((p) => p.id).filter(Boolean));
+    };
+
+    const aggregateActiveBuyerOrders = (orders, farmsList) => {
+      const byField = new Map();
+      for (const o of orders) {
+        if (!isActiveBuyerOrderStatus(o.status)) continue;
+        const fid = o.field_id || o.fieldId || o.field?.id;
+        if (!fid) continue;
+        const prev = byField.get(fid) || {
+          purchased_area: 0,
+          selected_harvests: [],
+          last_order_selected_date: null,
+          last_order_shipping_mode: null,
+          last_order_created_at: null,
+        };
+        const qtyRaw2 = o.quantity ?? o.area_rented ?? o.area ?? 0;
+        const qty = typeof qtyRaw2 === 'string' ? parseFloat(qtyRaw2) : qtyRaw2;
+        if (!(Number.isFinite(qty) && qty > 0)) continue;
+        const field = o.field || (farmsList || []).find((f) => f.id === fid) || {};
+        const name = field.name || o.product_name || o.name;
+        const category = field.subcategory || field.category || o.crop_type;
+        const total_area = field.total_area || 0;
+        const coordinates = field.coordinates;
+        const sh2 = { date: o.selected_harvest_date || null, label: o.selected_harvest_label || null };
+        const shs2 = Array.isArray(prev.selected_harvests) ? prev.selected_harvests : [];
+        const added2 = sh2.date || sh2.label ? [...shs2, sh2] : shs2;
+        const uniq2 = (() => {
+          const s = new Set();
+          return added2.filter((it) => {
+            const d = (() => {
+              if (!it?.date) return '';
+              try {
+                const nd = new Date(it.date);
+                if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0];
+              } catch { /* ignore */ }
+              return typeof it.date === 'string' ? it.date : '';
+            })();
+            const k = `${d}|${(it?.label || '').trim().toLowerCase()}`;
+            if (s.has(k)) return false;
+            s.add(k);
+            return true;
+          });
+        })();
+        const createdAt = o.created_at || o.createdAt || null;
+        const prevTs = prev.last_order_created_at ? new Date(prev.last_order_created_at).getTime() : -Infinity;
+        const curTs = createdAt ? new Date(createdAt).getTime() : -Infinity;
+        const mRaw = (o.mode_of_shipping || o.shipping_method || '').trim();
+        const mCanon =
+          mRaw.toLowerCase() === 'pickup'
+            ? 'Pickup'
+            : mRaw.toLowerCase() === 'delivery'
+              ? 'Delivery'
+              : mRaw
+                ? mRaw
+                : null;
+        byField.set(fid, {
+          id: fid,
+          name,
+          category,
+          total_area,
+          purchased_area: (prev.purchased_area || 0) + qty,
+          production_rate: field.production_rate || 0,
+          coordinates,
+          selected_harvests: uniq2,
+          order_selected_harvest_date:
+            curTs >= prevTs ? o.selected_harvest_date || null : prev.order_selected_harvest_date || null,
+          selected_harvest_date:
+            curTs >= prevTs ? o.selected_harvest_date || null : prev.selected_harvest_date || prev.last_order_selected_date || null,
+          harvest_dates: uniq2,
+          harvest_date:
+            curTs >= prevTs ? o.selected_harvest_date || null : prev.harvest_date || prev.last_order_selected_date || null,
+          lock_order_harvest: true,
+          shipping_modes: (() => {
+            const pm = Array.isArray(prev.shipping_modes) ? prev.shipping_modes : [];
+            const m = (o.mode_of_shipping || o.shipping_method || '').trim();
+            const canon =
+              m.toLowerCase() === 'pickup'
+                ? 'Pickup'
+                : m.toLowerCase() === 'delivery'
+                  ? 'Delivery'
+                  : m
+                    ? m
+                    : null;
+            const added = canon ? [...pm, canon] : pm;
+            const s = new Set();
+            return added.filter((x) => {
+              const k = (x || '').toLowerCase();
+              if (s.has(k)) return false;
+              s.add(k);
+              return true;
+            });
+          })(),
+          delivery_address: (() => {
+            const s = String(o.notes || '');
+            const m = s.match(/Address:\s*(.*)$/);
+            if (m) return m[1].trim();
+            const m2 = s.match(/Deliver to:\s*(.*)$/);
+            if (m2) return m2[1].trim();
+            return '';
+          })(),
+          last_order_selected_date:
+            curTs >= prevTs ? o.selected_harvest_date || null : prev.last_order_selected_date || null,
+          last_order_shipping_mode: curTs >= prevTs ? mCanon : prev.last_order_shipping_mode || null,
+          last_order_created_at: curTs >= prevTs ? createdAt : prev.last_order_created_at || null,
+          last_order_purchased: true,
+          order_status: o.status || prev.order_status || 'active',
+        });
+      }
+      return Array.from(byField.values());
+    };
+
     const loadPurchasedFromDb = async () => {
-      if (!currentUser || !currentUser.id) return;
+      if (!currentUser || !currentUser.id) {
+        applyActiveStakeList([]);
+        return;
+      }
       try {
         const res = await orderService.getBuyerOrdersWithFields(currentUser.id);
-        const orders = Array.isArray(res?.data) ? res.data : (res?.data?.orders || []);
-        const byField = new Map();
-        for (const o of orders) {
-          const fid = o.field_id || o.fieldId || o.field?.id;
-          if (!fid) continue;
-          const prev = byField.get(fid) || { purchased_area: 0, selected_harvests: [], last_order_selected_date: null, last_order_shipping_mode: null, last_order_created_at: null };
-          const qtyRaw2 = o.quantity ?? o.area_rented ?? o.area ?? 0;
-          const qty = typeof qtyRaw2 === 'string' ? parseFloat(qtyRaw2) : qtyRaw2;
-          const field = o.field || farms.find(f => f.id === fid) || {};
-          const name = field.name || o.product_name || o.name;
-          const category = field.subcategory || field.category || o.crop_type;
-          const total_area = field.total_area || 0;
-          const coordinates = field.coordinates;
-          const sh2 = { date: o.selected_harvest_date || null, label: o.selected_harvest_label || null };
-          const shs2 = Array.isArray(prev.selected_harvests) ? prev.selected_harvests : [];
-          const added2 = sh2.date || sh2.label ? [...shs2, sh2] : shs2;
-          const uniq2 = (() => { const s = new Set(); return added2.filter(it => { const d = (() => { if (!it?.date) return ''; try { const nd = new Date(it.date); if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0]; } catch { } return typeof it.date === 'string' ? it.date : ''; })(); const k = `${d}|${(it?.label || '').trim().toLowerCase()}`; if (s.has(k)) return false; s.add(k); return true; }); })();
-          const createdAt = o.created_at || o.createdAt || null;
-          const prevTs = prev.last_order_created_at ? new Date(prev.last_order_created_at).getTime() : -Infinity;
-          const curTs = createdAt ? new Date(createdAt).getTime() : -Infinity;
-          const mRaw = (o.mode_of_shipping || o.shipping_method || '').trim();
-          const mCanon = mRaw.toLowerCase() === 'pickup' ? 'Pickup' : (mRaw.toLowerCase() === 'delivery' ? 'Delivery' : (mRaw ? mRaw : null));
-          byField.set(fid, {
-            id: fid,
-            name,
-            category,
-            total_area,
-            purchased_area: (prev.purchased_area || 0) + qty,
-            production_rate: field.production_rate || 0,
-            coordinates,
-            selected_harvests: uniq2,
-            shipping_modes: (() => { const pm = Array.isArray(prev.shipping_modes) ? prev.shipping_modes : []; const m = (o.mode_of_shipping || o.shipping_method || '').trim(); const canon = m.toLowerCase() === 'pickup' ? 'Pickup' : (m.toLowerCase() === 'delivery' ? 'Delivery' : (m ? m : null)); const added = canon ? [...pm, canon] : pm; const s = new Set(); return added.filter(x => { const k = (x || '').toLowerCase(); if (s.has(k)) return false; s.add(k); return true; }); })(),
-            delivery_address: (() => { const s = String(o.notes || ''); const m = s.match(/Address:\s*(.*)$/); if (m) return m[1].trim(); const m2 = s.match(/Deliver to:\s*(.*)$/); if (m2) return m2[1].trim(); return ''; })(),
-            last_order_selected_date: (curTs >= prevTs) ? (o.selected_harvest_date || null) : prev.last_order_selected_date || null,
-            last_order_shipping_mode: (curTs >= prevTs) ? mCanon : prev.last_order_shipping_mode || null,
-            last_order_created_at: (curTs >= prevTs) ? createdAt : prev.last_order_created_at || null,
-            last_order_purchased: (curTs >= prevTs)
-              ? ((o.purchased === true)
-                || (() => { const q = o.quantity ?? o.area_rented ?? o.area; const v = typeof q === 'string' ? parseFloat(q) : q; return Number.isFinite(v) && v > 0; })()
-                || (() => { const s = String(o.status || '').toLowerCase(); return s === 'active' || s === 'pending'; })())
-              : (prev.last_order_purchased === true)
-          });
-        }
-        const list = Array.from(byField.values());
-        setPurchasedProducts(prev => {
-          const map = new Map();
-          list.forEach(item => map.set(String(item.id ?? item.field_id), { ...item }));
-          prev.forEach(p => {
-            const key = String(p.id ?? p.field_id);
-            const existing = map.get(key);
-            if (existing) {
-              const ex = typeof existing.purchased_area === 'string' ? parseFloat(existing.purchased_area) : (existing.purchased_area || 0);
-              const pv = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
-              existing.purchased_area = Math.max(ex, pv);
-              existing.production_rate = existing.production_rate || p.production_rate || 0;
-              const shPrev2 = Array.isArray(existing.selected_harvests) ? existing.selected_harvests : [];
-              const shIncoming2 = Array.isArray(p.selected_harvests) ? p.selected_harvests : [];
-              const combined2 = [...shPrev2, ...shIncoming2];
-              const s2 = new Set();
-              existing.selected_harvests = combined2.filter(it => { const d = (() => { if (!it?.date) return ''; try { const nd = new Date(it.date); if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0]; } catch { } return typeof it.date === 'string' ? it.date : ''; })(); const k = `${d}|${(it?.label || '').trim().toLowerCase()}`; if (s2.has(k)) return false; s2.add(k); return true; });
-              const mPrev = Array.isArray(existing.shipping_modes) ? existing.shipping_modes : [];
-              const mIncoming = Array.isArray(p.shipping_modes) ? p.shipping_modes : [];
-              const mCombined = [...mPrev, ...mIncoming];
-              const ms = new Set();
-              existing.shipping_modes = mCombined.filter(x => { const k = (x || '').toLowerCase(); if (ms.has(k)) return false; ms.add(k); return true; });
-              const prevTs = p.last_order_created_at ? new Date(p.last_order_created_at).getTime() : -Infinity;
-              const curTs = existing.last_order_created_at ? new Date(existing.last_order_created_at).getTime() : -Infinity;
-              if (prevTs > curTs) {
-                existing.last_order_selected_date = p.last_order_selected_date || existing.last_order_selected_date || null;
-                existing.last_order_shipping_mode = p.last_order_shipping_mode || existing.last_order_shipping_mode || null;
-                existing.last_order_created_at = p.last_order_created_at || existing.last_order_created_at || null;
-                existing.last_order_purchased = (p.last_order_purchased === true) || existing.last_order_purchased === true;
-              }
-            } else {
-              map.set(key, { ...p });
-            }
-          });
-          return Array.from(map.values());
-        });
-        list.forEach(p => stablePurchasedIdsRef.current.add(p.id));
+        const orders = Array.isArray(res?.data) ? res.data : res?.data?.orders || [];
+        applyActiveStakeList(aggregateActiveBuyerOrders(orders, farms));
       } catch (e) {
         try {
           const res2 = await orderService.getBuyerOrders();
           const orders = res2?.data?.orders || [];
-          const byField = new Map();
-          for (const o of orders) {
-            const fid = o.field_id || o.fieldId;
-            if (!fid) continue;
-            const prev = byField.get(fid) || { purchased_area: 0, selected_harvests: [], last_order_selected_date: null, last_order_shipping_mode: null, last_order_created_at: null };
-            const qtyRaw3 = o.quantity ?? o.area_rented ?? o.area ?? 0;
-            const qty = typeof qtyRaw3 === 'string' ? parseFloat(qtyRaw3) : qtyRaw3;
-            const field = farms.find(f => f.id === fid) || {};
-            const name = field.name || o.product_name || o.name;
-            const category = field.subcategory || field.category || o.crop_type;
-            const total_area = field.total_area || 0;
-            const coordinates = field.coordinates;
-            const sh3 = { date: o.selected_harvest_date || null, label: o.selected_harvest_label || null };
-            const shs3 = Array.isArray(prev.selected_harvests) ? prev.selected_harvests : [];
-            const added3 = sh3.date || sh3.label ? [...shs3, sh3] : shs3;
-            const uniq3 = (() => { const s = new Set(); return added3.filter(it => { const d = (() => { if (!it?.date) return ''; try { const nd = new Date(it.date); if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0]; } catch { } return typeof it.date === 'string' ? it.date : ''; })(); const k = `${d}|${(it?.label || '').trim().toLowerCase()}`; if (s.has(k)) return false; s.add(k); return true; }); })();
-            const createdAt = o.created_at || o.createdAt || null;
-            const prevTs = prev.last_order_created_at ? new Date(prev.last_order_created_at).getTime() : -Infinity;
-            const curTs = createdAt ? new Date(createdAt).getTime() : -Infinity;
-            const mRaw = (o.mode_of_shipping || o.shipping_method || '').trim();
-            const mCanon = mRaw.toLowerCase() === 'pickup' ? 'Pickup' : (mRaw.toLowerCase() === 'delivery' ? 'Delivery' : (mRaw ? mRaw : null));
-            byField.set(fid, {
-              id: fid,
-              name,
-              category,
-              total_area,
-              purchased_area: (prev.purchased_area || 0) + qty,
-              coordinates,
-              selected_harvests: uniq3,
-              shipping_modes: (() => { const pm = Array.isArray(prev.shipping_modes) ? prev.shipping_modes : []; const m = (o.mode_of_shipping || o.shipping_method || '').trim(); const canon = m.toLowerCase() === 'pickup' ? 'Pickup' : (m.toLowerCase() === 'delivery' ? 'Delivery' : (m ? m : null)); const added = canon ? [...pm, canon] : pm; const s = new Set(); return added.filter(x => { const k = (x || '').toLowerCase(); if (s.has(k)) return false; s.add(k); return true; }); })(),
-              delivery_address: (() => { const s = String(o.notes || ''); const m = s.match(/Address:\s*(.*)$/); if (m) return m[1].trim(); const m2 = s.match(/Deliver to:\s*(.*)$/); if (m2) return m2[1].trim(); return ''; })(),
-              last_order_selected_date: (curTs >= prevTs) ? (o.selected_harvest_date || null) : prev.last_order_selected_date || null,
-              last_order_shipping_mode: (curTs >= prevTs) ? mCanon : prev.last_order_shipping_mode || null,
-              last_order_created_at: (curTs >= prevTs) ? createdAt : prev.last_order_created_at || null,
-              last_order_purchased: (curTs >= prevTs)
-                ? ((o.purchased === true)
-                  || (() => { const q = o.quantity ?? o.area_rented ?? o.area; const v = typeof q === 'string' ? parseFloat(q) : q; return Number.isFinite(v) && v > 0; })()
-                  || (() => { const s = String(o.status || '').toLowerCase(); return s === 'active' || s === 'pending'; })())
-                : (prev.last_order_purchased === true)
-            });
-          }
-          const list = Array.from(byField.values());
-          setPurchasedProducts(prev => {
-            const map = new Map();
-            list.forEach(item => map.set(String(item.id ?? item.field_id), { ...item }));
-            prev.forEach(p => {
-              const key = String(p.id ?? p.field_id);
-              const existing = map.get(key);
-              if (existing) {
-                const ex = typeof existing.purchased_area === 'string' ? parseFloat(existing.purchased_area) : (existing.purchased_area || 0);
-                const pv = typeof p.purchased_area === 'string' ? parseFloat(p.purchased_area) : (p.purchased_area || 0);
-                existing.purchased_area = Math.max(ex, pv);
-                const shPrev3 = Array.isArray(existing.selected_harvests) ? existing.selected_harvests : [];
-                const shIncoming3 = Array.isArray(p.selected_harvests) ? p.selected_harvests : [];
-                const combined3 = [...shPrev3, ...shIncoming3];
-                const s3 = new Set();
-                existing.selected_harvests = combined3.filter(it => { const d = (() => { if (!it?.date) return ''; try { const nd = new Date(it.date); if (!isNaN(nd.getTime())) return nd.toISOString().split('T')[0]; } catch { } return typeof it.date === 'string' ? it.date : ''; })(); const k = `${d}|${(it?.label || '').trim().toLowerCase()}`; if (s3.has(k)) return false; s3.add(k); return true; });
-                const mPrev = Array.isArray(existing.shipping_modes) ? existing.shipping_modes : [];
-                const mIncoming = Array.isArray(p.shipping_modes) ? p.shipping_modes : [];
-                const mCombined = [...mPrev, ...mIncoming];
-                const ms = new Set();
-                existing.shipping_modes = mCombined.filter(x => { const k = (x || '').toLowerCase(); if (ms.has(k)) return false; ms.add(k); return true; });
-                const prevTs = p.last_order_created_at ? new Date(p.last_order_created_at).getTime() : -Infinity;
-                const curTs = existing.last_order_created_at ? new Date(existing.last_order_created_at).getTime() : -Infinity;
-                if (prevTs > curTs) {
-                  existing.last_order_selected_date = p.last_order_selected_date || existing.last_order_selected_date || null;
-                  existing.last_order_shipping_mode = p.last_order_shipping_mode || existing.last_order_shipping_mode || null;
-                  existing.last_order_created_at = p.last_order_created_at || existing.last_order_created_at || null;
-                  existing.last_order_purchased = (p.last_order_purchased === true) || existing.last_order_purchased === true;
-                }
-              } else {
-                map.set(key, { ...p });
-              }
-            });
-            return Array.from(map.values());
-          });
-          list.forEach(p => stablePurchasedIdsRef.current.add(p.id));
-        } catch { }
+          applyActiveStakeList(aggregateActiveBuyerOrders(orders, farms));
+        } catch {
+          /* ignore */
+        }
       }
     };
     loadPurchasedFromDb();
@@ -5714,7 +5673,7 @@ const EnhancedFarmMap = forwardRef(({
                 }
                 if (myM == null) myM = 0;
                 if (otherM == null) otherM = Math.max(0, (getOccupiedArea(selectedProduct) || 0) - myM);
-                const showMyRentedInPopup = !isOwnFieldPopup || myM > 0;
+                const showMyRentedInPopup = !isOwnFieldPopup && myM > 0;
                 const availVal = fieldOccupancy?.available_m2 != null
                   ? parseFloat(fieldOccupancy.available_m2)
                   : getAvailableArea(selectedProduct);
@@ -5751,16 +5710,18 @@ const EnhancedFarmMap = forwardRef(({
                     >
                       <div style={{
                         fontSize: fs,
-                        color: isOwnFieldPopup ? '#64748b' : '#16a34a',
+                        color: isOwnFieldPopup ? '#64748b' : (showMyRentedInPopup ? '#16a34a' : '#64748b'),
                         fontWeight: 600,
                         flex: '1 1 auto',
                         minWidth: 0,
                         lineHeight: 1.25
                       }}
                       >
-                        {!isOwnFieldPopup
-                          ? `My rented · ${areaDisplay(selectedProduct, myM).text}`
-                          : `Occupied · ${areaDisplay(selectedProduct, occTotal).text}`}
+                        {isOwnFieldPopup
+                          ? `Occupied · ${areaDisplay(selectedProduct, occTotal).text}`
+                          : showMyRentedInPopup
+                            ? `My rented · ${areaDisplay(selectedProduct, myM).text}`
+                            : `Available to rent · ${areaDisplay(selectedProduct, Math.max(0, availVal)).text}`}
                       </div>
                       <div style={{
 
@@ -6196,6 +6157,15 @@ const EnhancedFarmMap = forwardRef(({
                                 </div>
                               );
                             })()}
+                            {(selectedProduct.last_season_yield != null && Number(selectedProduct.last_season_yield) > 0) ? (
+                              <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#64748b', fontWeight: 600, marginTop: 3 }}>
+                                Last season yield:{' '}
+                                {formatTotalProductionWithUnit(
+                                  selectedProduct.last_season_yield,
+                                  selectedProduct.last_season_yield_unit || selectedProduct.total_production_unit
+                                )}
+                              </div>
+                            ) : null}
                             {selectedProduct.last_harvest_production_rate != null && selectedProduct.last_harvest_production_rate !== '' ? (
                               <div style={{ fontSize: isMobile ? '9px' : '10px', color: '#94a3b8', marginTop: 2 }}>
                                 Last harvest rate {productionRateDisplay(selectedProduct).text}

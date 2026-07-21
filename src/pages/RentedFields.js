@@ -72,6 +72,7 @@ import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 import { formatHarvestDate, getHarvestProgressInfo, hasUpcomingHarvestOnRecord } from '../utils/harvestProgress';
+import { lockOrderHarvestDisplay } from '../utils/lockOrderHarvest';
 import {
   mapFieldFromApi,
   fieldToFormInitialData,
@@ -297,9 +298,10 @@ const RentedFields = () => {
 
       orders.forEach((o) => {
         const status = String(o.status || '').toLowerCase();
-        // Include various order statuses - don't filter out by status for now
-        const validStatuses = ['pending', 'active', 'completed', 'processing', 'shipped', 'delivered', 'cancelled', 'ended'];
-        if (!validStatuses.includes(status)) return;
+        const isCurrentStake = ['pending', 'active', 'confirmed'].includes(status);
+        const isPastStake = ['completed', 'shipped', 'delivered', 'ended'].includes(status);
+        if (!isCurrentStake && !isPastStake) return;
+
         const fid = o.field_id || o.fieldId;
         if (!fid) return;
         const qtyRaw = o.quantity ?? o.area_rented ?? o.area ?? 0;
@@ -312,11 +314,56 @@ const RentedFields = () => {
         const availableArea = typeof availableAreaRaw === 'string' ? parseFloat(availableAreaRaw) : availableAreaRaw;
 
         const linkedField = fieldById.get(String(fid)) || {};
+        const orderHarvestDate = o.selected_harvest_date || null;
+        const orderHarvestLabel = o.selected_harvest_label || '';
+        const lockedHarvests = orderHarvestDate
+          ? [{ date: orderHarvestDate, label: orderHarvestLabel }]
+          : [];
+
+        // Past-season orders stay as their own card (do not merge into relisted field row).
+        if (isPastStake) {
+          const pastKey = `past-${o.id || `${fid}-${o.created_at}`}`;
+          byField.set(pastKey, {
+            id: pastKey,
+            _fieldId: fid,
+            _orderId: o.id,
+            is_own_field: false,
+            is_past_season: true,
+            name: o.field_name || `Field ${fid}`,
+            farmName: o.farmer_name,
+            location: o.location || linkedField.location,
+            cropType: o.crop_type || linkedField.category || linkedField.subcategory,
+            category: o.crop_type || linkedField.category,
+            subcategory: o.subcategory || linkedField.subcategory || null,
+            total_area: Number.isFinite(totalArea) ? totalArea : (Number(linkedField.total_area ?? linkedField.area_m2 ?? linkedField.field_size) || 0),
+            available_area: Number.isFinite(availableArea) ? availableArea : (Number(linkedField.available_area) || null),
+            purchased_area: qty,
+            price_per_m2: o.price_per_m2,
+            monthlyRent: 0,
+            status: status === 'shipped' ? 'Shipped' : status === 'completed' ? 'Completed' : status,
+            order_selected_harvest_date: orderHarvestDate,
+            selected_harvests: lockedHarvests,
+            selected_harvest_date: orderHarvestDate,
+            selected_harvest_label: orderHarvestLabel,
+            field_created_at: linkedField.created_at || linkedField.createdAt || null,
+            field_harvest_dates: linkedField.harvest_dates || linkedField.harvestDates || [],
+            harvest_dates: lockedHarvests,
+            harvest_date: orderHarvestDate,
+            lock_order_harvest: true,
+            shipping_modes: [],
+            farmer_name: o.farmer_name,
+            rentPeriod: null,
+            created_at: o.created_at,
+          });
+          return;
+        }
+
         if (!byField.has(fid)) {
           byField.set(fid, {
             id: `purchased-${fid}`,
             _fieldId: fid,
             is_own_field: false,
+            is_past_season: false,
             name: o.field_name || `Field ${fid}`,
             farmName: o.farmer_name,
             location: o.location || linkedField.location,
@@ -333,14 +380,16 @@ const RentedFields = () => {
                 ? 'Active'
                 : status === 'pending'
                 ? 'Pending'
-                : status === 'completed'
-                ? 'Completed'
                 : status || 'active',
-            selected_harvests: [],
-            selected_harvest_date: null,
+            order_selected_harvest_date: orderHarvestDate,
+            selected_harvests: lockedHarvests,
+            selected_harvest_date: orderHarvestDate,
+            selected_harvest_label: orderHarvestLabel,
             field_created_at: linkedField.created_at || linkedField.createdAt || null,
-            harvest_dates: linkedField.harvest_dates || linkedField.harvestDates || [],
-            harvest_date: linkedField.harvest_date || linkedField.harvestDate || null,
+            field_harvest_dates: linkedField.harvest_dates || linkedField.harvestDates || [],
+            harvest_dates: lockedHarvests,
+            harvest_date: orderHarvestDate,
+            lock_order_harvest: true,
             shipping_modes: [],
             farmer_name: o.farmer_name,
             rentPeriod: null,
@@ -348,8 +397,14 @@ const RentedFields = () => {
         }
         const item = byField.get(fid);
         item.purchased_area = (item.purchased_area || 0) + qty;
-        if (o.selected_harvest_date) {
-          item.selected_harvest_date = o.selected_harvest_date;
+        if (orderHarvestDate) {
+          item.order_selected_harvest_date = orderHarvestDate;
+          item.selected_harvest_date = orderHarvestDate;
+          item.selected_harvest_label = orderHarvestLabel;
+          item.selected_harvests = lockedHarvests;
+          item.harvest_dates = lockedHarvests;
+          item.harvest_date = orderHarvestDate;
+          item.lock_order_harvest = true;
         }
       });
 
@@ -1160,13 +1215,24 @@ const RentedFields = () => {
                           <div className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-900 sm:truncate sm:whitespace-nowrap">
                             {field.name || field.farmName}
                           </div>
-                          <span
-                            className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${
-                              field.is_own_field ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
-                            }`}
-                          >
-                            {field.is_own_field ? 'My field' : 'Rented'}
-                          </span>
+                          <div className="mt-0.5 flex shrink-0 flex-wrap items-center justify-end gap-1">
+                            {field.is_past_season ? (
+                              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[0.65rem] font-semibold text-violet-700 ring-1 ring-violet-200">
+                                Last season
+                              </span>
+                            ) : null}
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${
+                                field.is_own_field ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'
+                              }`}
+                            >
+                              {field.is_own_field
+                                ? 'My field'
+                                : field.is_past_season
+                                  ? (field.status || 'Done')
+                                  : 'Rented'}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Location row (full width on mobile) */}
@@ -1188,7 +1254,14 @@ const RentedFields = () => {
                           </span>
                         </div>
                         <div className="mt-2">
-                          <HarvestProgressBar item={field} compact showDate={false} daysShort />
+                          <HarvestProgressBar
+                            item={field.lock_order_harvest || field.is_past_season || field.order_selected_harvest_date
+                              ? { ...field, ...lockOrderHarvestDisplay(field) }
+                              : field}
+                            compact
+                            showDate={false}
+                            daysShort
+                          />
                         </div>
                       </div>
 
@@ -1287,7 +1360,12 @@ const RentedFields = () => {
                     )}
 
                     <div className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
-                      <HarvestProgressBar item={field} showDate={false} />
+                      <HarvestProgressBar
+                        item={field.lock_order_harvest || field.is_past_season || field.order_selected_harvest_date
+                          ? { ...field, ...lockOrderHarvestDisplay(field) }
+                          : field}
+                        showDate={false}
+                      />
                     </div>
 
                     {/* Prominent Delivery Options Section */}
@@ -1618,7 +1696,11 @@ const RentedFields = () => {
                   </Box>
 
                   <Box sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
-                    <HarvestProgressBar item={selectedField} />
+                    <HarvestProgressBar
+                      item={selectedField.lock_order_harvest || selectedField.is_past_season || selectedField.order_selected_harvest_date
+                        ? { ...selectedField, ...lockOrderHarvestDisplay(selectedField) }
+                        : selectedField}
+                    />
                   </Box>
                 </Stack>
               </Paper>
@@ -1654,7 +1736,11 @@ const RentedFields = () => {
                   </Box>
 
                   <Box>
-                    <HarvestProgressBar item={selectedField} />
+                    <HarvestProgressBar
+                      item={selectedField.lock_order_harvest || selectedField.is_past_season || selectedField.order_selected_harvest_date
+                        ? { ...selectedField, ...lockOrderHarvestDisplay(selectedField) }
+                        : selectedField}
+                    />
                   </Box>
 
                   <Divider />
@@ -1969,7 +2055,11 @@ const RentedFields = () => {
                     </div>
                   </div>
 
-                  <HarvestProgressBar item={selectedField} />
+                  <HarvestProgressBar
+                    item={selectedField.lock_order_harvest || selectedField.is_past_season || selectedField.order_selected_harvest_date
+                      ? { ...selectedField, ...lockOrderHarvestDisplay(selectedField) }
+                      : selectedField}
+                  />
 
                   <div className="flex items-center justify-between border-t border-slate-200 pt-2">
                     <span className="text-xs text-slate-600">Earnings per {areaDisplay(selectedField).unit}</span>

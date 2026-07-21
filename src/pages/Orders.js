@@ -60,6 +60,9 @@ import StatCard from '../components/Common/StatCard';
 import { getProductIcon } from '../utils/productIcons';
 import HarvestProgressBar from '../components/Common/HarvestProgressBar';
 import fieldsService from '../services/fields';
+import { mergeOrderWithFieldSafe, lockOrderHarvestDisplay } from '../utils/lockOrderHarvest';
+import { isPastSeasonOrder, pastSeasonOrderLabel } from '../utils/pastSeasonOrder';
+import { formatShippingLeadAfterHarvest, getEstimatedDeliveryLeadDays } from '../utils/fieldEstimatedDelivery';
 
 const orderProductIconSrc = (order) =>
   getProductIcon(order.subcategory || order.crop_type || order.category);
@@ -107,23 +110,22 @@ const Orders = () => {
       const allFields = Array.isArray(fieldsResponse.data) ? fieldsResponse.data : [];
       const fieldById = new Map(allFields.map((f) => [String(f.id), f]));
 
-      // Format API orders to match expected structure (ensure numbers for total_cost to avoid string concat in sum)
+      // Format API orders — harvest always locked to the order (never live field schedule).
       const formattedOrders = apiOrders.map(order => {
         const linkedField = fieldById.get(String(order.field_id)) || {};
-        return ({
+        const harvestLocked = mergeOrderWithFieldSafe(order, linkedField);
+        const row = {
         id: order.id,
         product_name: order.field_name || 'Unknown Field',
         buyer_name: user.name || 'You',
         area_rented: `${order.quantity || 0} m²`,
         total_cost: Number(order.total_price) || 0,
         status: order.status || 'pending',
-        created_at: linkedField.created_at || linkedField.createdAt || order.created_at,
+        created_at: order.created_at,
         order_created_at: order.created_at,
         field_created_at:
           order.field_created_at ||
           order.fieldCreatedAt ||
-          order.field_created_date ||
-          order.fieldCreatedDate ||
           linkedField.created_at ||
           linkedField.createdAt ||
           null,
@@ -134,40 +136,11 @@ const Orders = () => {
         location: order.location || linkedField.location || 'Unknown',
         farmer_name: order.farmer_name || 'Unknown Farmer',
         farmer_email: order.farmer_email || '',
-        delivery_date: order.selected_harvest_date || null,
-        order_selected_harvest_date: order.selected_harvest_date || null,
-        selected_harvest_date:
-          linkedField.selected_harvest_date ||
-          linkedField.selectedHarvestDate?.date ||
-          linkedField.harvest_date ||
-          linkedField.harvestDate ||
-          order.selected_harvest_date ||
-          null,
-        selected_harvests:
-          linkedField.selected_harvests ||
-          linkedField.selectedHarvests ||
-          linkedField.harvest_dates ||
-          linkedField.harvestDates ||
-          order.selected_harvests ||
-          order.selectedHarvests ||
-          [],
-        harvest_date:
-          linkedField.harvest_date ||
-          linkedField.harvestDate ||
-          order.harvest_date ||
-          order.harvestDate ||
-          order.selected_harvest_date ||
-          null,
-        harvest_dates:
-          linkedField.harvest_dates ||
-          linkedField.harvestDates ||
-          order.harvest_dates ||
-          order.harvestDates ||
-          [],
+        ...harvestLocked,
         payment_status: order.status === 'completed' ? 'paid' : 'pending',
         mode_of_shipping: order.mode_of_shipping || 'delivery',
         estimated_delivery_days: (() => {
-          const raw = linkedField.estimated_delivery_days ?? order.estimated_delivery_days;
+          const raw = order.estimated_delivery_days ?? linkedField.estimated_delivery_days;
           if (raw == null || raw === '') return null;
           const n = parseInt(String(raw), 10);
           return Number.isFinite(n) && n >= 1 ? Math.min(n, 366) : null;
@@ -176,7 +149,11 @@ const Orders = () => {
         notes: order.notes || '',
         pending_refund_request_id: order.pending_refund_request_id || null,
         pending_refund_request_reason: order.pending_refund_request_reason || null,
-      });
+        };
+        return {
+          ...row,
+          is_past_season: isPastSeasonOrder(row),
+        };
       });
 
       setOrders(formattedOrders);
@@ -611,7 +588,28 @@ const Orders = () => {
                             <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem', mb: 0.75 }}>
                               {order.product_name || order.name}
                             </Typography>
-                            <HarvestProgressBar item={order} compact showDate={false} daysShort />
+                            {order.is_past_season ? (
+                              <Chip
+                                size="small"
+                                label={pastSeasonOrderLabel(order)}
+                                sx={{
+                                  mt: 0.35,
+                                  height: 18,
+                                  bgcolor: '#f5f3ff',
+                                  color: '#6d28d9',
+                                  border: '1px solid #ddd6fe',
+                                  fontWeight: 700,
+                                  '& .MuiChip-label': { fontSize: '0.58rem', px: 0.6 },
+                                }}
+                              />
+                            ) : null}
+                            {order.is_past_season ? (
+                              <Typography variant="caption" sx={{ color: '#7c3aed', fontWeight: 600, display: 'block', mt: 0.25 }}>
+                                Season closed
+                              </Typography>
+                            ) : (
+                              <HarvestProgressBar item={lockOrderHarvestDisplay(order)} compact showDate={false} daysShort />
+                            )}
                           </Box>
                         </Stack>
                       </TableCell>
@@ -799,6 +797,25 @@ const Orders = () => {
                       <Typography variant="body1" sx={{ fontWeight: 500 }}>
                         {selectedOrder.product_name || selectedOrder.name}
                       </Typography>
+                      {selectedOrder.is_past_season ? (
+                        <Chip
+                          size="small"
+                          label={pastSeasonOrderLabel(selectedOrder)}
+                          sx={{
+                            mt: 0.75,
+                            height: 22,
+                            bgcolor: '#f5f3ff',
+                            color: '#6d28d9',
+                            border: '1px solid #ddd6fe',
+                            fontWeight: 700,
+                          }}
+                        />
+                      ) : null}
+                      {selectedOrder.is_past_season ? (
+                        <Typography variant="caption" sx={{ color: '#7c3aed', fontWeight: 600, display: 'block', mt: 0.75 }}>
+                          Past season rental — harvest date stays on this order. Relisted field dates do not apply.
+                        </Typography>
+                      ) : null}
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', fontWeight: 600 }}>
@@ -817,7 +834,7 @@ const Orders = () => {
                       </Typography>
                     </Box>
                     <Box>
-                      <HarvestProgressBar item={selectedOrder} />
+                      <HarvestProgressBar item={lockOrderHarvestDisplay(selectedOrder)} />
                     </Box>
                   </Stack>
                 </Paper>

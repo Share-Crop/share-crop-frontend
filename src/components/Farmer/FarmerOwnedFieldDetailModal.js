@@ -13,6 +13,7 @@ import {
 } from '../../utils/fieldProductionUnits';
 import { areaDisplay, priceAreaDisplay } from '../../utils/fieldAreaDisplay';
 import { formatHarvestDate } from '../../utils/harvestProgress';
+import RelistedFieldBadge from './RelistedFieldBadge';
 
 /**
  * Same Tailwind detail overlay as Rented Fields (owned field path), with Edit field in the footer.
@@ -38,9 +39,12 @@ export default function FarmerOwnedFieldDetailModal({
       <div className="max-h-[calc(90vh-var(--app-header-height,64px))] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl md:p-6">
         <div className="mb-4 flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              {selectedField.name || selectedField.farmName}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">
+                {selectedField.name || selectedField.farmName}
+              </h2>
+              <RelistedFieldBadge field={selectedField} />
+            </div>
             <p className="text-xs text-slate-500">
               My field details
             </p>

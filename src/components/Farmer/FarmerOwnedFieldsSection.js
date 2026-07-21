@@ -54,6 +54,7 @@ import {
 import { areaDisplay, priceAreaDisplay, getFieldTotalAreaM2 } from '../../utils/fieldAreaDisplay';
 import FarmerOwnedFieldDetailModal from './FarmerOwnedFieldDetailModal';
 import FieldHarvestControls from './FieldHarvestControls';
+import RelistedFieldBadge from './RelistedFieldBadge';
 import {
   FIELD_OCCUPYING_ORDER_STATUSES,
   orderQuantityM2,
@@ -651,9 +652,12 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
                         <div className="min-w-0 flex-1 text-sm font-semibold leading-snug text-slate-900 sm:truncate sm:whitespace-nowrap">
                           {field.name || field.farmName}
                         </div>
-                        <span className="mt-0.5 shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[0.65rem] font-semibold text-blue-700">
-                          My field
-                        </span>
+                        <div className="mt-0.5 flex shrink-0 flex-wrap items-center justify-end gap-1">
+                          <RelistedFieldBadge field={field} />
+                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[0.65rem] font-semibold text-blue-700">
+                            My field
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
                         <LocationOn sx={{ fontSize: 14, color: '#64748b' }} />

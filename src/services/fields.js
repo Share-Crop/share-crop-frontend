@@ -30,6 +30,7 @@ const fieldsService = {
   getHarvestEvents: (fieldId) => api.get(`/api/fields/${fieldId}/harvest-events`),
   completeHarvest: (fieldId, body) => api.post(`/api/fields/${fieldId}/complete-harvest`, body),
   markShipped: (fieldId) => api.post(`/api/fields/${fieldId}/mark-shipped`),
+  listAgain: (fieldId, body) => api.post(`/api/fields/${fieldId}/list-again`, body),
   create: (data) => api.post('/api/fields', data),
   update: (id, data) => api.put(`/api/fields/${id}`, data),
   remove: (id) => api.delete(`/api/fields/${id}`),

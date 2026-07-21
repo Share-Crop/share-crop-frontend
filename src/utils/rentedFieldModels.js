@@ -144,6 +144,9 @@ export function mapFieldFromApi(raw, currentUserId) {
     })(),
     shipping_destinations: raw.shipping_destinations ?? raw.shippingDestinations ?? [],
     operational_status: raw.operational_status || 'growing',
+    last_season_yield: raw.last_season_yield ?? null,
+    last_season_yield_unit: raw.last_season_yield_unit ?? null,
+    last_season_harvested_at: raw.last_season_harvested_at ?? null,
     farm_id: raw.farm_id,
   };
 }
@@ -214,10 +217,15 @@ export function mapRentalFromApi(r, linkedField = null) {
       }
     }
   }
+  if (!fieldHarvestDates.length && linkedField) {
+    fieldHarvestDates = linkedField.harvest_dates || linkedField.harvestDates || [];
+  }
 
+  // Always prefer the order/rental's own harvest date. Do NOT fall back to the
+  // live field schedule (relisted seasons would overwrite last-season rentals).
   const harvestDates = userSelectedDate
     ? [{ date: userSelectedDate, label: userSelectedLabel }]
-    : fieldHarvestDates;
+    : [];
 
   const shippingOption = r.shipping_option || '';
   const shippingModes = shippingOption ? shippingOption.split(/[,/]/).map((s) => s.trim()).filter(Boolean) : [];
@@ -255,17 +263,16 @@ export function mapRentalFromApi(r, linkedField = null) {
     production_rate_unit: r.production_rate_unit,
     monthlyRent: parseFloat(r.price) || parseFloat(r.rent_price) || 0,
     status: status === 'active' ? 'Active' : status === 'ended' ? 'Ended' : status === 'cancelled' ? 'Cancelled' : status,
+    is_past_season: ['completed', 'shipped', 'delivered', 'ended', 'cancelled'].includes(status),
     progress,
+    order_selected_harvest_date: userSelectedDate || null,
     selected_harvests: harvestDates,
-    selected_harvest_date: userSelectedDate,
+    selected_harvest_date: userSelectedDate || null,
     selected_harvest_label: userSelectedLabel,
-    field_harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
-    harvest_dates: fieldHarvestDates.length ? fieldHarvestDates : (linkedField?.harvest_dates || linkedField?.harvestDates || []),
-    harvest_date:
-      userSelectedDate ||
-      linkedField?.harvest_date ||
-      linkedField?.harvestDate ||
-      null,
+    field_harvest_dates: fieldHarvestDates,
+    harvest_dates: harvestDates,
+    harvest_date: userSelectedDate || null,
+    lock_order_harvest: true,
     field_created_at:
       r.field_created_at ||
       r.fieldCreatedAt ||
@@ -273,10 +280,11 @@ export function mapRentalFromApi(r, linkedField = null) {
       linkedField?.createdAt ||
       null,
     created_at:
-      linkedField?.created_at ||
-      linkedField?.createdAt ||
       r.created_at ||
       r.createdAt ||
+      r.start_date ||
+      linkedField?.created_at ||
+      linkedField?.createdAt ||
       null,
     shipping_modes: shippingModes,
     farmer_name: r.owner_name || r.farmer_name,
