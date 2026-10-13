@@ -1,16 +1,7 @@
 import axios from 'axios';
+import { getApiBaseUrl } from '../utils/apiBaseUrl';
 
-const getBaseUrl = () => {
-  if (process.env.REACT_APP_API_BASE_URL) return process.env.REACT_APP_API_BASE_URL;
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:5050';
-  }
-  // Try to guess based on protocol
-  const protocol = window.location.protocol;
-  return `${protocol}//${window.location.hostname.replace('frontend', 'backend')}`;
-};
-
-const API_BASE_URL = getBaseUrl();
+const API_BASE_URL = getApiBaseUrl();
 
 // Debug logging to verify the API base URL
 

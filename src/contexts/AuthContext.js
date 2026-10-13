@@ -1,16 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios'; // Import axios
 import { setAuthTokenProvider } from '../services/api';
-const getBaseUrl = () => {
-  if (process.env.REACT_APP_API_BASE_URL) return process.env.REACT_APP_API_BASE_URL;
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return 'http://localhost:5050';
-  }
-  const protocol = window.location.protocol;
-  return `${protocol}//${window.location.hostname.replace('frontend', 'backend')}`;
-};
+import { getApiBaseUrl } from '../utils/apiBaseUrl';
 
-const API_BASE_URL = getBaseUrl();
+const API_BASE_URL = getApiBaseUrl();
 
 const AuthContext = createContext(null);
 
