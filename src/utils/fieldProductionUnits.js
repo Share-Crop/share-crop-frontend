@@ -79,14 +79,51 @@ export function productionKgForRentedM2(productionRate, productionRateUnit, fiel
   return 0;
 }
 
-/** Harvest for a field record; area must be in m² (order/API). Uses correct unit conversion. */
+/**
+ * Resolve field total area in m² (same fields as map/API; avoids circular import with fieldAreaDisplay).
+ */
+function fieldTotalAreaM2(field) {
+  if (!field) return 0;
+  const n = (v) => (typeof v === 'string' ? parseFloat(v) : v);
+  const tam = n(field.total_area_m2);
+  if (Number.isFinite(tam) && tam > 0) return tam;
+  const am = n(field.area_m2);
+  if (Number.isFinite(am) && am > 0) return am;
+  const unit = resolveFieldAreaUnitRaw(field);
+  const ta = n(field.total_area);
+  if (Number.isFinite(ta) && ta > 0) {
+    const asM2 = toM2(ta, unit);
+    if (asM2 > 0) return asM2;
+  }
+  const fs = n(field.field_size ?? field.fieldSize);
+  if (Number.isFinite(fs) && fs > 0) {
+    const converted = toM2(fs, unit);
+    if (converted > 0) return converted;
+  }
+  return 0;
+}
+
+/**
+ * Estimated harvest for a rented/purchased area (m²).
+ * Prefer field total_production × (area / field m²) — same as backend harvest share.
+ * Fall back to production_rate when total production / area is missing.
+ */
 export function productionAmountForField(field, rentedAreaM2) {
   if (!field) return 0;
+  const area = typeof rentedAreaM2 === 'string' ? parseFloat(rentedAreaM2) : (rentedAreaM2 ?? 0);
+  if (!Number.isFinite(area) || area <= 0) return 0;
+
+  const totalProd = parseFloat(field.total_production ?? field.totalProduction);
+  const totalAreaM2 = fieldTotalAreaM2(field);
+  if (Number.isFinite(totalProd) && totalProd >= 0 && totalAreaM2 > 0) {
+    return totalProd * (area / totalAreaM2);
+  }
+
   const rate = parseFloat(field.production_rate ?? field.productionRate);
-  if (!Number.isFinite(rate)) return 0;
+  if (!Number.isFinite(rate) || rate < 0) return 0;
   const rateUnit = displayProductionRateUnit(field);
   const fieldAreaUnit = resolveFieldAreaUnitRaw(field);
-  return productionKgForRentedM2(rate, rateUnit, fieldAreaUnit, rentedAreaM2);
+  return productionKgForRentedM2(rate, rateUnit, fieldAreaUnit, area);
 }
 
 export function usdPerProductionUnitSuffix(raw) {

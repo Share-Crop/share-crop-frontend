@@ -1501,7 +1501,9 @@ const EnhancedFarmMap = forwardRef(({
       delivery_charges: deliveryChargesRaw,
       deliveryCharges: deliveryChargesRaw,
       shipping_option: f.shipping_option ?? f.shippingOption,
+      production_rate: f.production_rate ?? f.productionRate,
       production_rate_unit: f.production_rate_unit ?? f.productionRateUnit,
+      total_production: f.total_production ?? f.totalProduction,
       total_production_unit: f.total_production_unit ?? f.totalProductionUnit,
     };
   }, []);
@@ -6151,9 +6153,12 @@ const EnhancedFarmMap = forwardRef(({
                               const estHarvest = productionAmountForField(selectedProduct, estM2);
                               if (!(estHarvest > 0)) return null;
                               return (
-                                <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#0f172a', fontWeight: 600, marginTop: 3 }}>
-                                  Est. harvest (your {quantity} {areaDisplay(selectedProduct).unit}):{' '}
-                                  {formatTotalProductionWithUnit(estHarvest, selectedProduct.total_production_unit)}
+                                <div style={{ fontSize: isMobile ? '9px' : '11px', color: '#059669', fontWeight: 700, marginTop: 3 }}>
+                                  Estimated production (your {quantity} {areaDisplay(selectedProduct).unit}):{' '}
+                                  {formatTotalProductionWithUnit(
+                                    estHarvest,
+                                    selectedProduct.total_production_unit || selectedProduct.totalProductionUnit
+                                  )}
                                 </div>
                               );
                             })()}
