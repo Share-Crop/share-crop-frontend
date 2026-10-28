@@ -72,6 +72,7 @@ const Sidebar = ({ user, onLogout, open, onClose }) => {
     { text: 'Home', icon: <Home />, path: '/' },
     { text: 'Rented Fields', icon: <Landscape />, path: '/buyer/rented-fields' },
     { text: 'My Orders', icon: <History />, path: '/buyer/orders' },
+    { text: 'Become a Farmer', icon: <Agriculture />, path: '/buyer/become-farmer' },
     { text: 'Profile', icon: <Person />, path: '/buyer/profile' },
     { text: 'Messages', icon: <Message />, path: '/buyer/messages' },
     { text: 'Change Currency', icon: <CurrencyExchange />, path: '/buyer/currency' },

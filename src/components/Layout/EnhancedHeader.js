@@ -601,7 +601,7 @@ const EnhancedHeader = forwardRef(({
       },
       {
         id: 'farmer',
-        title: isFarmer ? 'Farmer' : 'Information',
+        title: isFarmer ? 'Farmer' : 'Grow with us',
         items: [
           ...(isFarmer
             ? [
@@ -609,7 +609,9 @@ const EnhancedHeader = forwardRef(({
                 { text: 'Rented out Fields', icon: <Receipt />, path: '/farmer/farm-orders' },
                 { text: 'License Info', icon: <Nature />, path: '/farmer/license-info' },
               ]
-            : []),
+            : [
+                { text: 'Become a Farmer', icon: <Agriculture />, path: '/buyer/become-farmer' },
+              ]),
           { text: 'Transaction', icon: <AccountBalance />, path: isFarmer ? '/farmer/transaction' : '/buyer/transaction' },
         ]
       },

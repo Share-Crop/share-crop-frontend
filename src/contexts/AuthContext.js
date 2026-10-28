@@ -111,6 +111,25 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  /** Convert authenticated buyer → farmer (license docs required). Issues a new JWT. */
+  const becomeFarmer = useCallback(async ({ documents = [], profile_image_url = null } = {}) => {
+    if (!token) throw new Error('Not authenticated');
+    const response = await axios.post(
+      `${API_BASE_URL}/api/auth/become-farmer`,
+      { documents, profile_image_url },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const { user: nextUser, token: nextToken } = response.data;
+    if (!nextUser || !nextToken) {
+      throw new Error(response.data?.error || 'Become farmer failed');
+    }
+    setUser(nextUser);
+    setToken(nextToken);
+    localStorage.setItem('authToken', nextToken);
+    localStorage.setItem('userRole', nextUser.user_type);
+    return nextUser;
+  }, [token]);
+
   // Removed switchToRole - now using real authentication
   // Users should login/signup properly instead of switching to mock users
   const switchToRole = useCallback(async (role) => {
@@ -128,6 +147,7 @@ export const AuthProvider = ({ children }) => {
     signup,
     logout,
     updateUser,
+    becomeFarmer,
     switchToRole,
   };
 

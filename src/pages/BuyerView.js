@@ -20,6 +20,7 @@ import ChangeCurrency from './ChangeCurrency';
 import Settings from './Settings';
 import Notifications from './Notifications';
 import Complaints from './Complaints';
+import BecomeFarmer from './BecomeFarmer';
 import FarmerPublicProfile from './FarmerPublicProfile';
 import { useAuth } from '../contexts/AuthContext';
 import fieldsService from '../services/fields';
@@ -250,6 +251,7 @@ const BuyerView = () => {
           <Route path="/redemption-history" element={<RedemptionHistory />} />
           <Route path="/payout-methods" element={<PayoutMethods />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/become-farmer" element={<BecomeFarmer />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/currency" element={<ChangeCurrency />} />
           <Route path="/settings" element={<Settings />} />
