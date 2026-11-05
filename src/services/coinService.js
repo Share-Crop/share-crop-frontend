@@ -205,6 +205,15 @@ class CoinService {
     const response = await api.post('/api/coins/purchase-intent', body);
     return response.data;
   }
+
+  /**
+   * Confirm a Stripe Checkout session after return (credits coins if webhook missed).
+   * @param {string} sessionId - cs_... from success URL
+   */
+  async confirmSession(sessionId) {
+    const response = await api.post('/api/coins/confirm-session', { session_id: sessionId });
+    return response.data;
+  }
 }
 
 // Export a singleton instance

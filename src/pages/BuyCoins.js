@@ -58,12 +58,55 @@ const BuyCoins = ({ onSuccess }) => {
   const purchaseInProgressRef = useRef(false);
   const success = searchParams.get('success');
   const cancel = searchParams.get('cancel');
+  const sessionId = searchParams.get('session_id');
+  const [confirmState, setConfirmState] = useState(
+    success === '1' ? { status: 'confirming', coinsAdded: 0, coins: null, error: null } : null
+  );
 
   useEffect(() => {
-    if (success === '1') {
-      window.dispatchEvent(new CustomEvent('sharecrop-refresh-coins'));
-    }
-  }, [success]);
+    if (success !== '1') return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!sessionId) {
+          if (!cancelled) {
+            setConfirmState({
+              status: 'error',
+              coinsAdded: 0,
+              coins: null,
+              error: 'Missing payment session. If coins were not added, contact support.',
+            });
+          }
+          return;
+        }
+        const data = await coinService.confirmSession(sessionId);
+        if (cancelled) return;
+        setConfirmState({
+          status: 'ok',
+          coinsAdded: data.coinsAdded || 0,
+          coins: data.coins,
+          error: null,
+        });
+        window.dispatchEvent(new CustomEvent('sharecrop-refresh-coins'));
+      } catch (err) {
+        if (cancelled) return;
+        setConfirmState({
+          status: 'error',
+          coinsAdded: 0,
+          coins: null,
+          error:
+            err.response?.data?.error ||
+            err.message ||
+            'Could not add coins. Payment may still be processing — try refreshing in a moment.',
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [success, sessionId]);
 
   useEffect(() => {
     let mounted = true;
@@ -181,6 +224,8 @@ const BuyCoins = ({ onSuccess }) => {
   };
 
   if (success === '1') {
+    const confirming = !confirmState || confirmState.status === 'confirming';
+    const confirmFailed = confirmState?.status === 'error';
     return (
       <Container maxWidth="sm">
         <Box
@@ -199,26 +244,55 @@ const BuyCoins = ({ onSuccess }) => {
               width: 120,
               height: 120,
               borderRadius: '50%',
-              bgcolor: 'success.light',
+              bgcolor: confirmFailed ? 'warning.light' : 'success.light',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               mb: 3,
-              animation: 'pulse 2s ease-in-out infinite',
+              animation: confirming ? 'pulse 2s ease-in-out infinite' : 'none',
               '@keyframes pulse': {
                 '0%, 100%': { transform: 'scale(1)' },
                 '50%': { transform: 'scale(1.05)' },
               },
             }}
           >
-            <CheckCircle sx={{ fontSize: 64, color: 'success.main' }} />
+            {confirming ? (
+              <CircularProgress size={48} color="success" />
+            ) : confirmFailed ? (
+              <Cancel sx={{ fontSize: 64, color: 'warning.main' }} />
+            ) : (
+              <CheckCircle sx={{ fontSize: 64, color: 'success.main' }} />
+            )}
           </Box>
-          <Typography variant="h3" sx={{ fontWeight: 700, mb: 1, color: 'success.main' }}>
-            Payment Successful!
+          <Typography
+            variant="h3"
+            sx={{
+              fontWeight: 700,
+              mb: 1,
+              color: confirmFailed ? 'warning.dark' : 'success.main',
+            }}
+          >
+            {confirming
+              ? 'Confirming payment…'
+              : confirmFailed
+                ? 'Payment received'
+                : 'Payment Successful!'}
           </Typography>
-          <Typography variant="h6" sx={{ color: 'text.secondary', mb: 4, fontWeight: 400 }}>
-            Your coins have been added to your account. You can now use them to rent fields and make purchases.
+          <Typography variant="h6" sx={{ color: 'text.secondary', mb: 2, fontWeight: 400 }}>
+            {confirming
+              ? 'Adding coins to your wallet. This usually takes a second.'
+              : confirmFailed
+                ? confirmState.error
+                : confirmState.coinsAdded
+                  ? `${confirmState.coinsAdded.toLocaleString()} coins added to your account.`
+                  : 'Your coins have been added to your account.'}
           </Typography>
+          {!confirming && !confirmFailed && confirmState?.coins != null && (
+            <Typography variant="body1" sx={{ color: 'text.secondary', mb: 4 }}>
+              Wallet balance: {Number(confirmState.coins).toLocaleString()} coins
+            </Typography>
+          )}
+          {(confirming || confirmFailed) && <Box sx={{ mb: 4 }} />}
           <Stack direction="row" spacing={2}>
             <Button
               variant="contained"
@@ -239,7 +313,7 @@ const BuyCoins = ({ onSuccess }) => {
               View Transactions
             </Button>
           </Stack>
-          {typeof onSuccess === 'function' && onSuccess()}
+          {typeof onSuccess === 'function' && !confirming && !confirmFailed && onSuccess()}
         </Box>
       </Container>
     );
