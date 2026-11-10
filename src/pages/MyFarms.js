@@ -34,10 +34,8 @@ import {
   TrendingUp,
   Assessment,
   Nature,
-  WaterDrop,
   Visibility,
   Terrain,
-  Park,
   AttachMoney,
   Close,
   Info,
@@ -53,6 +51,7 @@ import farmsService from '../services/farms';
 import { orderService } from '../services/orders';
 import { useAuth } from '../contexts/AuthContext';
 import AddFarmForm from '../components/Forms/AddFarmForm';
+import StatusResultModal from '../components/Feedback/StatusResultModal';
 import StatCard from '../components/Common/StatCard';
 import supabase from '../services/supabase';
 import { v4 as uuidv4 } from 'uuid';
@@ -103,6 +102,14 @@ const MyFarms = () => {
   const [farmDetailOpen, setFarmDetailOpen] = useState(false);
   const [addFarmOpen, setAddFarmOpen] = useState(false);
   const [editingFarm, setEditingFarm] = useState(null);
+  const [statusModal, setStatusModal] = useState({
+    open: false,
+    variant: 'success',
+    title: '',
+    message: '',
+  });
+  const showStatus = (variant, title, message) =>
+    setStatusModal({ open: true, variant, title, message });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(6);
   const [showAllFarms, setShowAllFarms] = useState(false);
@@ -218,25 +225,24 @@ const MyFarms = () => {
   };
   const handleAddFarmSubmit = async (farmData) => {
     const isEdit = farmData.id != null && editingFarm != null;
+    const farmLabel = farmData.farmName || farmData.name || 'your farm';
     try {
       if (isEdit) {
         const payload = {
           ...farmData,
           name: farmData.farmName,
-          cropType: farmData.cropType,
-          irrigationType: farmData.irrigationType,
-          soilType: farmData.soilType,
-          areaValue: farmData.areaValue,
-          areaUnit: farmData.areaUnit,
-          progress: farmData.progress,
-          plantingDate: farmData.plantingDate,
-          harvestDate: farmData.harvestDate,
-          status: farmData.status
+          farmIcon: farmData.farmIcon,
+          location: farmData.location,
+          coordinates: farmData.coordinates,
+          webcamUrl: farmData.webcamUrl,
+          description: farmData.description,
+          status: farmData.status,
         };
         await farmsService.update(farmData.id, payload);
         await fetchFarms();
         setAddFarmOpen(false);
         setEditingFarm(null);
+        showStatus('success', 'Oh Yeah!', `"${farmLabel}" was updated successfully.`);
         return;
       }
       const newFarm = {
@@ -244,7 +250,7 @@ const MyFarms = () => {
         name: farmData.farmName, // key mapping for backend
         owner_id: user.id
       };
-      await farmsService.create(newFarm).then(() => fetchFarms());
+      await farmsService.create(newFarm);
 
       // Handle License Upload
       if (farmData.licenseFile) {
@@ -277,32 +283,24 @@ const MyFarms = () => {
       }
 
       await fetchFarms();
+      setAddFarmOpen(false);
+      setEditingFarm(null);
+      showStatus('success', 'Oh Yeah!', `"${farmLabel}" was created successfully.`);
     } catch (error) {
-      if (isEdit) {
-        console.error('Failed to update farm:', error);
-        return;
-      }
-      setMyFarms(prev => [{
-        id: farmData.id || Date.now(),
-        name: farmData.farmName,
-        location: farmData.location,
-        cropType: farmData.cropType,
-        plantingDate: farmData.plantingDate,
-        harvestDate: farmData.harvestDate,
-        progress: farmData.progress || 0,
-        areaValue: farmData.areaValue,
-        areaUnit: farmData.areaUnit,
-        soilType: farmData.soilType,
-        irrigationType: farmData.irrigationType,
-        monthlyRevenue: 0,
-        status: farmData.status || 'Active',
-        image: null,
-        description: farmData.description,
-        fields: []
-      }, ...prev]);
+      console.error(isEdit ? 'Failed to update farm:' : 'Failed to create farm:', error);
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        (isEdit ? 'Could not update farm.' : 'Could not create farm.');
+      setAddFarmOpen(false);
+      setEditingFarm(null);
+      showStatus(
+        'error',
+        isEdit ? 'Update failed!' : 'Creation failed!',
+        String(msg)
+      );
     }
-    setAddFarmOpen(false);
-    setEditingFarm(null);
   };
 
 
@@ -478,42 +476,31 @@ const MyFarms = () => {
         // Potential income from all fields
         const totalPotentialIncome = farmFields.reduce((sum, f) => sum + (f.potentialIncome || 0), 0);
         
-        // Farm's own total area (convert to m2 if needed)
-        const farmAreaValue = parseFloat(farm.area_value || 0);
-        const farmAreaUnit = farm.area_unit || 'm2';
-        const farmTotalAreaM2 = toM2(farmAreaValue, farmAreaUnit);
-        
-        // Sum of all field areas
+        // Product/field area only (farms no longer store their own area)
         const totalFieldAreaM2 = farmFields.reduce((sum, f) => sum + (f.totalAreaM2 || 0), 0);
-        
-        // Progress = fields area / farm area
-        const progress = farmTotalAreaM2 > 0 ? Math.min(100, Math.round((totalFieldAreaM2 / farmTotalAreaM2) * 100)) : 0;
-        
-        // Collect all harvest dates from fields (already extracted as date strings)
+        const occupiedFieldAreaM2 = farmFields.reduce(
+          (sum, f) => sum + (f.occupiedAreaM2 || 0),
+          0
+        );
+        // Coverage = occupied product area / total product area on this farm
+        const progress =
+          totalFieldAreaM2 > 0
+            ? Math.min(100, Math.round((occupiedFieldAreaM2 / totalFieldAreaM2) * 100))
+            : 0;
+
+        // Collect harvest dates from fields only
         const allHarvestDates = farmFields.flatMap(f => f.harvestDates || []).filter(Boolean);
-        // Handle farm's own harvest_date (might be object or string)
-        const farmHarvestDateStr = typeof farm.harvest_date === 'object' && farm.harvest_date?.date 
-          ? farm.harvest_date.date 
-          : farm.harvest_date;
-        
+
         return {
           id: farm.id,
           name: farm.farm_name || farm.name,
           location: farm.location,
-          cropType: farm.crop_type,
-          plantingDate: farm.planting_date,
-          harvestDate: farmHarvestDateStr,
-          harvestDates: allHarvestDates.length > 0 ? allHarvestDates : (farmHarvestDateStr ? [farmHarvestDateStr] : []),
+          harvestDates: allHarvestDates,
           progress,
           totalAreaM2: totalFieldAreaM2,
-          farmAreaM2: farmTotalAreaM2,
-          occupiedAreaM2: totalFieldAreaM2,
+          occupiedAreaM2: occupiedFieldAreaM2,
           totalProduction,
           totalPotentialIncome,
-          areaValue: farm.area_value,
-          areaUnit: farm.area_unit,
-          soilType: farm.soil_type,
-          irrigationType: farm.irrigation_type,
           monthlyRevenue: totalPotentialIncome > 0 ? totalPotentialIncome : (farm.monthly_revenue || 0),
           status: farm.status,
           image: farm.image,
@@ -574,32 +561,28 @@ const MyFarms = () => {
       farms: displayFarms.map(farm => ({
         name: farm.name,
         location: farm.location,
-        cropType: farm.cropType,
-        area: farm.totalAreaM2 > 0 
+        fieldsCount: farm.fields?.length ?? 0,
+        productArea: farm.totalAreaM2 > 0
           ? `${Math.round(farm.occupiedAreaM2).toLocaleString()} / ${Math.round(farm.totalAreaM2).toLocaleString()} m²`
-          : `${farm.areaValue || 0} ${farm.areaUnit || 'm²'}`,
+          : 'No fields yet',
         totalProduction: farm.totalProduction,
         potentialIncome: farm.totalPotentialIncome,
         progress: farm.progress,
         status: farm.status,
-        soilType: farm.soilType,
-        irrigationType: farm.irrigationType
       }))
     };
 
     if (format === 'csv') {
-      const headers = ['Farm Name', 'Location', 'Crop Type', 'Area', 'Production (total)', 'Potential Income', 'Occupied %', 'Status', 'Soil Type', 'Irrigation'];
+      const headers = ['Farm Name', 'Location', 'Fields', 'Product Area', 'Production (total)', 'Potential Income', 'Occupied %', 'Status'];
       const rows = reportData.farms.map(f => [
         f.name,
         f.location,
-        f.cropType,
-        f.area,
+        f.fieldsCount,
+        f.productArea,
         f.totalProduction?.toLocaleString() || '0',
         `${currencySymbols[userCurrency]}${(f.potentialIncome || 0).toFixed(2)}`,
         `${f.progress}%`,
         f.status,
-        f.soilType,
-        f.irrigationType
       ]);
 
       const csvContent = [
@@ -666,8 +649,8 @@ const MyFarms = () => {
                 <tr>
                   <th>Farm Name</th>
                   <th>Location</th>
-                  <th>Crop Type</th>
-                  <th>Area</th>
+                  <th>Fields</th>
+                  <th>Product Area</th>
                   <th>Production</th>
                   <th>Income</th>
                   <th>Occupied</th>
@@ -678,8 +661,8 @@ const MyFarms = () => {
                   <tr>
                     <td>${farm.name}</td>
                     <td>${farm.location}</td>
-                    <td>${farm.cropType}</td>
-                    <td>${farm.area}</td>
+                    <td>${farm.fieldsCount}</td>
+                    <td>${farm.productArea}</td>
                     <td>${farm.totalProduction?.toLocaleString() || '0'} total</td>
                     <td>${currencySymbols[userCurrency]}${(farm.potentialIncome || 0).toFixed(2)}</td>
                     <td>${farm.progress}%</td>
@@ -859,9 +842,9 @@ const MyFarms = () => {
           onOpenFarmDetail={handleFarmClick}
         />
 
-        <details className="mb-4 rounded-xl border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-600">
-            Farm cards (optional)
+        <details open className="mb-4 rounded-xl border border-slate-200 bg-white">
+          <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">
+            All farms ({displayFarms.length}) — cards &amp; stats
           </summary>
           <div className="border-t border-slate-100 p-3">
         <div className="mb-3 grid max-w-[480px] grid-cols-2 gap-3 md:max-w-none md:grid-cols-4">
@@ -955,41 +938,33 @@ const MyFarms = () => {
                     </span>
                   </div>
 
-                  {/* Farm details rows */}
+                  {/* Farm details — area lives on products/fields, not the farm */}
                   <div className="mb-3 space-y-1.5 text-sm">
                     <div className="flex items-center gap-1">
-                      <Park sx={{ fontSize: 16, color: '#10b981' }} />
-                      <span className="text-slate-600">Crop Type</span>
-                      <span className="ml-auto font-semibold text-slate-900">{farm.cropType || 'N/A'}</span>
+                      <Agriculture sx={{ fontSize: 16, color: '#10b981' }} />
+                      <span className="text-slate-600">Products / fields</span>
+                      <span className="ml-auto font-semibold text-slate-900">
+                        {(farm.fields?.length ?? farm.fieldCount ?? 0)} field
+                        {(farm.fields?.length ?? farm.fieldCount ?? 0) === 1 ? '' : 's'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Terrain sx={{ fontSize: 16, color: '#8b5cf6' }} />
-                      <span className="text-slate-600">Fields</span>
+                      <span className="text-slate-600">Product area</span>
                       <span className="ml-auto font-semibold text-slate-900">
-                        {farm.totalAreaM2 > 0 
-                          ? `${Math.round(farm.totalAreaM2).toLocaleString()} / ${Math.round(farm.farmAreaM2 || farm.areaValue || 0).toLocaleString()} m²`
-                          : `${farm.areaValue || 0} ${farm.areaUnit || 'm²'}`
-                        }
+                        {farm.totalAreaM2 > 0
+                          ? `${Math.round(farm.totalAreaM2).toLocaleString()} m²`
+                          : 'No fields yet'}
                       </span>
                     </div>
-                    {farm.plantingDate && (
-                      <div className="flex items-center gap-1">
-                        <CalendarToday sx={{ fontSize: 16, color: '#059669' }} />
-                        <span className="text-slate-600">Planted</span>
-                        <span className="ml-auto font-semibold text-slate-900">
-                          {new Date(farm.plantingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </span>
-                      </div>
-                    )}
                     {farm.harvestDates?.length > 0 && (
                       <div className="flex items-center gap-1">
-                        <Agriculture sx={{ fontSize: 16, color: '#d97706' }} />
-                        <span className="text-slate-600">Harvest</span>
+                        <CalendarToday sx={{ fontSize: 16, color: '#d97706' }} />
+                        <span className="text-slate-600">Next harvest</span>
                         <span className="ml-auto font-semibold text-slate-900">
-                          {farm.harvestDates.length === 1 
+                          {farm.harvestDates.length === 1
                             ? new Date(farm.harvestDates[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                            : `${farm.harvestDates.length} dates`
-                          }
+                            : `${farm.harvestDates.length} dates`}
                         </span>
                       </div>
                     )}
@@ -1187,22 +1162,28 @@ const MyFarms = () => {
                   <div className="flex flex-1 flex-col gap-1.5 text-sm text-slate-700">
                     <div className="flex items-center gap-1.5">
                       <LocationOn sx={{ fontSize: 18, color: '#3b82f6' }} />
-                      <span>{selectedFarm.location}</span>
+                      <span>{selectedFarm.location || 'No location set'}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Park sx={{ fontSize: 18, color: '#10b981' }} />
-                      <span>{selectedFarm.cropType}</span>
+                      <Agriculture sx={{ fontSize: 18, color: '#10b981' }} />
+                      <span>
+                        {(selectedFarm.fields?.length ?? 0)} product/field
+                        {(selectedFarm.fields?.length ?? 0) === 1 ? '' : 's'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Terrain sx={{ fontSize: 18, color: '#8b5cf6' }} />
                       <span>
-                        {selectedFarm.areaValue} {selectedFarm.areaUnit} • {selectedFarm.soilType}
+                        {selectedFarm.totalAreaM2 > 0
+                          ? `${Math.round(selectedFarm.totalAreaM2).toLocaleString()} m² product area`
+                          : 'No product area yet'}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <WaterDrop sx={{ fontSize: 18, color: '#06b6d4' }} />
-                      <span>{selectedFarm.irrigationType}</span>
-                    </div>
+                    {selectedFarm.description ? (
+                      <div className="mt-1 text-xs text-slate-500 line-clamp-3">
+                        {selectedFarm.description}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1432,8 +1413,8 @@ const MyFarms = () => {
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700 }}>Farm Name</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Location</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Crop Type</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Area</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Fields</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Product Area</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Production</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Income</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Occupied</TableCell>
@@ -1444,12 +1425,11 @@ const MyFarms = () => {
                         <TableRow key={farm.id}>
                           <TableCell>{farm.name}</TableCell>
                           <TableCell>{farm.location}</TableCell>
-                          <TableCell>{farm.cropType}</TableCell>
+                          <TableCell>{farm.fields?.length ?? 0}</TableCell>
                           <TableCell>
-                            {farm.totalAreaM2 > 0 
+                            {farm.totalAreaM2 > 0
                               ? `${Math.round(farm.occupiedAreaM2).toLocaleString()} / ${Math.round(farm.totalAreaM2).toLocaleString()} m²`
-                              : `${farm.areaValue || 0} ${farm.areaUnit || 'm²'}`
-                            }
+                              : 'No fields yet'}
                           </TableCell>
                           <TableCell>{farm.totalProduction?.toLocaleString() || '0'} total</TableCell>
                           <TableCell>{formatCurrency(farm.totalPotentialIncome || 0)}</TableCell>
@@ -1497,6 +1477,13 @@ const MyFarms = () => {
         onSubmit={handleAddFarmSubmit}
         editMode={!!editingFarm}
         initialData={editingFarm}
+      />
+      <StatusResultModal
+        open={statusModal.open}
+        variant={statusModal.variant}
+        title={statusModal.title}
+        message={statusModal.message}
+        onClose={() => setStatusModal((s) => ({ ...s, open: false }))}
       />
     </Box>
   );

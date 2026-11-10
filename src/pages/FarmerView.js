@@ -12,6 +12,7 @@ import EnhancedHeader from '../components/Layout/EnhancedHeader';
 import NotificationSystem from '../components/Notification/NotificationSystem';
 import CreateFieldForm from '../components/Forms/CreateFieldForm';
 import AddFarmForm from '../components/Forms/AddFarmForm';
+import StatusResultModal from '../components/Feedback/StatusResultModal';
 import useNotifications from '../hooks/useNotifications';
 import { cachedReverseGeocode } from '../utils/geocoding';
 import { useAuth } from '../contexts/AuthContext';
@@ -68,6 +69,14 @@ const FarmerView = () => {
   const [createFieldOpen, setCreateFieldOpen] = useState(false);
   const [editingField, setEditingField] = useState(null);
   const [fieldToZoom, setFieldToZoom] = useState(null);
+  const [statusModal, setStatusModal] = useState({
+    open: false,
+    variant: 'success',
+    title: '',
+    message: '',
+  });
+  const showStatus = (variant, title, message) =>
+    setStatusModal({ open: true, variant, title, message });
   const mapRef = useRef(null);
   const headerRef = useRef(null);
   const isMapPage = location.pathname === '/farmer' || location.pathname === '/farmer/';
@@ -376,9 +385,21 @@ const FarmerView = () => {
       }
 
       setCreateFarmOpen(false);
+      showStatus(
+        'success',
+        'Oh Yeah!',
+        `"${formData.farmName || 'Your farm'}" was created successfully.`
+      );
     } catch (error) {
       console.error('Error creating farm:', error);
       addNotification('Error creating farm', 'error');
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        'Could not create farm.';
+      setCreateFarmOpen(false);
+      showStatus('error', 'Creation failed!', String(msg));
     }
   };
 
@@ -416,6 +437,7 @@ const FarmerView = () => {
           setFields((prev) => prev.map((f) => (f.id === editingField.id ? mappedFieldWithSubcategory : f)));
           addNotification(`Listing details for "${payload.name}" were updated.`, 'success');
           fieldToZoom = mappedFieldWithSubcategory;
+          showStatus('success', 'Oh Yeah!', `Listing details for "${payload.name}" were updated.`);
         } else {
         // Update existing field (strip legacy delivery date keys; delivery is `estimated_delivery_days` from the form)
         const updatedField = { ...editingField, ...formData, shipping_scope: formData.shippingScope };
@@ -442,6 +464,11 @@ const FarmerView = () => {
         setFields(prevFields => prevFields.map(field => field.id === editingField.id ? mappedFieldWithSubcategory : field));
         addNotification(`Your field "${formData.productName}" has been updated successfully.`, 'success');
         fieldToZoom = mappedFieldWithSubcategory;
+        showStatus(
+          'success',
+          'Oh Yeah!',
+          `"${formData.productName || 'Your field'}" was updated successfully.`
+        );
         }
       } else {
         // Create a new field
@@ -533,10 +560,25 @@ const FarmerView = () => {
         setFields(prevFields => [...prevFields, createdFieldWithSubcategory]);
         addNotification(`New product "${formData.productName}" has been created and is now visible on the map!`, 'success');
         setFieldToZoom(createdFieldWithSubcategory);
+        showStatus(
+          'success',
+          'Oh Yeah!',
+          `"${formData.productName || 'Your field'}" was created successfully.`
+        );
       }
     } catch (error) {
       console.error('Error submitting field:', error);
       addNotification('Error submitting field', 'error');
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        'Could not save field.';
+      showStatus(
+        'error',
+        editingField ? 'Update failed!' : 'Creation failed!',
+        String(msg)
+      );
     }
 
     setCreateFieldOpen(false);
@@ -726,6 +768,14 @@ const FarmerView = () => {
         open={createFarmOpen}
         onClose={handleCreateFarmClose}
         onSubmit={handleFarmSubmit}
+      />
+
+      <StatusResultModal
+        open={statusModal.open}
+        variant={statusModal.variant}
+        title={statusModal.title}
+        message={statusModal.message}
+        onClose={() => setStatusModal((s) => ({ ...s, open: false }))}
       />
     </Box>
   );

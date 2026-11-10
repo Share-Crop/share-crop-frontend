@@ -39,6 +39,7 @@ import fieldsService from '../../services/fields';
 import farmsService from '../../services/farms';
 import { orderService } from '../../services/orders';
 import CreateFieldForm from '../Forms/CreateFieldForm';
+import StatusResultModal from '../Feedback/StatusResultModal';
 import StatCard from '../Common/StatCard';
 import { getProductIcon } from '../../utils/productIcons';
 import HarvestProgressBar from '../Common/HarvestProgressBar';
@@ -95,6 +96,14 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
   const [editingFieldFull, setEditingFieldFull] = useState(null);
   const [farmsListForEdit, setFarmsListForEdit] = useState([]);
   const [farmerOrdersList, setFarmerOrdersList] = useState([]);
+  const [statusModal, setStatusModal] = useState({
+    open: false,
+    variant: 'success',
+    title: '',
+    message: '',
+  });
+  const showStatus = (variant, title, message) =>
+    setStatusModal({ open: true, variant, title, message });
 
   const loadFields = useCallback(async () => {
     try {
@@ -286,6 +295,7 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
 
   const handleFullFieldSubmit = async (formData) => {
     if (!editingFieldFull?.id) return;
+    const label = formData.productName || formData.name || editingFieldFull.name || 'Your field';
     try {
       const payload = { ...editingFieldFull, ...formData, shipping_scope: formData.shippingScope };
       delete payload.deliveryTime;
@@ -295,8 +305,17 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
       setEditFieldOpen(false);
       setEditingFieldFull(null);
       onFieldsChanged?.();
+      showStatus('success', 'Oh Yeah!', `"${label}" was updated successfully.`);
     } catch (e) {
       console.error('Failed to update field:', e);
+      const msg =
+        e.response?.data?.error ||
+        e.response?.data?.message ||
+        e.message ||
+        'Could not update field.';
+      setEditFieldOpen(false);
+      setEditingFieldFull(null);
+      showStatus('error', 'Update failed!', String(msg));
     }
   };
 
@@ -954,6 +973,14 @@ export default function FarmerOwnedFieldsSection({ onFieldsChanged }) {
         editMode
         initialData={editingFieldFull ? fieldToFormInitialData(editingFieldFull) : null}
         farmsList={farmsListForEdit}
+      />
+
+      <StatusResultModal
+        open={statusModal.open}
+        variant={statusModal.variant}
+        title={statusModal.title}
+        message={statusModal.message}
+        onClose={() => setStatusModal((s) => ({ ...s, open: false }))}
       />
 
       <Dialog

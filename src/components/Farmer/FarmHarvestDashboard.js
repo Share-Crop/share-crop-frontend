@@ -127,17 +127,51 @@ export default function FarmHarvestDashboard({
     if (onRefresh) await onRefresh();
   };
 
-  if (fields.length === 0) {
+  if (farms.length === 0 && fields.length === 0) {
     return (
       <Alert severity="info" sx={{ mb: 2, borderRadius: 2, py: 1 }}>
-        <AlertTitle sx={{ mb: 0, fontSize: '0.9rem' }}>No fields yet</AlertTitle>
-        Use <strong>Create & edit</strong> above to add a field.
+        <AlertTitle sx={{ mb: 0, fontSize: '0.9rem' }}>No farms yet</AlertTitle>
+        Use <strong>Create & edit</strong> above to add a farm and fields.
       </Alert>
     );
   }
 
+  const defaultOpenAll = farmsWithFields.length <= 3;
+
   return (
     <div className="mb-4 space-y-3">
+      {farmsWithFields.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+          <div className="text-[0.7rem] font-semibold uppercase tracking-wide text-slate-500">
+            Your farms ({farmsWithFields.length})
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {farmsWithFields.map(({ farm, fields: farmFields }) => {
+              const needs = farmFields.some((f) => {
+                const a = fieldNeedsAction(f, farmerOrders);
+                return a === 'harvest' || a === 'ship';
+              });
+              return (
+                <span
+                  key={farm.id}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    needs
+                      ? 'border-amber-200 bg-amber-50 text-amber-900'
+                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                  }`}
+                  title={farm.location || farm.name}
+                >
+                  {farm.name || 'Unnamed farm'}
+                  <span className="font-normal text-slate-500">
+                    · {farmFields.length} field{farmFields.length !== 1 ? 's' : ''}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {actionFields.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-bold text-white">
@@ -146,20 +180,20 @@ export default function FarmHarvestDashboard({
           <span className="font-semibold">
             field{actionFields.length > 1 ? 's' : ''} need action
           </span>
-          <span className="text-amber-800/80">— open a farm below</span>
+          <span className="text-amber-800/80">— expand a farm below</span>
         </div>
       )}
 
       {farmsWithFields.map(({ farm, fields: farmFields }) => {
-        if (farmFields.length === 0) return null;
         const hasAction = farmFields.some((f) => {
           const a = fieldNeedsAction(f, farmerOrders);
           return a === 'harvest' || a === 'ship';
         });
+        const isEmpty = farmFields.length === 0;
         return (
           <details
             key={farm.id}
-            open={hasAction || farmsWithFields.length === 1}
+            open={hasAction || isEmpty || defaultOpenAll || farmsWithFields.length === 1}
             className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
           >
             <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5 hover:bg-slate-50 sm:px-4 [&::-webkit-details-marker]:hidden">
@@ -173,6 +207,11 @@ export default function FarmHarvestDashboard({
                   {hasAction ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-bold text-amber-800">
                       Needs action
+                    </span>
+                  ) : null}
+                  {isEmpty ? (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[0.65rem] font-bold text-slate-600">
+                      No fields yet
                     </span>
                   ) : null}
                 </div>
@@ -197,11 +236,17 @@ export default function FarmHarvestDashboard({
             </summary>
 
             <div className="border-t border-slate-100 bg-slate-50/60 p-3">
-              <FieldCardsGrid
-                fields={farmFields}
-                farmerOrders={farmerOrders}
-                onFieldUpdated={refreshFields}
-              />
+              {isEmpty ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-sm text-slate-600">
+                  This farm has no fields yet. Use <strong>Create &amp; edit</strong> to add one — it will stay listed here.
+                </div>
+              ) : (
+                <FieldCardsGrid
+                  fields={farmFields}
+                  farmerOrders={farmerOrders}
+                  onFieldUpdated={refreshFields}
+                />
+              )}
             </div>
           </details>
         );

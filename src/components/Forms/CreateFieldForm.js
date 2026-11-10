@@ -47,7 +47,8 @@ import { userDocumentsService } from '../../services/userDocuments';
 import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
 import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
-import { FIELD_CATEGORY_DATA as categoryData } from '../../utils/fieldCategoryData';
+import { FIELD_CATEGORY_DATA } from '../../utils/fieldCategoryData';
+import api from '../../services/api';
 import {
   normalizeTotalProductionUnit,
   perAreaUnitSuffixWithFieldArea,
@@ -304,8 +305,8 @@ const StyledButton = styled(Button)(({ theme, isMobile }) => ({
 const FormStack = styled('div')(({ isMobile }) => ({
   display: 'grid',
   gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
-  columnGap: 16,
-  rowGap: 16,
+  columnGap: 20,
+  rowGap: 20,
   width: '100%',
   alignItems: 'start',
   boxSizing: 'border-box',
@@ -670,6 +671,13 @@ const CreateFieldForm = ({
     totalProductionUnit: 'kg',
   });
 
+  const [categoryData, setCategoryData] = useState(FIELD_CATEGORY_DATA);
+  const [categoryRequestOpen, setCategoryRequestOpen] = useState(false);
+  const [categoryRequestTitle, setCategoryRequestTitle] = useState('');
+  const [categoryRequestBusy, setCategoryRequestBusy] = useState(false);
+  const [categoryRequestMsg, setCategoryRequestMsg] = useState(null);
+  const [locationAddress, setLocationAddress] = useState('');
+
   /** ISO2 codes for whole-country delivery; use with `shippingCityRows` for city-specific rules. */
   const [shippingCountryCodes, setShippingCountryCodes] = useState([]);
   const [shippingCityRows, setShippingCityRows] = useState([emptyShippingCityRow()]);
@@ -708,14 +716,29 @@ const CreateFieldForm = ({
     const fees = potential * 0.05;
 
     setFormData(prev => {
+      const nextSuggested = suggested.toFixed(2);
+      // Prefill selling price from suggested when empty or still matching the previous suggestion
+      const shouldSyncSelling =
+        !lockCommercial &&
+        nextSuggested !== '0.00' &&
+        (!prev.sellingPrice ||
+          prev.sellingPrice === '' ||
+          prev.sellingPrice === prev.suggestedPrice);
+      const nextSelling = shouldSyncSelling ? nextSuggested : prev.sellingPrice;
+      const nextSc = parseFloat(nextSelling) || 0;
+      const nextScPerUnit = (nextSc * prodPerArea).toFixed(3);
+      const nextPotential = (amountToSell * nextSc).toFixed(2);
+      const nextFees = (amountToSell * nextSc * 0.05).toFixed(2);
+
       // Only update if values actually changed to avoid infinite loops
       if (
         prev.productionPerArea === prodPerArea.toFixed(3) &&
-        prev.suggestedPrice === suggested.toFixed(2) &&
+        prev.suggestedPrice === nextSuggested &&
         prev.virtualCostPerUnit === distPricePerFieldUnit.toFixed(3) &&
-        prev.userAreaVirtualRentPrice === scPricePerFieldUnit.toFixed(3) &&
-        prev.potentialIncome === potential.toFixed(2) &&
-        prev.appFees === fees.toFixed(2)
+        prev.userAreaVirtualRentPrice === nextScPerUnit &&
+        prev.potentialIncome === nextPotential &&
+        prev.appFees === nextFees &&
+        prev.sellingPrice === nextSelling
       ) {
         return prev;
       }
@@ -723,14 +746,15 @@ const CreateFieldForm = ({
       return {
         ...prev,
         productionPerArea: prodPerArea.toFixed(3),
-        suggestedPrice: suggested.toFixed(2),
+        suggestedPrice: nextSuggested,
         virtualCostPerUnit: distPricePerFieldUnit.toFixed(3),
-        userAreaVirtualRentPrice: scPricePerFieldUnit.toFixed(3),
-        potentialIncome: potential.toFixed(2),
-        appFees: fees.toFixed(2)
+        sellingPrice: nextSelling,
+        userAreaVirtualRentPrice: nextScPerUnit,
+        potentialIncome: nextPotential,
+        appFees: nextFees,
       };
     });
-  }, [formData.totalProduction, formData.totalProductionUnit, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount]);
+  }, [formData.totalProduction, formData.totalProductionUnit, formData.fieldSize, formData.fieldSizeUnit, formData.distributionPrice, formData.retailPrice, formData.sellingPrice, formData.sellingAmount, lockCommercial]);
 
   useEffect(() => {
     if (!open) {
@@ -947,12 +971,50 @@ const CreateFieldForm = ({
 
 
 
-  // Show all available categories (FIELD_CATEGORY_DATA imported as categoryData)
-  const availableCategories = Object.keys(categoryData);
+  const reloadCategories = async () => {
+    try {
+      const res = await api.get('/api/field-categories');
+      if (res.data?.categories && typeof res.data.categories === 'object') {
+        setCategoryData(res.data.categories);
+      }
+    } catch (err) {
+      console.warn('Could not load field categories; using static list', err?.message);
+      setCategoryData(FIELD_CATEGORY_DATA);
+    }
+  };
+
+  useEffect(() => {
+    reloadCategories();
+  }, []);
+
+  // Show all available categories (static + approved custom)
+  const availableCategories = Object.keys(categoryData || {});
   const categories = ['Select Category', ...availableCategories];
 
-  // State for location address display
-  const [locationAddress, setLocationAddress] = useState('');
+  const submitCategoryRequest = async () => {
+    const title = categoryRequestTitle.trim().replace(/\s+/g, ' ');
+    if (title.length < 2) {
+      setCategoryRequestMsg({ type: 'error', text: 'Enter a category title (at least 2 characters).' });
+      return;
+    }
+    setCategoryRequestBusy(true);
+    setCategoryRequestMsg(null);
+    try {
+      await api.post('/api/category-requests', { title });
+      setCategoryRequestMsg({
+        type: 'success',
+        text: 'Request sent. An admin will review it — once approved, it appears in this list.',
+      });
+      setCategoryRequestTitle('');
+    } catch (err) {
+      setCategoryRequestMsg({
+        type: 'error',
+        text: err.response?.data?.error || err.message || 'Could not submit request',
+      });
+    } finally {
+      setCategoryRequestBusy(false);
+    }
+  };
 
   // Hydrate edit/create form when dialog opens or edited field id changes — not on every parent re-render
   // (parent `fields` refreshes used to replace initialData by reference and wipe in-progress edits).
@@ -1896,6 +1958,30 @@ const CreateFieldForm = ({
                     </Select>
                   </StyledFormControl>
 
+                  {!lockCommercial && (
+                    <Box className="form-full" sx={{ mt: -0.5, mb: 0.5 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        startIcon={<Add />}
+                        onClick={() => {
+                          setCategoryRequestMsg(null);
+                          setCategoryRequestTitle('');
+                          setCategoryRequestOpen(true);
+                        }}
+                        sx={{
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          color: '#047857',
+                          px: 0.5,
+                          '&:hover': { bgcolor: 'rgba(4, 120, 87, 0.06)' },
+                        }}
+                      >
+                        Can&apos;t find your category? Request one
+                      </Button>
+                    </Box>
+                  )}
+
                   <Box
                     sx={{
                       minHeight: isMobile ? 48 : 56,
@@ -2364,25 +2450,12 @@ const CreateFieldForm = ({
                       fontSize: isMobile ? '0.85rem' : '0.95rem',
                       lineHeight: 1.2,
                       m: 0,
+                      mt: 0.5,
                     }}
                   >
                     ✨ Suggested by Sharecrop
                   </Typography>
 
-                  <StyledTextField
-                    fullWidth
-                    label="Production per Area"
-                    value={formData.productionPerArea}
-                    isSuggested={true}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      readOnly: true,
-                      endAdornment: (
-                        <InputAdornment position="end">{productionPerAreaSuffix}</InputAdornment>
-                      ),
-                    }}
-                    isMobile={isMobile}
-                  />
                   <StyledTextField
                     fullWidth
                     label="Suggested Price on App"
@@ -2399,37 +2472,30 @@ const CreateFieldForm = ({
                   />
                   <StyledTextField
                     fullWidth
-                    label="Total Virtual Cost"
-                    value={formData.virtualCostPerUnit || ''}
-                    isSuggested={true}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      readOnly: true,
-                      endAdornment: <InputAdornment position="end">{pricePerAreaSuffix}</InputAdornment>
-                    }}
-                    isMobile={isMobile}
-                  />
-                  <StyledTextField
-                    fullWidth
                     label="Sharecrop Platform Fees"
                     value={formData.appFees || ''}
                     isSuggested={true}
                     InputLabelProps={{ shrink: true }}
                     InputProps={{
                       readOnly: true,
-                      endAdornment: <InputAdornment position="end">$</InputAdornment>
+                      endAdornment: <InputAdornment position="end">$</InputAdornment>,
                     }}
                     isMobile={isMobile}
                   />
 
                   <StyledTextField
+                    className="pricing-full"
                     fullWidth
                     label="Your App Selling Price"
                     placeholder="e.g. 7.00"
                     value={formData.sellingPrice}
                     onChange={(e) => handleInputChange('sellingPrice', e.target.value)}
                     error={!!errors.sellingPrice}
-                    helperText={errors.sellingPrice}
+                    helperText={
+                      errors.sellingPrice ||
+                      `equal to: ${formData.userAreaVirtualRentPrice || '0.000'} ${pricePerAreaSuffix}`
+                    }
+                    FormHelperTextProps={{ sx: { color: '#64748b', fontStyle: 'italic', mt: 0.75 } }}
                     InputLabelProps={{ shrink: true }}
                     InputProps={{
                       endAdornment: (
@@ -2441,15 +2507,6 @@ const CreateFieldForm = ({
                     isMobile={isMobile}
                     disabled={lockCommercial}
                   />
-                  <PricingSideNote isMobile={isMobile}>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontStyle: 'italic', lineHeight: 1.3 }}>
-                      equal to:{' '}
-                      <Box component="span" sx={{ fontWeight: 700, fontStyle: 'normal', color: '#2e7d32' }}>
-                        {formData.userAreaVirtualRentPrice}{' '}
-                        <Box component="span" sx={{ color: '#4caf50' }}>{pricePerAreaSuffix}</Box>
-                      </Box>
-                    </Typography>
-                  </PricingSideNote>
 
                   <StyledTextField
                     fullWidth
@@ -2459,34 +2516,35 @@ const CreateFieldForm = ({
                     onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
                     error={!!errors.sellingAmount}
                     helperText={
-                      errors.sellingAmount
-                        || `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
+                      errors.sellingAmount ||
+                      `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
                     }
+                    FormHelperTextProps={{ sx: { color: '#64748b', fontStyle: 'italic', mt: 0.75 } }}
                     InputLabelProps={{ shrink: true }}
                     InputProps={{
-                      endAdornment: (
-                        <InputAdornment position="end">%</InputAdornment>
-                      ),
+                      endAdornment: <InputAdornment position="end">%</InputAdornment>,
                     }}
                     inputProps={{ min: 0, max: 100, step: 'any' }}
                     type="number"
                     isMobile={isMobile}
                     disabled={lockCommercial}
                   />
-                  <PricingSideNote isMobile={isMobile}>
-                    <Typography variant="caption" sx={{ color: '#64748b', fontStyle: 'italic', lineHeight: 1.2 }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      minHeight: isMobile ? 'auto' : 56,
+                      pt: isMobile ? 0 : 0.5,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', lineHeight: 1.3 }}>
                       potential TOTAL APP income
                     </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#2e7d32', lineHeight: 1.3 }}>
-                      {formData.potentialIncome}{' '}
-                      <Box component="span" sx={{ color: '#4caf50' }}>$</Box>
-                      <Box component="span" sx={{ mx: 1, fontWeight: 400, fontStyle: 'italic', color: '#64748b' }}>
-                        equal to:
-                      </Box>
-                      {formData.potentialIncome}{' '}
-                      <Box component="span" sx={{ fontWeight: 500, color: '#64748b' }}>USD</Box>
+                    <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32', lineHeight: 1.35, mt: 0.25 }}>
+                      {formData.potentialIncome || '0.00'} $
                     </Typography>
-                  </PricingSideNote>
+                  </Box>
                 </PricingStack>
               </FormSection>
               </Box>
@@ -2976,6 +3034,68 @@ const CreateFieldForm = ({
           } : null
         }
       />
+
+      <Dialog
+        open={categoryRequestOpen}
+        onClose={() => !categoryRequestBusy && setCategoryRequestOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700, pr: 6, position: 'relative' }}>
+          Request a category
+          <IconButton
+            aria-label="Close"
+            onClick={() => setCategoryRequestOpen(false)}
+            disabled={categoryRequestBusy}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Tell us the category title you need. An admin will review it; once approved, it shows up in the category list.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="Category title"
+            placeholder="e.g. Quinoa"
+            value={categoryRequestTitle}
+            onChange={(e) => setCategoryRequestTitle(e.target.value)}
+            disabled={categoryRequestBusy}
+            inputProps={{ maxLength: 80 }}
+          />
+          {categoryRequestMsg && (
+            <Alert severity={categoryRequestMsg.type} sx={{ mt: 2 }}>
+              {categoryRequestMsg.text}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCategoryRequestOpen(false)} disabled={categoryRequestBusy}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitCategoryRequest}
+            disabled={categoryRequestBusy}
+            sx={{ bgcolor: '#059669', '&:hover': { bgcolor: '#047857' } }}
+          >
+            {categoryRequestBusy ? 'Sending…' : 'Submit request'}
+          </Button>
+          {categoryRequestMsg?.type === 'success' && (
+            <Button
+              onClick={() => {
+                setCategoryRequestOpen(false);
+                reloadCategories();
+              }}
+            >
+              Done
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       {/* Only show standard actions if we are in the normal form state */}
       {

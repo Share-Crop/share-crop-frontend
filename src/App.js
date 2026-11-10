@@ -14,6 +14,7 @@ import UserDetailPage from './pages/admin/UserDetailPage';
 import AdminQA from './pages/admin/AdminQA';
 import AdminCoins from './pages/admin/AdminCoins';
 import AdminRedemptions from './pages/admin/AdminRedemptions';
+import AdminCategoryRequests from './pages/admin/AdminCategoryRequests';
 import AdminPayments from './pages/admin/AdminPayments';
 import AdminAudit from './pages/admin/AdminAudit';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
@@ -112,6 +113,7 @@ const AppContent = () => {
             <Route path="audit" element={<AdminAudit />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="product-icons" element={<AdminProductIcons />} />
+            <Route path="category-requests" element={<AdminCategoryRequests />} />
           </Route>
 
           {/* Catch all - redirect to home */}
