@@ -64,6 +64,9 @@ import {
   CreditCard,
   Home,
   PersonAdd,
+  People,
+  QuestionAnswer,
+  Category,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import coinService from '../../services/coinService';
@@ -127,6 +130,9 @@ const EnhancedHeader = forwardRef(({
   backendNotifications = [],
   onMarkNotificationAsRead,
   onRefreshNotifications,
+  /** Admin attention counts for header badges (farmers, complaints, categories, redemptions). */
+  adminPendingCounts = null,
+  onRefreshAdminPending,
   /** When true and user is not logged in: show guest header (no coins / notifications / profile menu). */
   publicBrowse = false,
 }, ref) => {
@@ -158,8 +164,12 @@ const EnhancedHeader = forwardRef(({
   const [notifAnchorEl, setNotifAnchorEl] = useState(null);
   const [messagesAnchorEl, setMessagesAnchorEl] = useState(null);
   const [desktopSearchExpanded, setDesktopSearchExpanded] = useState(false);
+  const [adminInboxAnchorEl, setAdminInboxAnchorEl] = useState(null);
   const desktopSearchRef = useRef(null);
   const desktopSearchInputRef = useRef(null);
+
+  const adminCounts = adminPendingCounts || {};
+  const adminTotalAttention = Number(adminCounts.totalAttention) || 0;
 
   // Get user-specific coins when user changes
   const loadUserCoins = useCallback(async () => {
@@ -1085,7 +1095,166 @@ const EnhancedHeader = forwardRef(({
               </Tooltip>
             )}
 
-
+            {/* Admin pending-request badges */}
+            {isAdmin && (
+              <>
+                <Tooltip title="Pending farmer approvals">
+                  <IconButton
+                    color="inherit"
+                    size={isMobile ? 'small' : 'medium'}
+                    onClick={() => navigate('/admin/users')}
+                    sx={{ mr: 0.5 }}
+                  >
+                    <Badge
+                      color="error"
+                      badgeContent={adminCounts.pendingFarmerApprovals || 0}
+                      invisible={!adminCounts.pendingFarmerApprovals}
+                      max={99}
+                    >
+                      <People sx={{ fontSize: isMobile ? 20 : 24 }} />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Open complaints">
+                  <IconButton
+                    color="inherit"
+                    size={isMobile ? 'small' : 'medium'}
+                    onClick={() => navigate('/admin/qa')}
+                    sx={{ mr: 0.5 }}
+                  >
+                    <Badge
+                      color="error"
+                      badgeContent={adminCounts.newComplaints || 0}
+                      invisible={!adminCounts.newComplaints}
+                      max={99}
+                    >
+                      <QuestionAnswer sx={{ fontSize: isMobile ? 20 : 24 }} />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Category requests">
+                  <IconButton
+                    color="inherit"
+                    size={isMobile ? 'small' : 'medium'}
+                    onClick={() => navigate('/admin/category-requests')}
+                    sx={{ mr: 0.5 }}
+                  >
+                    <Badge
+                      color="error"
+                      badgeContent={adminCounts.pendingCategoryRequests || 0}
+                      invisible={!adminCounts.pendingCategoryRequests}
+                      max={99}
+                    >
+                      <Category sx={{ fontSize: isMobile ? 20 : 24 }} />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Pending redemptions">
+                  <IconButton
+                    color="inherit"
+                    size={isMobile ? 'small' : 'medium'}
+                    onClick={() => navigate('/admin/redemptions')}
+                    sx={{ mr: 0.5 }}
+                  >
+                    <Badge
+                      color="error"
+                      badgeContent={adminCounts.pendingRedemptions || 0}
+                      invisible={!adminCounts.pendingRedemptions}
+                      max={99}
+                    >
+                      <AccountBalanceWallet sx={{ fontSize: isMobile ? 20 : 24 }} />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Needs attention">
+                  <IconButton
+                    color="inherit"
+                    size={isMobile ? 'small' : 'medium'}
+                    onClick={(e) => {
+                      setAdminInboxAnchorEl(e.currentTarget);
+                      if (typeof onRefreshAdminPending === 'function') onRefreshAdminPending();
+                    }}
+                    sx={{
+                      mr: 1,
+                      backgroundColor: adminTotalAttention
+                        ? 'rgba(239, 68, 68, 0.08)'
+                        : 'rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    <Badge
+                      color="error"
+                      badgeContent={adminTotalAttention}
+                      invisible={adminTotalAttention < 1}
+                      max={99}
+                    >
+                      <NotificationsActive sx={{ fontSize: isMobile ? 20 : 24 }} />
+                    </Badge>
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  anchorEl={adminInboxAnchorEl}
+                  open={Boolean(adminInboxAnchorEl)}
+                  onClose={() => setAdminInboxAnchorEl(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  PaperProps={{ sx: { minWidth: 260, mt: 1.25, borderRadius: 2 } }}
+                >
+                  <Box sx={{ px: 2, py: 1.25 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Needs your attention
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      New requests waiting for review
+                    </Typography>
+                  </Box>
+                  <Divider />
+                  {[
+                    {
+                      label: 'Farmer approvals',
+                      count: adminCounts.pendingFarmerApprovals || 0,
+                      path: '/admin/users',
+                      icon: <People fontSize="small" />,
+                    },
+                    {
+                      label: 'Complaints',
+                      count: adminCounts.newComplaints || 0,
+                      path: '/admin/qa',
+                      icon: <QuestionAnswer fontSize="small" />,
+                    },
+                    {
+                      label: 'Category requests',
+                      count: adminCounts.pendingCategoryRequests || 0,
+                      path: '/admin/category-requests',
+                      icon: <Category fontSize="small" />,
+                    },
+                    {
+                      label: 'Redemptions',
+                      count: adminCounts.pendingRedemptions || 0,
+                      path: '/admin/redemptions',
+                      icon: <AccountBalanceWallet fontSize="small" />,
+                    },
+                  ].map((row) => (
+                    <MenuItem
+                      key={row.path}
+                      onClick={() => {
+                        setAdminInboxAnchorEl(null);
+                        navigate(row.path);
+                      }}
+                      sx={{ py: 1.25 }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36 }}>{row.icon}</ListItemIcon>
+                      <ListItemText primary={row.label} />
+                      <Chip
+                        size="small"
+                        label={row.count}
+                        color={row.count > 0 ? 'error' : 'default'}
+                        sx={{ height: 22, fontWeight: 700, fontSize: '0.7rem' }}
+                      />
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </>
+            )}
 
             {/* Notifications Bell */}
             {!isAdmin && !isPublicBrowseGuest && (

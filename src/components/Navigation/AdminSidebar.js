@@ -1,12 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { Drawer, List, ListItem, ListItemIcon, ListItemText, Box, Typography, Chip, Avatar, IconButton, Divider } from '@mui/material';
-import { Dashboard, People, MonetizationOn, Payment, Assessment, Analytics, Close, QuestionAnswer, ExitToApp, Person, AccountBalanceWallet, ShoppingBag, CurrencyExchange, Home, Image, Category } from '@mui/icons-material';
+import {
+  Drawer,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Box,
+  Typography,
+  Chip,
+  Avatar,
+  IconButton,
+  Divider,
+  Badge,
+} from '@mui/material';
+import {
+  Dashboard,
+  People,
+  MonetizationOn,
+  Payment,
+  Assessment,
+  Analytics,
+  Close,
+  QuestionAnswer,
+  ExitToApp,
+  Person,
+  AccountBalanceWallet,
+  ShoppingBag,
+  CurrencyExchange,
+  Home,
+  Image,
+  Category,
+} from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const useIsMobile = () => {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
-    const checkIsMobile = () => { setIsMobile(window.innerWidth <= 768); };
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
     checkIsMobile();
     window.addEventListener('resize', checkIsMobile);
     return () => window.removeEventListener('resize', checkIsMobile);
@@ -14,7 +46,17 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-const AdminSidebar = ({ user, onLogout, open, onClose }) => {
+const badgeSx = {
+  '& .MuiBadge-badge': {
+    fontSize: '0.65rem',
+    height: 18,
+    minWidth: 18,
+    right: -2,
+    top: 2,
+  },
+};
+
+const AdminSidebar = ({ user, onLogout, open, onClose, pendingCounts = {} }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
@@ -23,21 +65,47 @@ const AdminSidebar = ({ user, onLogout, open, onClose }) => {
     { text: 'Home', icon: <Home />, path: '/' },
     { text: 'Dashboard', icon: <Dashboard />, path: '/admin' },
     { text: 'Profile', icon: <Person />, path: '/admin/profile' },
-    { text: 'Users', icon: <People />, path: '/admin/users' },
-    { text: 'QA', icon: <QuestionAnswer />, path: '/admin/qa' },
+    {
+      text: 'Users',
+      icon: <People />,
+      path: '/admin/users',
+      badge: pendingCounts.pendingFarmerApprovals || 0,
+    },
+    {
+      text: 'QA',
+      icon: <QuestionAnswer />,
+      path: '/admin/qa',
+      badge: pendingCounts.newComplaints || 0,
+    },
     { text: 'Analytics', icon: <Analytics />, path: '/admin/analytics' },
     { text: 'Coins', icon: <MonetizationOn />, path: '/admin/coins' },
     { text: 'Packages', icon: <ShoppingBag />, path: '/admin/packages' },
     { text: 'Currency Rates', icon: <CurrencyExchange />, path: '/admin/currency-rates' },
-    { text: 'Redemptions', icon: <AccountBalanceWallet />, path: '/admin/redemptions' },
+    {
+      text: 'Redemptions',
+      icon: <AccountBalanceWallet />,
+      path: '/admin/redemptions',
+      badge: pendingCounts.pendingRedemptions || 0,
+    },
     { text: 'Payments', icon: <Payment />, path: '/admin/payments' },
     { text: 'Audit', icon: <Assessment />, path: '/admin/audit' },
     { text: 'Product icons', icon: <Image />, path: '/admin/product-icons' },
-    { text: 'Category requests', icon: <Category />, path: '/admin/category-requests' },
+    {
+      text: 'Category requests',
+      icon: <Category />,
+      path: '/admin/category-requests',
+      badge: pendingCounts.pendingCategoryRequests || 0,
+    },
   ];
 
-  const handleNavigation = (path) => { navigate(path); onClose(); };
-  const handleLogout = () => { onLogout(); onClose(); };
+  const handleNavigation = (path) => {
+    navigate(path);
+    onClose();
+  };
+  const handleLogout = () => {
+    onLogout();
+    onClose();
+  };
 
   return (
     <Drawer
@@ -116,6 +184,7 @@ const AdminSidebar = ({ user, onLogout, open, onClose }) => {
       <List sx={{ py: isMobile ? 0.5 : 1 }}>
         {adminMenuItems.map((item) => {
           const selected = location.pathname === item.path;
+          const count = Number(item.badge) || 0;
           return (
             <ListItem
               button
@@ -147,7 +216,9 @@ const AdminSidebar = ({ user, onLogout, open, onClose }) => {
                   },
                 }}
               >
-                {item.icon}
+                <Badge color="error" badgeContent={count} invisible={count < 1} sx={badgeSx} max={99}>
+                  {item.icon}
+                </Badge>
               </ListItemIcon>
               <ListItemText
                 primary={item.text}
@@ -156,6 +227,19 @@ const AdminSidebar = ({ user, onLogout, open, onClose }) => {
                   fontWeight: selected ? 600 : 400,
                 }}
               />
+              {count > 0 && (
+                <Chip
+                  size="small"
+                  label={count > 99 ? '99+' : count}
+                  color="error"
+                  sx={{
+                    height: 20,
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    '& .MuiChip-label': { px: 0.75 },
+                  }}
+                />
+              )}
             </ListItem>
           );
         })}
