@@ -1,5 +1,8 @@
+import api from '../services/api';
+
 /**
- * Single source of truth for Create Field (and admin product-icon uploads).
+ * Static defaults for Create Field / product icons.
+ * Live catalog = static + approved category requests via `/api/field-categories`.
  * Keys = parent category labels; values = subcategory labels shown in the form.
  */
 export const FIELD_CATEGORY_DATA = {
@@ -18,18 +21,35 @@ export const FIELD_CATEGORY_DATA = {
   Snacks: ['Nuts', 'Popcorn', 'Pretzels'],
 };
 
-export function getFieldCategoryLabels() {
-  return Object.keys(FIELD_CATEGORY_DATA);
+export function getFieldCategoryLabels(data = FIELD_CATEGORY_DATA) {
+  return Object.keys(data || FIELD_CATEGORY_DATA);
 }
 
-/** Every subcategory option from the create-field form (for admin icon uploads). */
-export function collectAllFieldSubcategories() {
+/** Every subcategory option from a category map (for admin icon uploads). */
+export function collectAllFieldSubcategories(data = FIELD_CATEGORY_DATA) {
   const set = new Set();
-  Object.values(FIELD_CATEGORY_DATA).forEach((arr) => {
+  Object.values(data || {}).forEach((arr) => {
     (arr || []).forEach((s) => {
       const t = s != null ? String(s).trim() : '';
       if (t) set.add(t);
     });
   });
   return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Fetch static + approved custom categories from the API.
+ * Falls back to static defaults if the request fails.
+ */
+export async function fetchFieldCategoryData() {
+  try {
+    const res = await api.get('/api/field-categories');
+    const categories = res.data?.categories;
+    if (categories && typeof categories === 'object' && !Array.isArray(categories)) {
+      return categories;
+    }
+  } catch (err) {
+    console.warn('[fieldCategoryData] live catalog unavailable; using static list', err?.message);
+  }
+  return FIELD_CATEGORY_DATA;
 }

@@ -25,8 +25,10 @@ import {
   InputLabel,
   Stack,
 } from '@mui/material';
-import { CheckCircle, Cancel, HourglassEmpty, Category } from '@mui/icons-material';
+import { CheckCircle, Cancel, HourglassEmpty, Category, Label } from '@mui/icons-material';
 import api from '../../services/api';
+
+const isSubcategory = (row) => (row?.request_type || 'category') === 'subcategory';
 
 const AdminCategoryRequests = () => {
   const [requests, setRequests] = useState([]);
@@ -86,15 +88,37 @@ const AdminCategoryRequests = () => {
     return <Chip size="small" color="warning" icon={<HourglassEmpty />} label="Pending" />;
   };
 
+  const typeChip = (row) =>
+    isSubcategory(row) ? (
+      <Chip size="small" icon={<Label />} label="Product type" color="info" variant="outlined" />
+    ) : (
+      <Chip size="small" icon={<Category />} label="New category" color="secondary" variant="outlined" />
+    );
+
+  const approveSummary = (row) => {
+    if (!row) return '';
+    if (isSubcategory(row)) {
+      return `Add product type “${row.title}” under category “${row.parent_category}”?`;
+    }
+    return `Add new top-level category “${row.title}” (with product type “${row.title}”)?`;
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={2} sx={{ mb: 3 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
             <Category color="primary" /> Category requests
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Approve titles submitted from the create-field form. Approved categories appear in the farmer list immediately.
+            Farmers can request a new category or a product type under an existing one. Approved items show up in
+            Create Field and Product pictures.
           </Typography>
         </Box>
         <FormControl size="small" sx={{ minWidth: 160 }}>
@@ -120,14 +144,17 @@ const AdminCategoryRequests = () => {
         </Box>
       ) : requests.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
-          <Typography color="text.secondary">No category requests{statusFilter !== 'all' ? ` with status “${statusFilter}”` : ''}.</Typography>
+          <Typography color="text.secondary">
+            No category requests{statusFilter !== 'all' ? ` with status “${statusFilter}”` : ''}.
+          </Typography>
         </Paper>
       ) : (
         <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Title</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Request</TableCell>
                 <TableCell>Requested by</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Submitted</TableCell>
@@ -137,7 +164,19 @@ const AdminCategoryRequests = () => {
             <TableBody>
               {requests.map((row) => (
                 <TableRow key={row.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
+                  <TableCell>{typeChip(row)}</TableCell>
+                  <TableCell>
+                    {isSubcategory(row) ? (
+                      <Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                          {row.parent_category || '—'}
+                        </Typography>
+                        <Typography sx={{ fontWeight: 700 }}>→ {row.title}</Typography>
+                      </Box>
+                    ) : (
+                      <Typography sx={{ fontWeight: 700 }}>{row.title}</Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2">{row.requester_name || '—'}</Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -145,9 +184,7 @@ const AdminCategoryRequests = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>{statusChip(row.status)}</TableCell>
-                  <TableCell>
-                    {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
-                  </TableCell>
+                  <TableCell>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</TableCell>
                   <TableCell align="right">
                     {row.status === 'pending' ? (
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -173,14 +210,28 @@ const AdminCategoryRequests = () => {
 
       <Dialog open={Boolean(selected)} onClose={() => !processing && setSelected(null)} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {action === 'approve' ? 'Approve category' : 'Reject category request'}
+          {action === 'approve'
+            ? isSubcategory(selected)
+              ? 'Approve product type'
+              : 'Approve new category'
+            : 'Reject request'}
         </DialogTitle>
         <DialogContent>
-          <Typography sx={{ mb: 2 }}>
-            {action === 'approve'
-              ? `Add “${selected?.title}” to the create-field category list?`
-              : `Reject “${selected?.title}”?`}
-          </Typography>
+          <Stack spacing={1.5} sx={{ mb: 2 }}>
+            {selected ? typeChip(selected) : null}
+            <Typography>{action === 'approve' ? approveSummary(selected) : `Reject “${selected?.title}”?`}</Typography>
+            {action === 'approve' && isSubcategory(selected) ? (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Farmers will pick category <strong>{selected?.parent_category}</strong>, then product type{' '}
+                <strong>{selected?.title}</strong>.
+              </Alert>
+            ) : null}
+            {action === 'approve' && selected && !isSubcategory(selected) ? (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Creates a new category named <strong>{selected?.title}</strong> with the same product type name.
+              </Alert>
+            ) : null}
+          </Stack>
           <TextField
             label="Admin notes (optional)"
             fullWidth

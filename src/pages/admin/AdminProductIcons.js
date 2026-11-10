@@ -13,6 +13,10 @@ import {
   TextField,
   Chip,
   Divider,
+  InputAdornment,
+  IconButton,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -20,6 +24,8 @@ import {
   Refresh,
   ExpandMore,
   Image as ImageIcon,
+  Search,
+  Clear,
 } from '@mui/icons-material';
 import supabase from '../../services/supabase';
 import {
@@ -29,7 +35,11 @@ import {
   fetchProductIconOverrides,
 } from '../../services/productCategoryIcons';
 import { getProductIcon, PRODUCT_IMAGE_PLACEHOLDER, setProductIconOverrides } from '../../utils/productIcons';
-import { FIELD_CATEGORY_DATA, collectAllFieldSubcategories } from '../../utils/fieldCategoryData';
+import {
+  FIELD_CATEGORY_DATA,
+  collectAllFieldSubcategories,
+  fetchFieldCategoryData,
+} from '../../utils/fieldCategoryData';
 import {
   PRODUCT_ICON_PX,
   validateImageFileExactDimensions,
@@ -38,8 +48,13 @@ import {
 
 const BUCKET = process.env.REACT_APP_SUPABASE_PRODUCT_ICONS_BUCKET || 'product-images';
 
+const STATUS_ALL = 'all';
+const STATUS_MISSING = 'missing';
+const STATUS_SAVED = 'saved';
+
 const AdminProductIcons = () => {
   const [overrideByKey, setOverrideByKey] = useState({});
+  const [categoryData, setCategoryData] = useState(FIELD_CATEGORY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [uploadingKey, setUploadingKey] = useState(null);
@@ -47,14 +62,28 @@ const AdminProductIcons = () => {
   const [expandedUrlFor, setExpandedUrlFor] = useState(null);
   const [urlSavingFor, setUrlSavingFor] = useState(null);
 
-  const parentOrder = useMemo(() => Object.keys(FIELD_CATEGORY_DATA), []);
-  const knownSubs = useMemo(() => new Set(collectAllFieldSubcategories()), []);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
+  const [expandedParents, setExpandedParents] = useState(() => new Set(['Fruits', 'Vegetables']));
+
+  const parentOrder = useMemo(() => Object.keys(categoryData || {}), [categoryData]);
+  const knownSubs = useMemo(
+    () => new Set(collectAllFieldSubcategories(categoryData)),
+    [categoryData]
+  );
+  const staticParentKeys = useMemo(() => new Set(Object.keys(FIELD_CATEGORY_DATA)), []);
 
   const load = useCallback(async () => {
     setError('');
     setLoading(true);
     try {
-      const data = await adminListProductCategoryIcons();
+      const [categories, data] = await Promise.all([
+        fetchFieldCategoryData(),
+        adminListProductCategoryIcons(),
+      ]);
+      setCategoryData(categories || FIELD_CATEGORY_DATA);
+
       const list = Array.isArray(data?.rows) ? data.rows : [];
       const map = {};
       list.forEach((r) => {
@@ -90,6 +119,62 @@ const AdminProductIcons = () => {
       setProductIconOverrides({});
     }
   };
+
+  const matchesFilters = useCallback(
+    (sub) => {
+      const q = searchQuery.trim().toLowerCase();
+      if (q && !String(sub).toLowerCase().includes(q)) return false;
+      const hasCustom = Boolean(overrideByKey[sub]);
+      if (statusFilter === STATUS_MISSING && hasCustom) return false;
+      if (statusFilter === STATUS_SAVED && !hasCustom) return false;
+      return true;
+    },
+    [searchQuery, statusFilter, overrideByKey]
+  );
+
+  const filteredGroups = useMemo(() => {
+    const groups = [];
+    for (const parent of parentOrder) {
+      if (categoryFilter !== 'all' && parent !== categoryFilter) continue;
+      const subs = categoryData[parent];
+      if (!Array.isArray(subs) || !subs.length) continue;
+      const filtered = subs.filter(matchesFilters);
+      if (!filtered.length) continue;
+      groups.push({
+        parent,
+        subs: filtered,
+        total: subs.length,
+        isCustom: !staticParentKeys.has(parent),
+      });
+    }
+    return groups;
+  }, [parentOrder, categoryFilter, matchesFilters, categoryData, staticParentKeys]);
+
+  // Auto-expand matching groups when filters are active
+  useEffect(() => {
+    const filtering =
+      Boolean(searchQuery.trim()) || categoryFilter !== 'all' || statusFilter !== STATUS_ALL;
+    if (!filtering) return;
+    setExpandedParents(new Set(filteredGroups.map((g) => g.parent)));
+  }, [searchQuery, categoryFilter, statusFilter, filteredGroups]);
+
+  const orphanOverrides = useMemo(() => {
+    const list = Object.keys(overrideByKey)
+      .filter((k) => !knownSubs.has(k))
+      .sort((a, b) => a.localeCompare(b));
+    return list.filter(matchesFilters);
+  }, [overrideByKey, knownSubs, matchesFilters]);
+
+  const stats = useMemo(() => {
+    const all = collectAllFieldSubcategories(categoryData);
+    const saved = all.filter((s) => overrideByKey[s]).length;
+    return {
+      total: all.length,
+      saved,
+      missing: all.length - saved,
+      categories: parentOrder.length,
+    };
+  }, [overrideByKey, parentOrder, categoryData]);
 
   const uploadFileForSubcategory = async (subcategoryKey, file) => {
     if (!file || !subcategoryKey) return;
@@ -161,10 +246,21 @@ const AdminProductIcons = () => {
     }
   };
 
-  const orphanOverrides = useMemo(
-    () => Object.keys(overrideByKey).filter((k) => !knownSubs.has(k)).sort((a, b) => a.localeCompare(b)),
-    [overrideByKey, knownSubs]
-  );
+  const clearFilters = () => {
+    setSearchQuery('');
+    setCategoryFilter('all');
+    setStatusFilter(STATUS_ALL);
+    setExpandedParents(new Set(['Fruits', 'Vegetables']));
+  };
+
+  const toggleParent = (parent) => {
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parent)) next.delete(parent);
+      else next.add(parent);
+      return next;
+    });
+  };
 
   const renderSubcategoryRow = (sub) => {
     const hasCustom = Boolean(overrideByKey[sub]);
@@ -181,7 +277,7 @@ const AdminProductIcons = () => {
           alignItems: { sm: 'center' },
           gap: 2,
           py: 1.5,
-          px: { xs: 0, sm: 1 },
+          px: { xs: 0.5, sm: 1 },
           borderBottom: '1px solid',
           borderColor: 'divider',
           '&:last-of-type': { borderBottom: 'none' },
@@ -218,8 +314,8 @@ const AdminProductIcons = () => {
           </Box>
           <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>
             {hasCustom
-              ? 'This is what the map and forms use for this product type.'
-              : 'Nothing uploaded yet — the app shows a grey placeholder everywhere for this name.'}
+              ? 'Used on the map and in create-field forms.'
+              : 'Grey placeholder until you upload.'}
           </Typography>
         </Box>
 
@@ -254,7 +350,7 @@ const AdminProductIcons = () => {
         </Stack>
 
         {expandedUrlFor === sub ? (
-          <Box sx={{ width: '100%', pl: { sm: 0 }, pt: 1 }}>
+          <Box sx={{ width: '100%', pt: 1 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
               <TextField
                 size="small"
@@ -279,21 +375,142 @@ const AdminProductIcons = () => {
     );
   };
 
+  const hasActiveFilters =
+    Boolean(searchQuery.trim()) || categoryFilter !== 'all' || statusFilter !== STATUS_ALL;
+  const visibleCount = filteredGroups.reduce((n, g) => n + g.subs.length, 0) + orphanOverrides.length;
+
   return (
-    <Box sx={{ maxWidth: 960, mx: 'auto', py: 2, pb: 6 }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-        <ImageIcon color="primary" />
-        <Typography variant="h5" fontWeight={700}>
-          Product pictures
-        </Typography>
+    <Box sx={{ maxWidth: 1040, mx: 'auto', py: 2, pb: 6 }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems={{ sm: 'flex-start' }}
+        justifyContent="space-between"
+        spacing={1.5}
+        sx={{ mb: 2 }}
+      >
+        <Box>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+            <ImageIcon color="primary" />
+            <Typography variant="h5" fontWeight={700}>
+              Product pictures
+            </Typography>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Upload {PRODUCT_ICON_PX}×{PRODUCT_ICON_PX} images for each product type (includes approved category
+            requests). Bucket: {BUCKET}
+          </Typography>
+        </Box>
+        <Button startIcon={<Refresh />} onClick={load} disabled={loading} variant="outlined" size="small">
+          Reload
+        </Button>
       </Stack>
 
-      <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover', borderStyle: 'dashed' }}>
-        <Typography variant="body1" sx={{ mb: 1 }}>
-          <strong>One place for all product images.</strong> Open a group (for example <em>Fruits</em>), pick a product type, then <strong>Upload</strong> or <strong>Paste URL</strong>.
-          Images must be <strong>exactly {PRODUCT_ICON_PX}×{PRODUCT_ICON_PX} pixels</strong> (square); anything else is rejected. Files go to Supabase bucket <strong>{BUCKET}</strong> and
-          appear on the map and in forms.
-        </Typography>
+      <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
+        <Chip label={`${stats.total} types`} size="small" variant="outlined" />
+        <Chip label={`${stats.saved} uploaded`} size="small" color="success" variant="outlined" />
+        <Chip label={`${stats.missing} missing`} size="small" color={stats.missing ? 'warning' : 'default'} variant="outlined" />
+        <Chip label={`${stats.categories} categories`} size="small" variant="outlined" />
+      </Stack>
+
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2,
+          mb: 2,
+          borderRadius: 2,
+          borderColor: 'divider',
+          bgcolor: '#fff',
+        }}
+      >
+        <Stack spacing={1.75}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Search product type… e.g. Tomato"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" sx={{ color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+              endAdornment: searchQuery ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" aria-label="Clear search" onClick={() => setSearchQuery('')}>
+                    <Clear fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+          />
+
+          <Box>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1 }}>
+              Category
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              <Chip
+                label="All"
+                size="small"
+                clickable
+                color={categoryFilter === 'all' ? 'primary' : 'default'}
+                variant={categoryFilter === 'all' ? 'filled' : 'outlined'}
+                onClick={() => setCategoryFilter('all')}
+              />
+              {parentOrder.map((parent) => (
+                <Chip
+                  key={parent}
+                  label={parent}
+                  size="small"
+                  clickable
+                  color={categoryFilter === parent ? 'primary' : 'default'}
+                  variant={categoryFilter === parent ? 'filled' : 'outlined'}
+                  onClick={() => setCategoryFilter(parent)}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            alignItems={{ sm: 'center' }}
+            justifyContent="space-between"
+            spacing={1.5}
+          >
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1 }}>
+                Upload status
+              </Typography>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={statusFilter}
+                onChange={(_e, v) => {
+                  if (v != null) setStatusFilter(v);
+                }}
+                sx={{
+                  '& .MuiToggleButton-root': {
+                    textTransform: 'none',
+                    px: 1.5,
+                    py: 0.5,
+                    fontSize: '0.8rem',
+                  },
+                }}
+              >
+                <ToggleButton value={STATUS_ALL}>All</ToggleButton>
+                <ToggleButton value={STATUS_MISSING}>Missing</ToggleButton>
+                <ToggleButton value={STATUS_SAVED}>Uploaded</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            {hasActiveFilters ? (
+              <Button size="small" onClick={clearFilters} startIcon={<Clear />}>
+                Clear filters
+              </Button>
+            ) : null}
+          </Stack>
+        </Stack>
       </Paper>
 
       {error ? (
@@ -308,37 +525,61 @@ const AdminProductIcons = () => {
         </Alert>
       ) : null}
 
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
-        <Button startIcon={<Refresh />} onClick={load} disabled={loading} variant="outlined" size="small">
-          Reload from server
-        </Button>
-      </Stack>
-
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress />
         </Box>
+      ) : visibleCount === 0 ? (
+        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
+          <Typography fontWeight={700} sx={{ mb: 0.5 }}>
+            No products match
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Try another search or clear filters.
+          </Typography>
+          <Button variant="outlined" size="small" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        </Paper>
       ) : (
         <>
-          {parentOrder.map((parent) => {
-            const subs = FIELD_CATEGORY_DATA[parent];
-            if (!Array.isArray(subs) || subs.length === 0) return null;
-            return (
-              <Accordion key={parent} defaultExpanded={parent === 'Fruits' || parent === 'Vegetables'} disableGutters elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, mb: 1, '&:before': { display: 'none' } }}>
-                <AccordionSummary expandIcon={<ExpandMore />} sx={{ bgcolor: 'grey.50', minHeight: 48 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Showing {visibleCount} product type{visibleCount === 1 ? '' : 's'}
+            {hasActiveFilters ? ' (filtered)' : ''}
+          </Typography>
+
+          {filteredGroups.map(({ parent, subs, total, isCustom }) => (
+            <Accordion
+              key={parent}
+              expanded={expandedParents.has(parent)}
+              onChange={() => toggleParent(parent)}
+              disableGutters
+              elevation={0}
+              sx={{
+                border: '1px solid',
+                borderColor: isCustom ? 'success.light' : 'divider',
+                borderRadius: '12px !important',
+                mb: 1,
+                overflow: 'hidden',
+                '&:before': { display: 'none' },
+              }}
+            >
+              <AccordionSummary expandIcon={<ExpandMore />} sx={{ bgcolor: isCustom ? 'rgba(46, 125, 50, 0.06)' : 'grey.50', minHeight: 48 }}>
+                <Stack direction="row" alignItems="center" spacing={1}>
                   <Typography fontWeight={700}>
                     {parent}
                     <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 400 }}>
-                      ({subs.length} types)
+                      {subs.length === total ? `(${total})` : `(${subs.length} of ${total})`}
                     </Typography>
                   </Typography>
-                </AccordionSummary>
-                <AccordionDetails sx={{ pt: 0, px: { xs: 1, sm: 2 }, pb: 2 }}>
-                  {subs.map((sub) => renderSubcategoryRow(sub))}
-                </AccordionDetails>
-              </Accordion>
-            );
-          })}
+                  {isCustom ? <Chip size="small" label="Approved request" color="success" variant="outlined" /> : null}
+                </Stack>
+              </AccordionSummary>
+              <AccordionDetails sx={{ pt: 0, px: { xs: 1, sm: 2 }, pb: 2 }}>
+                {subs.map((sub) => renderSubcategoryRow(sub))}
+              </AccordionDetails>
+            </Accordion>
+          ))}
 
           {orphanOverrides.length > 0 ? (
             <>
@@ -349,7 +590,7 @@ const AdminProductIcons = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 These names are in the database but not in the create-field list.
               </Typography>
-              <Paper variant="outlined" sx={{ p: 1 }}>
+              <Paper variant="outlined" sx={{ p: 1, borderRadius: 2 }}>
                 {orphanOverrides.map((sub) => renderSubcategoryRow(sub))}
               </Paper>
             </>

@@ -23,6 +23,9 @@ import {
   AlertTitle,
   Autocomplete,
   Chip,
+  ToggleButton,
+  ToggleButtonGroup,
+  Stack,
 } from '@mui/material';
 
 import {
@@ -47,7 +50,7 @@ import { userDocumentsService } from '../../services/userDocuments';
 import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
 import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
-import { FIELD_CATEGORY_DATA } from '../../utils/fieldCategoryData';
+import { FIELD_CATEGORY_DATA, fetchFieldCategoryData } from '../../utils/fieldCategoryData';
 import api from '../../services/api';
 import {
   normalizeTotalProductionUnit,
@@ -673,7 +676,9 @@ const CreateFieldForm = ({
 
   const [categoryData, setCategoryData] = useState(FIELD_CATEGORY_DATA);
   const [categoryRequestOpen, setCategoryRequestOpen] = useState(false);
+  const [categoryRequestKind, setCategoryRequestKind] = useState('subcategory'); // 'category' | 'subcategory'
   const [categoryRequestTitle, setCategoryRequestTitle] = useState('');
+  const [categoryRequestParent, setCategoryRequestParent] = useState('');
   const [categoryRequestBusy, setCategoryRequestBusy] = useState(false);
   const [categoryRequestMsg, setCategoryRequestMsg] = useState(null);
   const [locationAddress, setLocationAddress] = useState('');
@@ -972,38 +977,60 @@ const CreateFieldForm = ({
 
 
   const reloadCategories = async () => {
-    try {
-      const res = await api.get('/api/field-categories');
-      if (res.data?.categories && typeof res.data.categories === 'object') {
-        setCategoryData(res.data.categories);
-      }
-    } catch (err) {
-      console.warn('Could not load field categories; using static list', err?.message);
-      setCategoryData(FIELD_CATEGORY_DATA);
-    }
+    const categories = await fetchFieldCategoryData();
+    setCategoryData(categories || FIELD_CATEGORY_DATA);
   };
 
+  // Refresh whenever the dialog opens so newly approved requests appear without a full page reload
   useEffect(() => {
+    if (!open) return;
     reloadCategories();
-  }, []);
+  }, [open]);
 
   // Show all available categories (static + approved custom)
   const availableCategories = Object.keys(categoryData || {});
   const categories = ['Select Category', ...availableCategories];
 
+  const openCategoryRequestDialog = () => {
+    setCategoryRequestMsg(null);
+    setCategoryRequestTitle('');
+    const selectedParent =
+      formData.category && formData.category !== 'Select Category' ? formData.category : '';
+    setCategoryRequestKind('subcategory');
+    setCategoryRequestParent(selectedParent || Object.keys(categoryData || {})[0] || '');
+    setCategoryRequestOpen(true);
+  };
+
   const submitCategoryRequest = async () => {
     const title = categoryRequestTitle.trim().replace(/\s+/g, ' ');
     if (title.length < 2) {
-      setCategoryRequestMsg({ type: 'error', text: 'Enter a category title (at least 2 characters).' });
+      setCategoryRequestMsg({
+        type: 'error',
+        text:
+          categoryRequestKind === 'subcategory'
+            ? 'Enter a product type name (at least 2 characters).'
+            : 'Enter a category title (at least 2 characters).',
+      });
+      return;
+    }
+    if (categoryRequestKind === 'subcategory' && !categoryRequestParent) {
+      setCategoryRequestMsg({ type: 'error', text: 'Choose which category this product type belongs to.' });
       return;
     }
     setCategoryRequestBusy(true);
     setCategoryRequestMsg(null);
     try {
-      await api.post('/api/category-requests', { title });
+      await api.post('/api/category-requests', {
+        request_type: categoryRequestKind,
+        title,
+        parent_category: categoryRequestKind === 'subcategory' ? categoryRequestParent : undefined,
+      });
       setCategoryRequestMsg({
         type: 'success',
-        text: 'Request sent. An admin will review it — once approved, it appears in this list.',
+        text:
+          categoryRequestKind === 'subcategory'
+            ? `Request sent for “${title}” under ${categoryRequestParent}. Once approved, it appears in that category.`
+            : `Request sent for new category “${title}”. Once approved, it appears in the category list.`,
       });
       setCategoryRequestTitle('');
     } catch (err) {
@@ -1964,11 +1991,7 @@ const CreateFieldForm = ({
                         size="small"
                         variant="text"
                         startIcon={<Add />}
-                        onClick={() => {
-                          setCategoryRequestMsg(null);
-                          setCategoryRequestTitle('');
-                          setCategoryRequestOpen(true);
-                        }}
+                        onClick={openCategoryRequestDialog}
                         sx={{
                           textTransform: 'none',
                           fontWeight: 600,
@@ -1977,7 +2000,7 @@ const CreateFieldForm = ({
                           '&:hover': { bgcolor: 'rgba(4, 120, 87, 0.06)' },
                         }}
                       >
-                        Can&apos;t find your category? Request one
+                        Can&apos;t find it? Request category or product type
                       </Button>
                     </Box>
                   )}
@@ -3042,7 +3065,7 @@ const CreateFieldForm = ({
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 700, pr: 6, position: 'relative' }}>
-          Request a category
+          Request missing option
           <IconButton
             aria-label="Close"
             onClick={() => setCategoryRequestOpen(false)}
@@ -3053,19 +3076,70 @@ const CreateFieldForm = ({
           </IconButton>
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Tell us the category title you need. An admin will review it; once approved, it shows up in the category list.
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Most of the time you only need a product type under an existing category.
           </Typography>
-          <TextField
-            autoFocus
+          <ToggleButtonGroup
+            exclusive
             fullWidth
-            label="Category title"
-            placeholder="e.g. Quinoa"
-            value={categoryRequestTitle}
-            onChange={(e) => setCategoryRequestTitle(e.target.value)}
-            disabled={categoryRequestBusy}
-            inputProps={{ maxLength: 80 }}
-          />
+            size="small"
+            value={categoryRequestKind}
+            onChange={(_e, v) => {
+              if (!v) return;
+              setCategoryRequestKind(v);
+              setCategoryRequestMsg(null);
+            }}
+            sx={{
+              mb: 2,
+              '& .MuiToggleButton-root': {
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                py: 0.75,
+              },
+            }}
+          >
+            <ToggleButton value="subcategory">Product type</ToggleButton>
+            <ToggleButton value="category">New category</ToggleButton>
+          </ToggleButtonGroup>
+
+          <Stack spacing={1.5}>
+            {categoryRequestKind === 'subcategory' ? (
+              <FormControl fullWidth size="small">
+                <InputLabel>Under category</InputLabel>
+                <Select
+                  label="Under category"
+                  value={categoryRequestParent}
+                  onChange={(e) => setCategoryRequestParent(e.target.value)}
+                  disabled={categoryRequestBusy}
+                >
+                  {Object.keys(categoryData || {}).map((parent) => (
+                    <MenuItem key={parent} value={parent}>
+                      {parent}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : null}
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              label={categoryRequestKind === 'subcategory' ? 'Product type name' : 'Category name'}
+              placeholder={categoryRequestKind === 'subcategory' ? 'e.g. Blueberry' : 'e.g. Herbs'}
+              value={categoryRequestTitle}
+              onChange={(e) => setCategoryRequestTitle(e.target.value)}
+              disabled={categoryRequestBusy}
+              inputProps={{ maxLength: 80 }}
+              helperText={
+                categoryRequestKind === 'subcategory'
+                  ? categoryRequestParent
+                    ? `Will appear under ${categoryRequestParent} after approval`
+                    : 'Pick a parent category'
+                  : 'Creates a new top-level category after approval'
+              }
+            />
+          </Stack>
           {categoryRequestMsg && (
             <Alert severity={categoryRequestMsg.type} sx={{ mt: 2 }}>
               {categoryRequestMsg.text}
