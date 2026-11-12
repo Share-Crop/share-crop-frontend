@@ -50,12 +50,17 @@ import { userDocumentsService } from '../../services/userDocuments';
 import { useNavigate } from 'react-router-dom';
 import farmsService from '../../services/farms';
 import { getProductIcon, getProductImageUrlForStorage } from '../../utils/productIcons';
-import { FIELD_CATEGORY_DATA, fetchFieldCategoryData } from '../../utils/fieldCategoryData';
+import { FIELD_CATEGORY_DATA, fetchFieldCategoryData, getCreateFieldSubcategories } from '../../utils/fieldCategoryData';
+import { resolveEmojiForTitle } from '../../utils/subcategoryEmojis';
+import {
+  getVariantGroup,
+  getSubcategorySelectValue,
+  isValidVariantValue,
+} from '../../utils/productSubcategoryVariants';
 import api from '../../services/api';
 import {
   normalizeTotalProductionUnit,
   perAreaUnitSuffixWithFieldArea,
-  pricePerFieldAreaUnitSuffix,
   pricePerM2FromFieldAreaPrice,
   usdPerProductionUnitSuffix,
   productionUnitLabel,
@@ -701,7 +706,6 @@ const CreateFieldForm = ({
 
   const fieldAreaUnit = normalizeAreaUnit(formData.fieldSizeUnit);
   const productionPerAreaSuffix = perAreaUnitSuffixWithFieldArea(formData.totalProductionUnit, fieldAreaUnit);
-  const pricePerAreaSuffix = pricePerFieldAreaUnitSuffix(fieldAreaUnit);
 
   // Pricing/production math uses the field size number in the unit selected above (sq. ft, m², etc.)
   useEffect(() => {
@@ -991,6 +995,11 @@ const CreateFieldForm = ({
   const availableCategories = Object.keys(categoryData || {});
   const categories = ['Select Category', ...availableCategories];
 
+  const categoryRequestEmojiSuggestion = useMemo(
+    () => resolveEmojiForTitle(categoryRequestTitle),
+    [categoryRequestTitle]
+  );
+
   const openCategoryRequestDialog = () => {
     setCategoryRequestMsg(null);
     setCategoryRequestTitle('');
@@ -1024,6 +1033,7 @@ const CreateFieldForm = ({
         request_type: categoryRequestKind,
         title,
         parent_category: categoryRequestKind === 'subcategory' ? categoryRequestParent : undefined,
+        emoji: categoryRequestEmojiSuggestion?.emoji || undefined,
       });
       setCategoryRequestMsg({
         type: 'success',
@@ -1105,8 +1115,8 @@ const CreateFieldForm = ({
       // If the incoming category doesn't match a main category but is a valid subcategory,
       // we need to set the parent category correctly.
       const categoriesLookup = {
-        'Fruits': ['All Fruits', 'Apple', 'Banana', 'Berries', 'Citrus', 'Grapes', 'Mango', 'Melon', 'Peach', 'Pear', 'Stone Fruit', 'Tropical Fruit', 'Watermelon', 'Green Apple', 'Red Apple', 'Strawberry', 'Tangerine', 'Avocados'],
-        'Vegetables': ['All Vegetables', 'Beans', 'Cabbage', 'Carrot', 'Corn', 'Cucumber', 'Leafy Greens', 'Onion', 'Potato', 'Tomato', 'Root Vegetables', 'Eggplant', 'Lemon', 'Broccoli', 'Capsicum', 'Onions', 'Potatoes', 'Salad Greens'],
+        'Fruits': ['All Fruits', 'Apple', 'Banana', 'Berries', 'Citrus', 'Grapes', 'Mango', 'Melon', 'Peach', 'Pear', 'Stone Fruit', 'Tropical Fruit', 'Watermelon', 'Green Apple', 'Red Apple', 'Yellow Apple', 'Green Grapes', 'Red Grapes', 'Purple Grapes', 'Strawberry', 'Tangerine', 'Avocados'],
+        'Vegetables': ['All Vegetables', 'Beans', 'Cabbage', 'Carrot', 'Corn', 'Cucumber', 'Leafy Greens', 'Onion', 'Potato', 'Tomato', 'Root Vegetables', 'Eggplant', 'Lemon', 'Broccoli', 'Capsicum', 'Green Capsicum', 'Red Capsicum', 'Yellow Capsicum', 'Onions', 'Yellow Onions', 'Red Onions', 'White Onions', 'Potatoes', 'Salad Greens'],
       };
 
       setFormData(prev => {
@@ -1312,11 +1322,17 @@ const CreateFieldForm = ({
     }
   };
 
+  const subcategoryVariantGroup = getVariantGroup(formData.subcategory);
+  const hasConcreteSubcategory =
+    Boolean(formData.subcategory) &&
+    (!subcategoryVariantGroup ||
+      isValidVariantValue(subcategoryVariantGroup.key, formData.subcategory));
+
   /** Preview: Supabase URL from admin, or grey placeholder until you upload that subcategory. */
-  const subcategoryProductImageSrc = formData.subcategory
+  const subcategoryProductImageSrc = hasConcreteSubcategory
     ? getProductIcon(formData.subcategory)
     : '';
-  const subcategoryImageForApi = formData.subcategory
+  const subcategoryImageForApi = hasConcreteSubcategory
     ? getProductImageUrlForStorage(formData.subcategory)
     : '';
 
@@ -1387,7 +1403,15 @@ const CreateFieldForm = ({
 
     if (!formData.productName.trim()) newErrors.productName = 'Product name is required';
     if (!formData.category || formData.category === 'Select Category') newErrors.category = 'Category is required';
-    if (!formData.subcategory || formData.subcategory === 'Select Sub Category') newErrors.subcategory = 'Sub category is required';
+    if (!formData.subcategory || formData.subcategory === 'Select Sub Category') {
+      newErrors.subcategory = 'Sub category is required';
+    } else {
+      const variantGroup = getVariantGroup(formData.subcategory);
+      const selectVal = getSubcategorySelectValue(formData.subcategory);
+      if (variantGroup && (!isValidVariantValue(selectVal, formData.subcategory) || formData.subcategory === selectVal)) {
+        newErrors.subcategory = `Choose a ${variantGroup.prompt.toLowerCase()}`;
+      }
+    }
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (!formData.fieldSize) {
       newErrors.fieldSize = 'Field size is required';
@@ -1960,9 +1984,12 @@ const CreateFieldForm = ({
                   >
                     <InputLabel sx={{ fontWeight: 500 }}>Select Sub Category</InputLabel>
                     <Select
-                      value={formData.subcategory || ''}
+                      value={getSubcategorySelectValue(formData.subcategory) || ''}
                       onChange={(e) => {
-                        handleInputChange('subcategory', e.target.value);
+                        const selected = e.target.value;
+                        const group = getVariantGroup(selected);
+                        // Grouped types need a color/variety pick before a concrete value exists
+                        handleInputChange('subcategory', group ? selected : selected);
                         handleInputChange('selectedIcon', '');
                       }}
                       label="Select Sub Category"
@@ -1972,18 +1999,82 @@ const CreateFieldForm = ({
                       </MenuItem>
                       {formData.category &&
                         formData.category !== 'Select Category' &&
-                        categoryData[formData.category] &&
-                        Array.isArray(categoryData[formData.category]) &&
-                        categoryData[formData.category]
-                          .filter(subcategory => subcategory != null && subcategory.trim() !== '')
-                          .map((subcategory, index) => (
-                            <MenuItem key={subcategory || `subcat-${index}`} value={subcategory}>
-                              {subcategory || 'Unknown Subcategory'}
-                            </MenuItem>
-                          ))
-                      }
+                        getCreateFieldSubcategories(formData.category, categoryData).map((subcategory, index) => (
+                          <MenuItem key={subcategory || `subcat-${index}`} value={subcategory}>
+                            {subcategory || 'Unknown Subcategory'}
+                          </MenuItem>
+                        ))}
                     </Select>
                   </StyledFormControl>
+
+                  {getVariantGroup(formData.subcategory) ? (
+                    <Box className="form-full" sx={{ mt: -0.5, mb: 0.5 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, color: '#64748b', display: 'block', mb: 1 }}
+                      >
+                        {getVariantGroup(formData.subcategory).prompt}
+                      </Typography>
+                      <Stack direction="row" flexWrap="wrap" gap={1}>
+                        {getVariantGroup(formData.subcategory).variants.map((variant) => {
+                          const selected = formData.subcategory === variant.value;
+                          const suggestion = resolveEmojiForTitle(variant.value);
+                          return (
+                            <Button
+                              key={variant.value}
+                              type="button"
+                              size="small"
+                              variant={selected ? 'contained' : 'outlined'}
+                              disabled={lockCommercial}
+                              onClick={() => {
+                                handleInputChange('subcategory', variant.value);
+                                handleInputChange('selectedIcon', '');
+                              }}
+                              sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                borderRadius: 2,
+                                px: 1.25,
+                                py: 0.75,
+                                minWidth: 0,
+                                bgcolor: selected ? variant.swatch : '#fff',
+                                borderColor: variant.swatch,
+                                color: selected ? '#fff' : '#334155',
+                                '&:hover': {
+                                  bgcolor: selected ? variant.swatch : 'rgba(0,0,0,0.04)',
+                                  borderColor: variant.swatch,
+                                },
+                              }}
+                              startIcon={
+                                suggestion?.twemojiUrl ? (
+                                  <Box
+                                    component="img"
+                                    src={suggestion.twemojiUrl}
+                                    alt=""
+                                    sx={{ width: 22, height: 22, objectFit: 'contain' }}
+                                  />
+                                ) : (
+                                  <span>{variant.emoji}</span>
+                                )
+                              }
+                            >
+                              {variant.label}
+                            </Button>
+                          );
+                        })}
+                      </Stack>
+                      {errors.subcategory &&
+                      getVariantGroup(formData.subcategory) &&
+                      !isValidVariantValue(
+                        getSubcategorySelectValue(formData.subcategory),
+                        formData.subcategory
+                      ) ? (
+                        <Typography variant="caption" color="error" sx={{ mt: 0.75, display: 'block' }}>
+                          {errors.subcategory}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  ) : null}
 
                   {!lockCommercial && (
                     <Box className="form-full" sx={{ mt: -0.5, mb: 0.5 }}>
@@ -2013,7 +2104,7 @@ const CreateFieldForm = ({
                       gap: 1.5,
                     }}
                   >
-                    {formData.subcategory ? (
+                    {hasConcreteSubcategory ? (
                       <Box
                         sx={{
                           width: 48,
@@ -2037,7 +2128,9 @@ const CreateFieldForm = ({
                       </Box>
                     ) : (
                       <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
-                        Select a subcategory to preview the product image
+                        {subcategoryVariantGroup
+                          ? `Pick a ${subcategoryVariantGroup.prompt.toLowerCase()} to preview the icon`
+                          : 'Select a subcategory to preview the product image'}
                       </Typography>
                     )}
                   </Box>
@@ -2463,49 +2556,6 @@ const CreateFieldForm = ({
                     disabled={lockCommercial}
                   />
 
-                  <Typography
-                    className="pricing-full"
-                    component="div"
-                    sx={{
-                      color: '#d32f2f',
-                      fontWeight: 700,
-                      fontStyle: 'italic',
-                      fontSize: isMobile ? '0.85rem' : '0.95rem',
-                      lineHeight: 1.2,
-                      m: 0,
-                      mt: 0.5,
-                    }}
-                  >
-                    ✨ Suggested by Sharecrop
-                  </Typography>
-
-                  <StyledTextField
-                    fullWidth
-                    label="Suggested Price on App"
-                    value={formData.suggestedPrice}
-                    isSuggested={true}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      readOnly: true,
-                      endAdornment: (
-                        <InputAdornment position="end">{usdPerProductionUnitSuffix(formData.totalProductionUnit)}</InputAdornment>
-                      ),
-                    }}
-                    isMobile={isMobile}
-                  />
-                  <StyledTextField
-                    fullWidth
-                    label="Sharecrop Platform Fees"
-                    value={formData.appFees || ''}
-                    isSuggested={true}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      readOnly: true,
-                      endAdornment: <InputAdornment position="end">$</InputAdornment>,
-                    }}
-                    isMobile={isMobile}
-                  />
-
                   <StyledTextField
                     className="pricing-full"
                     fullWidth
@@ -2516,9 +2566,16 @@ const CreateFieldForm = ({
                     error={!!errors.sellingPrice}
                     helperText={
                       errors.sellingPrice ||
-                      `equal to: ${formData.userAreaVirtualRentPrice || '0.000'} ${pricePerAreaSuffix}`
+                      `Sharecrop suggested: ${formData.suggestedPrice || '0.00'} ${usdPerProductionUnitSuffix(formData.totalProductionUnit)}`
                     }
-                    FormHelperTextProps={{ sx: { color: '#64748b', fontStyle: 'italic', mt: 0.75 } }}
+                    FormHelperTextProps={{
+                      sx: {
+                        color: errors.sellingPrice ? undefined : '#059669',
+                        fontStyle: 'italic',
+                        fontWeight: errors.sellingPrice ? undefined : 600,
+                        mt: 0.75,
+                      },
+                    }}
                     InputLabelProps={{ shrink: true }}
                     InputProps={{
                       endAdornment: (
@@ -2538,11 +2595,7 @@ const CreateFieldForm = ({
                     value={formData.sellingAmount}
                     onChange={(e) => handleInputChange('sellingAmount', e.target.value)}
                     error={!!errors.sellingAmount}
-                    helperText={
-                      errors.sellingAmount ||
-                      `equal to: ${derivedSellQuantityFromPercent(formData.totalProduction, formData.sellingAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${productionUnitLabel(formData.totalProductionUnit)} (from total harvest)`
-                    }
-                    FormHelperTextProps={{ sx: { color: '#64748b', fontStyle: 'italic', mt: 0.75 } }}
+                    helperText={errors.sellingAmount || ' '}
                     InputLabelProps={{ shrink: true }}
                     InputProps={{
                       endAdornment: <InputAdornment position="end">%</InputAdornment>,
@@ -2552,22 +2605,41 @@ const CreateFieldForm = ({
                     isMobile={isMobile}
                     disabled={lockCommercial}
                   />
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                      minHeight: isMobile ? 'auto' : 56,
-                      pt: isMobile ? 0 : 0.5,
-                    }}
-                  >
-                    <Typography sx={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', lineHeight: 1.3 }}>
-                      potential TOTAL APP income
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32', lineHeight: 1.35, mt: 0.25 }}>
-                      {formData.potentialIncome || '0.00'} $
-                    </Typography>
-                  </Box>
+                  {String(formData.sellingAmount || '').trim() !== '' ? (
+                    <StyledTextField
+                      fullWidth
+                      label="Sharecrop Platform Fees"
+                      value={formData.appFees || '0.00'}
+                      isSuggested={true}
+                      InputLabelProps={{ shrink: true }}
+                      InputProps={{
+                        readOnly: true,
+                        endAdornment: <InputAdornment position="end">$</InputAdornment>,
+                      }}
+                      helperText=" "
+                      isMobile={isMobile}
+                    />
+                  ) : null}
+
+                  {(String(formData.sellingAmount || '').trim() !== '' ||
+                    String(formData.sellingPrice || '').trim() !== '') && (
+                    <Box
+                      className="pricing-full"
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        pt: 0.25,
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#64748b', lineHeight: 1.3 }}>
+                        potential TOTAL APP income
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.95rem', fontWeight: 700, color: '#2e7d32', lineHeight: 1.35, mt: 0.25 }}>
+                        {formData.potentialIncome || '0.00'} $
+                      </Typography>
+                    </Box>
+                  )}
                 </PricingStack>
               </FormSection>
               </Box>
@@ -3139,6 +3211,40 @@ const CreateFieldForm = ({
                   : 'Creates a new top-level category after approval'
               }
             />
+            {categoryRequestEmojiSuggestion?.emoji ? (
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1.25}
+                sx={{
+                  px: 1.25,
+                  py: 1,
+                  borderRadius: 1.5,
+                  bgcolor: 'rgba(5, 150, 105, 0.06)',
+                  border: '1px solid',
+                  borderColor: 'rgba(5, 150, 105, 0.2)',
+                }}
+              >
+                <Box
+                  component="img"
+                  src={categoryRequestEmojiSuggestion.twemojiUrl}
+                  alt=""
+                  sx={{ width: 36, height: 36, objectFit: 'contain' }}
+                />
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                    {categoryRequestEmojiSuggestion.emoji} Suggested icon
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Saved with your request; becomes permanent when an admin approves.
+                  </Typography>
+                </Box>
+              </Stack>
+            ) : categoryRequestTitle.trim().length >= 2 ? (
+              <Typography variant="caption" color="text.secondary">
+                No matching emoji yet — admin can still assign an icon after approval.
+              </Typography>
+            ) : null}
           </Stack>
           {categoryRequestMsg && (
             <Alert severity={categoryRequestMsg.type} sx={{ mt: 2 }}>

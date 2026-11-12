@@ -154,6 +154,7 @@ const AdminCategoryRequests = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Type</TableCell>
+                <TableCell>Icon</TableCell>
                 <TableCell>Request</TableCell>
                 <TableCell>Requested by</TableCell>
                 <TableCell>Status</TableCell>
@@ -165,6 +166,28 @@ const AdminCategoryRequests = () => {
               {requests.map((row) => (
                 <TableRow key={row.id} hover>
                   <TableCell>{typeChip(row)}</TableCell>
+                  <TableCell>
+                    {row.twemoji_url || row.emoji ? (
+                      <Stack direction="row" alignItems="center" spacing={0.75}>
+                        {row.twemoji_url ? (
+                          <Box
+                            component="img"
+                            src={row.twemoji_url}
+                            alt=""
+                            sx={{ width: 28, height: 28, objectFit: 'contain' }}
+                          />
+                        ) : (
+                          <Typography fontSize="1.25rem" lineHeight={1}>
+                            {row.emoji}
+                          </Typography>
+                        )}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {isSubcategory(row) ? (
                       <Box>
@@ -223,12 +246,21 @@ const AdminCategoryRequests = () => {
             {action === 'approve' && isSubcategory(selected) ? (
               <Alert severity="info" sx={{ py: 0.5 }}>
                 Farmers will pick category <strong>{selected?.parent_category}</strong>, then product type{' '}
-                <strong>{selected?.title}</strong>.
+                <strong>{selected?.title}</strong>
+                {selected?.emoji ? (
+                  <>
+                    {' '}
+                    — icon {selected.emoji} will be saved permanently.
+                  </>
+                ) : (
+                  '.'
+                )}
               </Alert>
             ) : null}
             {action === 'approve' && selected && !isSubcategory(selected) ? (
               <Alert severity="info" sx={{ py: 0.5 }}>
-                Creates a new category named <strong>{selected?.title}</strong> with the same product type name.
+                Creates a new category named <strong>{selected?.title}</strong> with the same product type name
+                {selected?.emoji ? <> — icon {selected.emoji} saved permanently</> : null}.
               </Alert>
             ) : null}
           </Stack>

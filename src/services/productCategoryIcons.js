@@ -24,3 +24,18 @@ export async function adminRemoveProductCategoryIcon(categoryKey) {
   });
   return data;
 }
+
+/** Persist Twemoji 72×72 URLs for every product type missing from DB (no overwrite). */
+export async function adminBackfillTwemojiProductIcons() {
+  const { data } = await api.post('/api/admin/product-category-icons/backfill-twemoji');
+  return data;
+}
+
+export async function adminSaveTwemojiProductIcon(categoryKey, emoji, overwrite = false) {
+  const { data } = await api.post('/api/admin/product-category-icons/twemoji', {
+    category_key: categoryKey,
+    emoji: emoji || undefined,
+    overwrite,
+  });
+  return data;
+}

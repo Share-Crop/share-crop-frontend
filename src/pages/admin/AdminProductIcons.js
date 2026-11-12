@@ -32,6 +32,8 @@ import {
   adminListProductCategoryIcons,
   adminUpsertProductCategoryIcon,
   adminRemoveProductCategoryIcon,
+  adminBackfillTwemojiProductIcons,
+  adminSaveTwemojiProductIcon,
   fetchProductIconOverrides,
 } from '../../services/productCategoryIcons';
 import { getProductIcon, PRODUCT_IMAGE_PLACEHOLDER, setProductIconOverrides } from '../../utils/productIcons';
@@ -40,6 +42,8 @@ import {
   collectAllFieldSubcategories,
   fetchFieldCategoryData,
 } from '../../utils/fieldCategoryData';
+import { expandSubcategoriesForIcons } from '../../utils/productSubcategoryVariants';
+import { resolveEmojiForTitle } from '../../utils/subcategoryEmojis';
 import {
   PRODUCT_ICON_PX,
   validateImageFileExactDimensions,
@@ -66,6 +70,8 @@ const AdminProductIcons = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState(STATUS_ALL);
   const [expandedParents, setExpandedParents] = useState(() => new Set(['Fruits', 'Vegetables']));
+  const [backfilling, setBackfilling] = useState(false);
+  const [infoMsg, setInfoMsg] = useState('');
 
   const parentOrder = useMemo(() => Object.keys(categoryData || {}), [categoryData]);
   const knownSubs = useMemo(
@@ -136,8 +142,9 @@ const AdminProductIcons = () => {
     const groups = [];
     for (const parent of parentOrder) {
       if (categoryFilter !== 'all' && parent !== categoryFilter) continue;
-      const subs = categoryData[parent];
-      if (!Array.isArray(subs) || !subs.length) continue;
+      const rawSubs = categoryData[parent];
+      if (!Array.isArray(rawSubs) || !rawSubs.length) continue;
+      const subs = expandSubcategoriesForIcons(rawSubs);
       const filtered = subs.filter(matchesFilters);
       if (!filtered.length) continue;
       groups.push({
@@ -253,6 +260,42 @@ const AdminProductIcons = () => {
     setExpandedParents(new Set(['Fruits', 'Vegetables']));
   };
 
+  const runTwemojiBackfill = async () => {
+    setBackfilling(true);
+    setError('');
+    setInfoMsg('');
+    try {
+      const result = await adminBackfillTwemojiProductIcons();
+      setInfoMsg(
+        `Saved ${result.inserted || 0} Twemoji icons to DB` +
+          (result.skipped ? ` (${result.skipped} already had icons)` : '') +
+          (result.noEmoji ? `; ${result.noEmoji} had no emoji match` : '') +
+          '.'
+      );
+      await load();
+      await refreshPublicOverrides();
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Twemoji backfill failed');
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+  const saveEmojiForSub = async (sub) => {
+    setUploadingKey(sub);
+    setError('');
+    try {
+      const suggestion = resolveEmojiForTitle(sub);
+      await adminSaveTwemojiProductIcon(sub, suggestion?.emoji || null, false);
+      await load();
+      await refreshPublicOverrides();
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || 'Could not save emoji icon');
+    } finally {
+      setUploadingKey(null);
+    }
+  };
+
   const toggleParent = (parent) => {
     setExpandedParents((prev) => {
       const next = new Set(prev);
@@ -344,6 +387,17 @@ const AdminProductIcons = () => {
               Remove
             </Button>
           ) : null}
+          {!hasCustom && resolveEmojiForTitle(sub)?.emoji ? (
+            <Button
+              size="small"
+              color="success"
+              variant="outlined"
+              disabled={busy}
+              onClick={() => saveEmojiForSub(sub)}
+            >
+              Use emoji {resolveEmojiForTitle(sub).emoji}
+            </Button>
+          ) : null}
           <Button size="small" color="primary" variant="text" onClick={() => setExpandedUrlFor((v) => (v === sub ? null : sub))}>
             Paste URL
           </Button>
@@ -396,14 +450,32 @@ const AdminProductIcons = () => {
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Upload {PRODUCT_ICON_PX}×{PRODUCT_ICON_PX} images for each product type (includes approved category
-            requests). Bucket: {BUCKET}
+            Upload custom {PRODUCT_ICON_PX}×{PRODUCT_ICON_PX} images, or fill missing types with Twemoji icons
+            (saved permanently in DB). Bucket: {BUCKET}
           </Typography>
         </Box>
-        <Button startIcon={<Refresh />} onClick={load} disabled={loading} variant="outlined" size="small">
-          Reload
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            startIcon={backfilling ? <CircularProgress size={16} color="inherit" /> : <ImageIcon />}
+            onClick={runTwemojiBackfill}
+            disabled={loading || backfilling}
+            variant="contained"
+            size="small"
+            color="success"
+          >
+            Fill missing with emoji
+          </Button>
+          <Button startIcon={<Refresh />} onClick={load} disabled={loading} variant="outlined" size="small">
+            Reload
+          </Button>
+        </Stack>
       </Stack>
+
+      {infoMsg ? (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfoMsg('')}>
+          {infoMsg}
+        </Alert>
+      ) : null}
 
       <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2 }}>
         <Chip label={`${stats.total} types`} size="small" variant="outlined" />
