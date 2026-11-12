@@ -1115,8 +1115,8 @@ const CreateFieldForm = ({
       // If the incoming category doesn't match a main category but is a valid subcategory,
       // we need to set the parent category correctly.
       const categoriesLookup = {
-        'Fruits': ['All Fruits', 'Apple', 'Banana', 'Berries', 'Citrus', 'Grapes', 'Mango', 'Melon', 'Peach', 'Pear', 'Stone Fruit', 'Tropical Fruit', 'Watermelon', 'Green Apple', 'Red Apple', 'Yellow Apple', 'Green Grapes', 'Red Grapes', 'Purple Grapes', 'Strawberry', 'Tangerine', 'Avocados'],
-        'Vegetables': ['All Vegetables', 'Beans', 'Cabbage', 'Carrot', 'Corn', 'Cucumber', 'Leafy Greens', 'Onion', 'Potato', 'Tomato', 'Root Vegetables', 'Eggplant', 'Lemon', 'Broccoli', 'Capsicum', 'Green Capsicum', 'Red Capsicum', 'Yellow Capsicum', 'Onions', 'Yellow Onions', 'Red Onions', 'White Onions', 'Potatoes', 'Salad Greens'],
+        'Fruits': ['All Fruits', 'Apple', 'Banana', 'Berries', 'Citrus', 'Grapes', 'Mango', 'Melon', 'Peach', 'Pear', 'Stone Fruit', 'Tropical Fruit', 'Watermelon', 'Green Apple', 'Red Apple', 'Green Grapes', 'Red Grapes', 'Purple Grapes', 'Strawberry', 'Tangerine', 'Avocados'],
+        'Vegetables': ['All Vegetables', 'Beans', 'Cabbage', 'Carrot', 'Corn', 'Cucumber', 'Leafy Greens', 'Onion', 'Potato', 'Tomato', 'Root Vegetables', 'Eggplant', 'Lemon', 'Broccoli', 'Capsicum', 'Green Capsicum', 'Red Capsicum', 'Onions', 'Yellow Onions', 'Red Onions', 'Potatoes', 'Salad Greens'],
       };
 
       setFormData(prev => {
@@ -1882,7 +1882,7 @@ const CreateFieldForm = ({
                     </Typography>
                   ) : null}
 
-                  <StyledFormControl error={!!errors.farmId} isMobile={isMobile}>
+                  <StyledFormControl className="form-full" error={!!errors.farmId} isMobile={isMobile}>
                     <InputLabel sx={{ fontWeight: 500 }}>Select Farm</InputLabel>
                     <Select
                       value={formData.farmId ?? ''}
@@ -1956,7 +1956,7 @@ const CreateFieldForm = ({
                   </StyledFormControl>
 
                   <StyledFormControl error={!!errors.category} isMobile={isMobile}>
-                    <InputLabel sx={{ fontWeight: 500 }}>Select Category</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500 }}>Category</InputLabel>
                     <Select
                       value={formData.category ?? ''}
                       onChange={(e) => {
@@ -1964,7 +1964,7 @@ const CreateFieldForm = ({
                         handleInputChange('category', selectedCategory);
                         handleInputChange('subcategory', '');
                       }}
-                      label="Select Category"
+                      label="Category"
                       disabled={lockCommercial}
                     >
                       {categories && Array.isArray(categories) && categories
@@ -1982,20 +1982,30 @@ const CreateFieldForm = ({
                     disabled={lockCommercial || !formData.category || formData.category === 'Select Category'}
                     isMobile={isMobile}
                   >
-                    <InputLabel sx={{ fontWeight: 500 }}>Select Sub Category</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500 }}>Product type</InputLabel>
                     <Select
                       value={getSubcategorySelectValue(formData.subcategory) || ''}
                       onChange={(e) => {
                         const selected = e.target.value;
-                        const group = getVariantGroup(selected);
-                        // Grouped types need a color/variety pick before a concrete value exists
-                        handleInputChange('subcategory', group ? selected : selected);
+                        handleInputChange('subcategory', selected);
                         handleInputChange('selectedIcon', '');
                       }}
-                      label="Select Sub Category"
+                      label="Product type"
+                      startAdornment={
+                        hasConcreteSubcategory ? (
+                          <InputAdornment position="start" sx={{ mr: 0.5 }}>
+                            <Box
+                              component="img"
+                              src={subcategoryProductImageSrc}
+                              alt=""
+                              sx={{ width: 22, height: 22, objectFit: 'contain', display: 'block' }}
+                            />
+                          </InputAdornment>
+                        ) : null
+                      }
                     >
                       <MenuItem value="" disabled>
-                        <Typography sx={{ color: '#9e9e9e', fontSize: '0.875rem' }}>Select Sub Category</Typography>
+                        <Typography sx={{ color: '#9e9e9e', fontSize: '0.875rem' }}>Select product type</Typography>
                       </MenuItem>
                       {formData.category &&
                         formData.category !== 'Select Category' &&
@@ -2007,133 +2017,100 @@ const CreateFieldForm = ({
                     </Select>
                   </StyledFormControl>
 
-                  {getVariantGroup(formData.subcategory) ? (
-                    <Box className="form-full" sx={{ mt: -0.5, mb: 0.5 }}>
-                      <Typography
-                        variant="caption"
-                        sx={{ fontWeight: 700, color: '#64748b', display: 'block', mb: 1 }}
-                      >
-                        {getVariantGroup(formData.subcategory).prompt}
-                      </Typography>
-                      <Stack direction="row" flexWrap="wrap" gap={1}>
-                        {getVariantGroup(formData.subcategory).variants.map((variant) => {
-                          const selected = formData.subcategory === variant.value;
-                          const suggestion = resolveEmojiForTitle(variant.value);
-                          return (
-                            <Button
-                              key={variant.value}
-                              type="button"
-                              size="small"
-                              variant={selected ? 'contained' : 'outlined'}
-                              disabled={lockCommercial}
-                              onClick={() => {
-                                handleInputChange('subcategory', variant.value);
-                                handleInputChange('selectedIcon', '');
-                              }}
-                              sx={{
-                                textTransform: 'none',
-                                fontWeight: 700,
-                                borderRadius: 2,
-                                px: 1.25,
-                                py: 0.75,
-                                minWidth: 0,
-                                bgcolor: selected ? variant.swatch : '#fff',
-                                borderColor: variant.swatch,
-                                color: selected ? '#fff' : '#334155',
-                                '&:hover': {
-                                  bgcolor: selected ? variant.swatch : 'rgba(0,0,0,0.04)',
-                                  borderColor: variant.swatch,
-                                },
-                              }}
-                              startIcon={
-                                suggestion?.twemojiUrl ? (
-                                  <Box
-                                    component="img"
-                                    src={suggestion.twemojiUrl}
-                                    alt=""
-                                    sx={{ width: 22, height: 22, objectFit: 'contain' }}
-                                  />
-                                ) : (
-                                  <span>{variant.emoji}</span>
-                                )
-                              }
-                            >
-                              {variant.label}
-                            </Button>
-                          );
-                        })}
-                      </Stack>
-                      {errors.subcategory &&
-                      getVariantGroup(formData.subcategory) &&
-                      !isValidVariantValue(
-                        getSubcategorySelectValue(formData.subcategory),
-                        formData.subcategory
-                      ) ? (
-                        <Typography variant="caption" color="error" sx={{ mt: 0.75, display: 'block' }}>
-                          {errors.subcategory}
-                        </Typography>
+                  {(subcategoryVariantGroup || !lockCommercial) && (
+                    <Box className="form-full" sx={{ mt: -0.5 }}>
+                      {subcategoryVariantGroup ? (
+                        <>
+                          <Typography
+                            variant="caption"
+                            sx={{ fontWeight: 600, color: '#64748b', display: 'block', mb: 1 }}
+                          >
+                            {subcategoryVariantGroup.prompt}
+                          </Typography>
+                          <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center">
+                            {subcategoryVariantGroup.variants.map((variant) => {
+                              const selected = formData.subcategory === variant.value;
+                              const suggestion = resolveEmojiForTitle(variant.value);
+                              return (
+                                <Button
+                                  key={variant.value}
+                                  type="button"
+                                  size="small"
+                                  disabled={lockCommercial}
+                                  onClick={() => {
+                                    handleInputChange('subcategory', variant.value);
+                                    handleInputChange('selectedIcon', '');
+                                  }}
+                                  sx={{
+                                    textTransform: 'none',
+                                    fontWeight: 600,
+                                    borderRadius: 999,
+                                    px: 1.5,
+                                    py: 0.75,
+                                    minWidth: 0,
+                                    minHeight: 40,
+                                    border: '1px solid',
+                                    borderColor: selected ? variant.swatch : '#e2e8f0',
+                                    bgcolor: selected ? `${variant.swatch}18` : '#fff',
+                                    color: '#0f172a',
+                                    boxShadow: 'none',
+                                    '&:hover': {
+                                      bgcolor: selected ? `${variant.swatch}24` : '#f8fafc',
+                                      borderColor: variant.swatch,
+                                      boxShadow: 'none',
+                                    },
+                                  }}
+                                  startIcon={
+                                    suggestion?.twemojiUrl ? (
+                                      <Box
+                                        component="img"
+                                        src={suggestion.twemojiUrl}
+                                        alt=""
+                                        sx={{ width: 20, height: 20, objectFit: 'contain' }}
+                                      />
+                                    ) : (
+                                      <span>{variant.emoji}</span>
+                                    )
+                                  }
+                                >
+                                  {variant.label}
+                                </Button>
+                              );
+                            })}
+                          </Stack>
+                          {errors.subcategory &&
+                          !isValidVariantValue(
+                            getSubcategorySelectValue(formData.subcategory),
+                            formData.subcategory
+                          ) ? (
+                            <Typography variant="caption" color="error" sx={{ mt: 0.75, display: 'block' }}>
+                              {errors.subcategory}
+                            </Typography>
+                          ) : null}
+                        </>
+                      ) : null}
+
+                      {!lockCommercial ? (
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<Add />}
+                          onClick={openCategoryRequestDialog}
+                          sx={{
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            color: '#047857',
+                            px: 0.5,
+                            ml: -0.5,
+                            mt: subcategoryVariantGroup ? 1 : 0,
+                            '&:hover': { bgcolor: 'rgba(4, 120, 87, 0.06)' },
+                          }}
+                        >
+                          Can&apos;t find it? Request category or product type
+                        </Button>
                       ) : null}
                     </Box>
-                  ) : null}
-
-                  {!lockCommercial && (
-                    <Box className="form-full" sx={{ mt: -0.5, mb: 0.5 }}>
-                      <Button
-                        size="small"
-                        variant="text"
-                        startIcon={<Add />}
-                        onClick={openCategoryRequestDialog}
-                        sx={{
-                          textTransform: 'none',
-                          fontWeight: 600,
-                          color: '#047857',
-                          px: 0.5,
-                          '&:hover': { bgcolor: 'rgba(4, 120, 87, 0.06)' },
-                        }}
-                      >
-                        Can&apos;t find it? Request category or product type
-                      </Button>
-                    </Box>
                   )}
-
-                  <Box
-                    sx={{
-                      minHeight: isMobile ? 48 : 56,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.5,
-                    }}
-                  >
-                    {hasConcreteSubcategory ? (
-                      <Box
-                        sx={{
-                          width: 48,
-                          height: 48,
-                          border: '2px solid #4CAF50',
-                          borderRadius: 1.25,
-                          p: 0.5,
-                          bgcolor: 'rgba(76,175,80,0.08)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <Box
-                          component="img"
-                          src={subcategoryProductImageSrc}
-                          alt={formData.subcategory}
-                          sx={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                        />
-                      </Box>
-                    ) : (
-                      <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
-                        {subcategoryVariantGroup
-                          ? `Pick a ${subcategoryVariantGroup.prompt.toLowerCase()} to preview the icon`
-                          : 'Select a subcategory to preview the product image'}
-                      </Typography>
-                    )}
-                  </Box>
 
                   <StyledTextField
                     className="form-full"

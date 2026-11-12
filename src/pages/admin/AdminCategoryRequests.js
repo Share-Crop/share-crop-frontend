@@ -265,12 +265,17 @@ const AdminCategoryRequests = () => {
             ) : null}
           </Stack>
           <TextField
-            label="Admin notes (optional)"
+            label={action === 'reject' ? 'Reason for rejection (sent to the farmer)' : 'Admin notes (optional)'}
             fullWidth
             multiline
             minRows={2}
             value={adminNotes}
             onChange={(e) => setAdminNotes(e.target.value)}
+            helperText={
+              action === 'reject'
+                ? 'This note is delivered to the requester in their notifications.'
+                : 'Optional internal note'
+            }
           />
         </DialogContent>
         <DialogActions>

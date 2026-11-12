@@ -32,5 +32,7 @@ export const adminService = {
   getCurrencyRates: () => api.get('/api/admin/currency-rates'),
   upsertCurrencyRate: (data) => api.post('/api/admin/currency-rates', data),
   updateCurrencyRate: (currency, data) => api.patch(`/api/admin/currency-rates/${currency}`, data),
+  setCurrencyRateActive: (currency, isActive) =>
+    api.patch(`/api/admin/currency-rates/${currency}/active`, { is_active: isActive }),
   deleteCurrencyRate: (currency) => api.delete(`/api/admin/currency-rates/${currency}`),
 };

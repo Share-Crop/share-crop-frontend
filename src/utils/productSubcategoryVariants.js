@@ -11,7 +11,6 @@ export const PRODUCT_SUBCATEGORY_VARIANTS = {
     variants: [
       { value: 'Green Apple', label: 'Green', emoji: '🍏', swatch: '#7cb342' },
       { value: 'Red Apple', label: 'Red', emoji: '🍎', swatch: '#e53935' },
-      { value: 'Yellow Apple', label: 'Yellow', emoji: '💛', swatch: '#f9a825' },
     ],
   },
   Capsicum: {
@@ -20,7 +19,6 @@ export const PRODUCT_SUBCATEGORY_VARIANTS = {
     variants: [
       { value: 'Green Capsicum', label: 'Green', emoji: '🫑', swatch: '#43a047' },
       { value: 'Red Capsicum', label: 'Red', emoji: '🌶️', swatch: '#e53935' },
-      { value: 'Yellow Capsicum', label: 'Yellow', emoji: '🟡', swatch: '#fbc02d' },
     ],
   },
   Grapes: {
@@ -38,7 +36,6 @@ export const PRODUCT_SUBCATEGORY_VARIANTS = {
     variants: [
       { value: 'Yellow Onions', label: 'Yellow', emoji: '🧅', swatch: '#f9a825' },
       { value: 'Red Onions', label: 'Red', emoji: '🧅', swatch: '#ad1457' },
-      { value: 'White Onions', label: 'White', emoji: '🤍', swatch: '#eeeeee' },
     ],
   },
 };

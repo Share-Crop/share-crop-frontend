@@ -142,12 +142,28 @@ const AdminCurrencyRates = () => {
     }
   };
 
+  const handleToggleActive = async (rate) => {
+    const next = !rate.is_active;
+    try {
+      setError(null);
+      await adminService.setCurrencyRateActive(rate.currency, next);
+      loadRates();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update currency status');
+    }
+  };
+
   const handleDelete = async (rate) => {
-    if (!window.confirm(`Are you sure you want to deactivate currency "${rate.currency}"?`)) {
+    if (
+      !window.confirm(
+        `Permanently delete currency "${rate.currency}"?\n\nThis cannot be undone. Prefer Deactivate if you only want to hide it.`
+      )
+    ) {
       return;
     }
 
     try {
+      setError(null);
       await adminService.deleteCurrencyRate(rate.currency);
       loadRates();
     } catch (err) {
@@ -237,18 +253,31 @@ const AdminCurrencyRates = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={rate.is_active ? 'Active' : 'Inactive'}
-                            color={rate.is_active ? 'success' : 'default'}
-                            size="small"
-                          />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Switch
+                              size="small"
+                              checked={Boolean(rate.is_active)}
+                              onChange={() => handleToggleActive(rate)}
+                              inputProps={{ 'aria-label': `Toggle ${rate.currency} active` }}
+                            />
+                            <Chip
+                              label={rate.is_active ? 'Active' : 'Inactive'}
+                              color={rate.is_active ? 'success' : 'default'}
+                              size="small"
+                            />
+                          </Box>
                         </TableCell>
                         <TableCell>
-                          <Box sx={{ display: 'flex', gap: 1 }}>
-                            <IconButton size="small" onClick={() => handleOpenDialog(rate)}>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            <IconButton size="small" onClick={() => handleOpenDialog(rate)} aria-label="Edit">
                               <Edit fontSize="small" />
                             </IconButton>
-                            <IconButton size="small" onClick={() => handleDelete(rate)}>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDelete(rate)}
+                              aria-label="Delete permanently"
+                            >
                               <Delete fontSize="small" />
                             </IconButton>
                           </Box>
