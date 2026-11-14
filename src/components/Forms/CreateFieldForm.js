@@ -1408,7 +1408,10 @@ const CreateFieldForm = ({
     } else {
       const variantGroup = getVariantGroup(formData.subcategory);
       const selectVal = getSubcategorySelectValue(formData.subcategory);
-      if (variantGroup && (!isValidVariantValue(selectVal, formData.subcategory) || formData.subcategory === selectVal)) {
+      if (
+        variantGroup &&
+        (!isValidVariantValue(selectVal, formData.subcategory) || formData.subcategory === selectVal)
+      ) {
         newErrors.subcategory = `Choose a ${variantGroup.prompt.toLowerCase()}`;
       }
     }
@@ -2598,8 +2601,8 @@ const CreateFieldForm = ({
                     />
                   ) : null}
 
-                  {(String(formData.sellingAmount || '').trim() !== '' ||
-                    String(formData.sellingPrice || '').trim() !== '') && (
+                  {((String(formData.sellingAmount || '').trim() !== '') ||
+                    (String(formData.sellingPrice || '').trim() !== '')) && (
                     <Box
                       className="pricing-full"
                       sx={{
